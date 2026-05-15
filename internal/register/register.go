@@ -117,8 +117,29 @@ func detectDockerVersion(socketPath string) string {
 	return v.Version
 }
 
+type registerPayload struct {
+	Hostname      string `json:"hostname"`
+	IP            string `json:"ip"`
+	Port          string `json:"port"`
+	DockerVersion string `json:"docker_version"`
+	OS            string `json:"os"`
+	Arch          string `json:"arch"`
+	AgentVersion  string `json:"agent_version"`
+	EnrollToken   string `json:"enroll_token,omitempty"`
+}
+
 func Register(serverURL, enrollToken string, info AgentInfo) (*State, error) {
-	body, err := json.Marshal(info)
+	payload := registerPayload{
+		Hostname:      info.Hostname,
+		IP:            info.IP,
+		Port:          info.Port,
+		DockerVersion: info.DockerVersion,
+		OS:            info.OS,
+		Arch:          info.Arch,
+		AgentVersion:  info.AgentVersion,
+		EnrollToken:   enrollToken,
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +166,7 @@ func Register(serverURL, enrollToken string, info AgentInfo) (*State, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, fmt.Errorf("register failed: %d %s", resp.StatusCode, string(raw))
 	}

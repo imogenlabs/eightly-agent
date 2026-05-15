@@ -54,12 +54,13 @@ func main() {
 		info := register.DetectInfo(cfg.SocketPath, cfg.Port, cfg.Version)
 		state, err = register.Register(cfg.ServerURL, cfg.EnrollToken, info)
 		if err != nil {
-			log.Fatal().Err(err).Msg("registration failed")
+			log.Warn().Err(err).Msg("registration failed, will retry via heartbeat")
+		} else {
+			if err := state.Save(cfg.StatePath); err != nil {
+				log.Error().Err(err).Msg("failed to save registration state")
+			}
+			log.Info().Msg("registered with server")
 		}
-		if err := state.Save(cfg.StatePath); err != nil {
-			log.Fatal().Err(err).Msg("failed to save registration state")
-		}
-		log.Info().Msg("registered with server")
 	}
 	if state != nil && cfg.ServerURL != "" {
 		go register.StartHeartbeat(ctx, state, cfg.StatePath, cfg.Version, log.Logger)
