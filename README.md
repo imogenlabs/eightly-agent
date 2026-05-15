@@ -77,7 +77,7 @@ Eight.ly Agent (:9001)
 Docker Daemon (/var/run/docker.sock)
 ```
 
-952 lines of Go. Zero external dependencies beyond gorilla/websocket and zerolog. No Portainer code.
+~975 lines of Go. Zero external dependencies beyond gorilla/websocket and zerolog. No Portainer code.
 
 ## License
 
