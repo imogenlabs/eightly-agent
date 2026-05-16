@@ -237,6 +237,7 @@ func StartHeartbeat(ctx context.Context, state *State, statePath, version string
 
 		failures = 0
 		interval = 30 * time.Second
+		log.Debug().Str("agent_id", state.AgentID).Msg("heartbeat ok")
 	}
 }
 
