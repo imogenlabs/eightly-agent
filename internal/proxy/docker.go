@@ -24,10 +24,27 @@ func NewDockerProxy(socketPath string) http.Handler {
 			req.URL.Scheme = "http"
 			req.URL.Host = "docker"
 			req.URL.Path = versionPrefix.ReplaceAllString(req.URL.Path, "")
+			req.URL.Path = rewriteDockerPath(req.URL.Path)
 		},
 		Transport:     transport,
 		FlushInterval: 100 * time.Millisecond,
 	}
 
 	return proxy
+}
+
+var dockerListEndpoints = map[string]string{
+	"/containers": "/containers/json",
+	"/images":     "/images/json",
+	"/volumes":    "/volumes",
+	"/networks":   "/networks",
+}
+
+func rewriteDockerPath(path string) string {
+	for short, full := range dockerListEndpoints {
+		if path == short {
+			return full
+		}
+	}
+	return path
 }

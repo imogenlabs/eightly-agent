@@ -1,4 +1,4 @@
-module github.com/smashingtags/eightly-agent-v2
+module github.com/smashingtags/eightly-agent
 
 go 1.23
 

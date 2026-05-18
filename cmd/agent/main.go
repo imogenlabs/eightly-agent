@@ -13,14 +13,14 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/smashingtags/eightly-agent-v2/internal/auth"
-	"github.com/smashingtags/eightly-agent-v2/internal/browse"
-	"github.com/smashingtags/eightly-agent-v2/internal/config"
-	"github.com/smashingtags/eightly-agent-v2/internal/hostinfo"
-	"github.com/smashingtags/eightly-agent-v2/internal/proxy"
-	"github.com/smashingtags/eightly-agent-v2/internal/register"
-	"github.com/smashingtags/eightly-agent-v2/internal/tlsutil"
-	"github.com/smashingtags/eightly-agent-v2/internal/websocket"
+	"github.com/smashingtags/eightly-agent/internal/auth"
+	"github.com/smashingtags/eightly-agent/internal/browse"
+	"github.com/smashingtags/eightly-agent/internal/config"
+	"github.com/smashingtags/eightly-agent/internal/hostinfo"
+	"github.com/smashingtags/eightly-agent/internal/proxy"
+	"github.com/smashingtags/eightly-agent/internal/register"
+	"github.com/smashingtags/eightly-agent/internal/tlsutil"
+	"github.com/smashingtags/eightly-agent/internal/websocket"
 )
 
 var version = "dev"
