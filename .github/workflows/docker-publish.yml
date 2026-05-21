@@ -92,6 +92,7 @@ jobs:
           done
 
       - name: Attest GHCR image provenance
+        continue-on-error: true
         uses: actions/attest-build-provenance@v1
         with:
           subject-name: ghcr.io/smashingtags/eightly-agent
@@ -99,6 +100,7 @@ jobs:
           push-to-registry: true
 
       - name: Attest Docker Hub image provenance
+        continue-on-error: true
         uses: actions/attest-build-provenance@v1
         with:
           subject-name: index.docker.io/smashingtags/eightly-agent

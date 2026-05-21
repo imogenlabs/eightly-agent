@@ -193,12 +193,14 @@ jobs:
           output-file: release/sbom.spdx.json
 
       - name: Attest SBOM
+        continue-on-error: true
         uses: actions/attest-sbom@v1
         with:
           subject-path: 'release/eightly-agent-*'
           sbom-path: release/sbom.spdx.json
 
       - name: Generate build provenance
+        continue-on-error: true
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: 'release/eightly-agent-*'
