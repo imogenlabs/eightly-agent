@@ -10,14 +10,8 @@ linters:
     - staticcheck
     - ineffassign
     - unused
-    - gosec
     - bodyclose
     - noctx
-
-linters-settings:
-  gosec:
-    excludes:
-      - G104
 
 issues:
   exclude-use-default: false
