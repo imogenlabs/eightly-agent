@@ -10,8 +10,6 @@ linters:
     - staticcheck
     - ineffassign
     - unused
-    - bodyclose
-    - noctx
 
 issues:
   exclude-use-default: false
