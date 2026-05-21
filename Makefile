@@ -1,4 +1,4 @@
-VERSION ?= 1.0.0-beta1
+VERSION ?= 1.0.0-rc1
 BINARY = eightly-agent
 LDFLAGS = -ldflags "-s -w -X main.version=$(VERSION)"
 GHCR_IMAGE = ghcr.io/smashingtags/eightly-agent
