@@ -79,7 +79,15 @@ docker run -d \
 
 ### Docker Compose
 
-For deploying alongside other containers on the host:
+A `docker-compose.yml` and `.env.example` are included in the repo for quick setup:
+
+```bash
+cp .env.example .env
+# Edit .env with your shared secret and EOS server URL
+docker compose up -d
+```
+
+The compose file contents for reference:
 
 ```yaml
 services:

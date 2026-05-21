@@ -74,6 +74,16 @@ docker run -d \
 
 > Also on Docker Hub: `docker pull smashingtags/eightly-agent:latest`
 
+### Docker Compose
+
+```bash
+cp .env.example .env
+# Edit .env with your shared secret and EOS server URL
+docker compose up -d
+```
+
+A `docker-compose.yml` and `.env.example` are included in the repo.
+
 ### Homebrew (macOS / Linux)
 
 ```bash
