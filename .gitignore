@@ -4,3 +4,4 @@ release/
 /eightly-agent
 /eightly-agent.exe
 CLAUDE.md
+.env

@@ -1,0 +1,23 @@
+services:
+  eightly-agent:
+    image: ghcr.io/smashingtags/eightly-agent:latest
+    container_name: eightly-agent
+    restart: unless-stopped
+    ports:
+      - "9001:9001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - agent-data:/data
+    environment:
+      - EIGHTLY_AGENT_SECRET=${EIGHTLY_AGENT_SECRET}
+      - EIGHTLY_SERVER_URL=${EIGHTLY_SERVER_URL:-}
+      - EIGHTLY_ENROLL_TOKEN=${EIGHTLY_ENROLL_TOKEN:-}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "--no-check-certificate", "https://localhost:9001/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  agent-data:
