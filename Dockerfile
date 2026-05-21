@@ -10,10 +10,14 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w -X main.version=${VERSION}" -o /eightly-agent ./cmd/agent
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata && \
+    addgroup -g 999 docker && \
+    adduser -S -u 1000 -G docker eightly-agent && \
+    mkdir -p /data && chown eightly-agent:docker /data
 COPY --from=builder /eightly-agent /app/eightly-agent
 VOLUME /data
 EXPOSE 9001
+USER eightly-agent
 HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
   CMD wget -q --spider https://localhost:9001/ping --no-check-certificate || exit 1
 ENTRYPOINT ["/app/eightly-agent"]

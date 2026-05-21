@@ -6,16 +6,20 @@ import (
 )
 
 type Config struct {
-	Addr        string
-	Port        string
-	Secret      string
-	ServerURL   string
-	EnrollToken string
-	StatePath   string
-	DataPath    string
-	LogLevel    string
-	SocketPath  string
-	Version     string
+	Addr              string
+	Port              string
+	Secret            string
+	ServerURL         string
+	EnrollToken       string
+	StatePath         string
+	DataPath          string
+	LogLevel          string
+	SocketPath        string
+	Version           string
+	ServerCA          string
+	InsecureNoAuth    bool
+	InsecureServerTLS bool
+	ShowVersion       bool
 }
 
 func Parse(version string) *Config {
@@ -27,9 +31,13 @@ func Parse(version string) *Config {
 	flag.StringVar(&c.ServerURL, "server-url", "", "EOS server URL for registration")
 	flag.StringVar(&c.EnrollToken, "enroll-token", "", "first-time registration token")
 	flag.StringVar(&c.StatePath, "state-path", DefaultStatePath, "agent state file")
-	flag.StringVar(&c.DataPath, "data-path", DefaultDataPath, "data directory")
+	flag.StringVar(&c.DataPath, "data", DefaultDataPath, "data directory")
 	flag.StringVar(&c.LogLevel, "log-level", "info", "log level")
-	flag.StringVar(&c.SocketPath, "socket-path", DefaultSocketPath, "Docker socket path")
+	flag.StringVar(&c.SocketPath, "socket", DefaultSocketPath, "Docker socket path")
+	flag.StringVar(&c.ServerCA, "server-ca", "", "path to CA cert file for validating EOS server TLS")
+	flag.BoolVar(&c.InsecureNoAuth, "insecure-no-auth", false, "disable authentication (NOT recommended for production)")
+	flag.BoolVar(&c.InsecureServerTLS, "insecure-server-tls", false, "skip TLS verification for EOS server connections")
+	flag.BoolVar(&c.ShowVersion, "version", false, "print version and exit")
 	flag.Parse()
 
 	envOverride(&c.Port, "AGENT_PORT")
@@ -40,6 +48,13 @@ func Parse(version string) *Config {
 	envOverride(&c.DataPath, "DATA_PATH")
 	envOverride(&c.LogLevel, "LOG_LEVEL")
 	envOverride(&c.SocketPath, "DOCKER_SOCKET")
+	envOverride(&c.ServerCA, "EIGHTLY_SERVER_CA")
+	if os.Getenv("EIGHTLY_INSECURE_NO_AUTH") == "true" || os.Getenv("EIGHTLY_INSECURE_NO_AUTH") == "1" {
+		c.InsecureNoAuth = true
+	}
+	if os.Getenv("EIGHTLY_INSECURE_SERVER_TLS") == "true" || os.Getenv("EIGHTLY_INSECURE_SERVER_TLS") == "1" {
+		c.InsecureServerTLS = true
+	}
 
 	return c
 }

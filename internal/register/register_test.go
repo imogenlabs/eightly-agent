@@ -50,7 +50,7 @@ func TestRegister_SendsCorrectPayload(t *testing.T) {
 		AgentVersion:  "1.0.0",
 	}
 
-	_, err := Register(srv.URL, "my-enroll-token", info)
+	_, err := Register(srv.URL, "my-enroll-token", info, nil)
 	if err != nil {
 		t.Fatalf("Register failed: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestRegister_IncludesEnrollToken(t *testing.T) {
 	defer srv.Close()
 
 	info := AgentInfo{Hostname: "h", AgentVersion: "1.0.0"}
-	_, err := Register(srv.URL, "secret-enroll-123", info)
+	_, err := Register(srv.URL, "secret-enroll-123", info, nil)
 	if err != nil {
 		t.Fatalf("Register failed: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestRegister_SuccessReturnsValidState(t *testing.T) {
 	defer srv.Close()
 
 	info := AgentInfo{Hostname: "h"}
-	state, err := Register(srv.URL, "", info)
+	state, err := Register(srv.URL, "", info, nil)
 	if err != nil {
 		t.Fatalf("Register failed: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestRegister_ServerErrorReturnsError(t *testing.T) {
 	defer srv.Close()
 
 	info := AgentInfo{Hostname: "h"}
-	state, err := Register(srv.URL, "", info)
+	state, err := Register(srv.URL, "", info, nil)
 	if err == nil {
 		t.Fatal("expected error for 500 response")
 	}
@@ -172,7 +172,7 @@ func TestRegister_200WithSuccessFalse(t *testing.T) {
 	defer srv.Close()
 
 	info := AgentInfo{Hostname: "h"}
-	_, err := Register(srv.URL, "", info)
+	_, err := Register(srv.URL, "", info, nil)
 	if err == nil {
 		t.Fatal("expected error when success=false")
 	}

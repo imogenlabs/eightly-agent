@@ -5,9 +5,16 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"regexp"
 
 	"github.com/gorilla/websocket"
 )
+
+var dockerIDRe = regexp.MustCompile(`^[a-zA-Z0-9]{12,64}$`)
+
+func validDockerID(id string) bool {
+	return dockerIDRe.MatchString(id)
+}
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
@@ -18,6 +25,10 @@ func AttachHandler(socketPath string) http.HandlerFunc {
 		containerID := r.URL.Query().Get("id")
 		if containerID == "" {
 			http.Error(w, "missing id param", http.StatusBadRequest)
+			return
+		}
+		if !validDockerID(containerID) {
+			http.Error(w, "invalid container id", http.StatusBadRequest)
 			return
 		}
 
@@ -55,6 +66,10 @@ func ExecHandler(socketPath string) http.HandlerFunc {
 		execID := r.URL.Query().Get("id")
 		if execID == "" {
 			http.Error(w, "missing id param", http.StatusBadRequest)
+			return
+		}
+		if !validDockerID(execID) {
+			http.Error(w, "invalid exec id", http.StatusBadRequest)
 			return
 		}
 
@@ -121,5 +136,7 @@ func bridge(ws *websocket.Conn, docker net.Conn) {
 	}()
 
 	<-done
+	ws.Close()
+	docker.Close()
 }
 

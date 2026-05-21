@@ -32,14 +32,16 @@ func main() {
 
 	cfg := config.Parse(version)
 
-	// Handle --version flag
-	if cfg.Version == version {
-		for _, arg := range os.Args[1:] {
-			if arg == "--version" || arg == "-version" {
-				fmt.Println(version)
-				return
-			}
-		}
+	if cfg.ShowVersion {
+		fmt.Println(version)
+		return
+	}
+
+	if cfg.Secret == "" && !cfg.InsecureNoAuth {
+		log.Fatal().Msg("EIGHTLY_AGENT_SECRET is required. Use --insecure-no-auth to explicitly disable authentication (NOT recommended for production).")
+	}
+	if cfg.InsecureNoAuth && cfg.Secret == "" {
+		log.Warn().Str("port", cfg.Port).Msg("Authentication is DISABLED. The Docker socket is accessible to anyone who can reach this port.")
 	}
 
 	level, err := zerolog.ParseLevel(cfg.LogLevel)

@@ -5,12 +5,20 @@ Requires=docker.service
 
 [Service]
 Type=simple
+User=eightly-agent
+SupplementaryGroups=docker
 ExecStart=/usr/bin/eightly-agent
 Restart=always
 RestartSec=5
 Environment=AGENT_PORT=9001
 Environment=LOG_LEVEL=info
 Environment=DATA_PATH=/var/lib/eightly-agent
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/eightly-agent
 
 [Install]
 WantedBy=multi-user.target

@@ -1,10 +1,10 @@
 package register
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -117,6 +117,30 @@ func detectDockerVersion(socketPath string) string {
 	return v.Version
 }
 
+// BuildServerTLSConfig creates a *tls.Config for connections to the EOS server.
+// If caPath is set, the CA cert is loaded into a custom RootCAs pool.
+// If insecure is true, InsecureSkipVerify is used.
+// If neither is set, InsecureSkipVerify defaults to true for backwards
+// compatibility, and a warning is logged.
+func BuildServerTLSConfig(caPath string, insecure bool, log zerolog.Logger) (*tls.Config, error) {
+	if caPath != "" {
+		caCert, err := os.ReadFile(caPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read server CA cert %q: %w", caPath, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("server CA cert %q contains no valid PEM certificates", caPath)
+		}
+		return &tls.Config{RootCAs: pool}, nil
+	}
+	if insecure {
+		return &tls.Config{InsecureSkipVerify: true}, nil
+	}
+	log.Warn().Msg("no --server-ca or --insecure-server-tls set; defaulting to InsecureSkipVerify=true (set --server-ca for production)")
+	return &tls.Config{InsecureSkipVerify: true}, nil
+}
+
 type registerPayload struct {
 	Hostname      string `json:"hostname"`
 	IP            string `json:"ip"`
@@ -128,7 +152,7 @@ type registerPayload struct {
 	EnrollToken   string `json:"enroll_token,omitempty"`
 }
 
-func Register(serverURL, enrollToken string, info AgentInfo) (*State, error) {
+func Register(serverURL, enrollToken string, info AgentInfo, tlsCfg *tls.Config) (*State, error) {
 	payload := registerPayload{
 		Hostname:      info.Hostname,
 		IP:            info.IP,
@@ -147,7 +171,7 @@ func Register(serverURL, enrollToken string, info AgentInfo) (*State, error) {
 	client := &http.Client{
 		Timeout: 15 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: tlsCfg,
 		},
 	}
 
@@ -178,7 +202,7 @@ func Register(serverURL, enrollToken string, info AgentInfo) (*State, error) {
 			Token   string `json:"token"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(bufio.NewReader(resp.Body)).Decode(&result); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("register: bad response: %w", err)
 	}
 	if !result.Success {
@@ -193,7 +217,7 @@ func Register(serverURL, enrollToken string, info AgentInfo) (*State, error) {
 	}, nil
 }
 
-func StartHeartbeat(ctx context.Context, state *State, statePath, version string, log zerolog.Logger) {
+func StartHeartbeat(ctx context.Context, state *State, statePath, socketPath, version string, tlsCfg *tls.Config, log zerolog.Logger) {
 	interval := 30 * time.Second
 	maxInterval := 300 * time.Second
 	failures := 0
@@ -206,7 +230,7 @@ func StartHeartbeat(ctx context.Context, state *State, statePath, version string
 		case <-time.After(interval):
 		}
 
-		err := sendHeartbeat(state)
+		err := sendHeartbeat(state, tlsCfg)
 		if err != nil {
 			failures++
 			log.Warn().Err(err).Int("failures", failures).Msg("heartbeat failed")
@@ -218,8 +242,8 @@ func StartHeartbeat(ctx context.Context, state *State, statePath, version string
 
 			if failures >= 3 {
 				log.Warn().Msg("re-registering after repeated heartbeat failures")
-				info := DetectInfo("", "", version)
-				newState, regErr := Register(state.ServerURL, "", info)
+				info := DetectInfo(socketPath, "", version)
+				newState, regErr := Register(state.ServerURL, "", info, tlsCfg)
 				if regErr != nil {
 					log.Error().Err(regErr).Msg("re-registration failed")
 					continue
@@ -241,11 +265,11 @@ func StartHeartbeat(ctx context.Context, state *State, statePath, version string
 	}
 }
 
-func sendHeartbeat(state *State) error {
+func sendHeartbeat(state *State, tlsCfg *tls.Config) error {
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: tlsCfg,
 		},
 	}
 	url := fmt.Sprintf("%s/api/agents/%s/heartbeat", state.ServerURL, state.AgentID)

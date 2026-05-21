@@ -26,11 +26,18 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		Str("socket", cfg.SocketPath).
 		Msg("eightly-agent starting")
 
-	state, _ := register.LoadState(cfg.StatePath)
+	serverTLS, err := register.BuildServerTLSConfig(cfg.ServerCA, cfg.InsecureServerTLS, log.Logger)
+	if err != nil {
+		return fmt.Errorf("failed to build server TLS config: %w", err)
+	}
+
+	state, err := register.LoadState(cfg.StatePath)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to load registration state")
+	}
 	if state == nil && cfg.ServerURL != "" {
 		info := register.DetectInfo(cfg.SocketPath, cfg.Port, cfg.Version)
-		var err error
-		state, err = register.Register(cfg.ServerURL, cfg.EnrollToken, info)
+		state, err = register.Register(cfg.ServerURL, cfg.EnrollToken, info, serverTLS)
 		if err != nil {
 			log.Warn().Err(err).Msg("registration failed, will retry via heartbeat")
 		} else {
@@ -41,7 +48,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 	if state != nil && cfg.ServerURL != "" {
-		go register.StartHeartbeat(ctx, state, cfg.StatePath, cfg.Version, log.Logger)
+		go register.StartHeartbeat(ctx, state, cfg.StatePath, cfg.SocketPath, cfg.Version, serverTLS, log.Logger)
 	}
 
 	certPath, keyPath, err := tlsutil.EnsureCert(cfg.DataPath)

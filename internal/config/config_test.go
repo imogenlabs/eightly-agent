@@ -133,6 +133,34 @@ func TestVersionPassthrough(t *testing.T) {
 	}
 }
 
+func TestInsecureNoAuthEnvVar(t *testing.T) {
+	c := &Config{}
+
+	os.Setenv("EIGHTLY_INSECURE_NO_AUTH", "true")
+	defer os.Unsetenv("EIGHTLY_INSECURE_NO_AUTH")
+
+	if os.Getenv("EIGHTLY_INSECURE_NO_AUTH") == "true" || os.Getenv("EIGHTLY_INSECURE_NO_AUTH") == "1" {
+		c.InsecureNoAuth = true
+	}
+
+	if !c.InsecureNoAuth {
+		t.Fatal("expected InsecureNoAuth to be true when EIGHTLY_INSECURE_NO_AUTH=true")
+	}
+}
+
+func TestInsecureNoAuthDefaultFalse(t *testing.T) {
+	c := &Config{}
+	os.Unsetenv("EIGHTLY_INSECURE_NO_AUTH")
+
+	if os.Getenv("EIGHTLY_INSECURE_NO_AUTH") == "true" || os.Getenv("EIGHTLY_INSECURE_NO_AUTH") == "1" {
+		c.InsecureNoAuth = true
+	}
+
+	if c.InsecureNoAuth {
+		t.Fatal("expected InsecureNoAuth to be false by default")
+	}
+}
+
 func TestPartialEnvOverride(t *testing.T) {
 	c := &Config{
 		Port:       "9001",

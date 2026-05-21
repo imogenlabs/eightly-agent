@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type Claims struct {
@@ -14,6 +15,7 @@ type Claims struct {
 	Iss  string `json:"iss"`
 	Type string `json:"type"`
 	Iat  int64  `json:"iat"`
+	Exp  int64  `json:"exp,omitempty"`
 }
 
 func Middleware(secret string) func(http.Handler) http.Handler {
@@ -49,6 +51,11 @@ func Middleware(secret string) func(http.Handler) http.Handler {
 			}
 			var claims Claims
 			if err := json.Unmarshal(payload, &claims); err != nil || claims.Iss != "eightly-server" {
+				unauthorized(w)
+				return
+			}
+
+			if claims.Exp > 0 && time.Now().Unix() > claims.Exp {
 				unauthorized(w)
 				return
 			}

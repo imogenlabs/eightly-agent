@@ -295,3 +295,113 @@ func TestRenameTraversalSlash(t *testing.T) {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
 	}
 }
+
+func TestVolumeIDAbsolutePath(t *testing.T) {
+	dataPath := t.TempDir()
+	srv := httptest.NewServer(Handler(dataPath))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=/etc&path=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for absolute path volumeID, got %d", resp.StatusCode)
+	}
+}
+
+func TestVolumeIDWithPathSeparator(t *testing.T) {
+	dataPath := t.TempDir()
+	srv := httptest.NewServer(Handler(dataPath))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=foo/bar&path=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for volumeID with separator, got %d", resp.StatusCode)
+	}
+}
+
+func TestVolumeIDStartingWithDot(t *testing.T) {
+	dataPath := t.TempDir()
+	srv := httptest.NewServer(Handler(dataPath))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=.hidden&path=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for dot-prefixed volumeID, got %d", resp.StatusCode)
+	}
+}
+
+func TestSymlinkEscapeRejected(t *testing.T) {
+	dataPath, volID := setupVolume(t)
+	dataDir := filepath.Join(dataPath, "volumes", volID, "_data")
+
+	// Create a directory outside the volume data path
+	outsideDir := filepath.Join(dataPath, "outside")
+	os.MkdirAll(outsideDir, 0755)
+	os.WriteFile(filepath.Join(outsideDir, "secret.txt"), []byte("sensitive"), 0644)
+
+	// Create a symlink inside the volume data dir that points outside
+	symlink := filepath.Join(dataDir, "escape")
+	if err := os.Symlink(outsideDir, symlink); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+
+	srv := httptest.NewServer(Handler(dataPath))
+	defer srv.Close()
+
+	// Try to read through the symlink
+	resp, err := http.Get(srv.URL + "/browse/get?volumeID=" + volID + "&path=escape/secret.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("symlink escape should be rejected, but got 200 with body: %q", string(body))
+	}
+}
+
+func TestPutRejectsDirectoryTarget(t *testing.T) {
+	dataPath, volID := setupVolume(t)
+	dataDir := filepath.Join(dataPath, "volumes", volID, "_data")
+	os.MkdirAll(filepath.Join(dataDir, "subdir"), 0755)
+
+	srv := httptest.NewServer(Handler(dataPath))
+	defer srv.Close()
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", "upload.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	part.Write([]byte("data"))
+	writer.Close()
+
+	req, _ := http.NewRequest("POST", srv.URL+"/browse/put?volumeID="+volID+"&path=subdir", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for directory target, got %d", resp.StatusCode)
+	}
+}

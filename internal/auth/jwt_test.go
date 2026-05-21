@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func makeToken(claims Claims, secret string) string {
@@ -202,5 +203,51 @@ func TestCorruptedSignatureBase64(t *testing.T) {
 
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for corrupted sig base64, got %d", rr.Code)
+	}
+}
+
+func TestExpiredToken(t *testing.T) {
+	secret := "test-secret"
+	expired := Claims{
+		Sub:  "admin",
+		Iss:  "eightly-server",
+		Type: "api",
+		Iat:  1700000000,
+		Exp:  time.Now().Unix() - 3600, // expired 1 hour ago
+	}
+	token := makeToken(expired, secret)
+
+	mw := Middleware(secret)(okHandler)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	rr := httptest.NewRecorder()
+	mw.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for expired token, got %d", rr.Code)
+	}
+}
+
+func TestTokenWithoutExpStillWorks(t *testing.T) {
+	secret := "test-secret"
+	noExp := Claims{
+		Sub:  "admin",
+		Iss:  "eightly-server",
+		Type: "api",
+		Iat:  1700000000,
+		// Exp is zero (omitted) — backwards compatible
+	}
+	token := makeToken(noExp, secret)
+
+	mw := Middleware(secret)(okHandler)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	rr := httptest.NewRecorder()
+	mw.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for token without exp, got %d", rr.Code)
 	}
 }

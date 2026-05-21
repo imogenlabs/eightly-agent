@@ -48,7 +48,7 @@ func EnsureCert(dir string) (certPath, keyPath string, err error) {
 		return "", "", err
 	}
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", "", err
 	}
 

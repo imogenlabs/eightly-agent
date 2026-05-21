@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
+
+var validIdentifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 type fileEntry struct {
 	Name    string    `json:"name"`
@@ -55,10 +58,19 @@ func Handler(dataPath string) http.Handler {
 	})
 
 	mux.HandleFunc("POST /browse/put", func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 100*1024*1024) // 100 MB limit
+
 		full, ok := resolvePath(w, dataPath, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
 		if !ok {
 			return
 		}
+
+		// Reject if target is an existing directory
+		if info, err := os.Stat(full); err == nil && info.IsDir() {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "target is a directory"})
+			return
+		}
+
 		file, _, err := r.FormFile("file")
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing file field"})
@@ -78,8 +90,7 @@ func Handler(dataPath string) http.Handler {
 		}
 		defer dst.Close()
 
-		buf := make([]byte, 32*1024*1024)
-		if _, err := io.CopyBuffer(dst, file, buf); err != nil {
+		if _, err := io.Copy(dst, file); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -108,15 +119,16 @@ func Handler(dataPath string) http.Handler {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad json body"})
 			return
 		}
+		if !validIdentifier.MatchString(body.NewName) || strings.Contains(body.NewName, "..") || strings.Contains(body.NewName, "/") {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid new name"})
+			return
+		}
+
 		full, ok := resolvePath(w, dataPath, volumeID, body.Path)
 		if !ok {
 			return
 		}
 		dest := filepath.Join(filepath.Dir(full), body.NewName)
-		if strings.Contains(body.NewName, "..") || strings.Contains(body.NewName, "/") {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid new name"})
-			return
-		}
 		if err := os.Rename(full, dest); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -128,11 +140,33 @@ func Handler(dataPath string) http.Handler {
 }
 
 func resolvePath(w http.ResponseWriter, dataPath, volumeID, userPath string) (string, bool) {
-	if strings.Contains(volumeID, "..") || strings.Contains(userPath, "..") {
+	if !validIdentifier.MatchString(volumeID) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid volume ID"})
+		return "", false
+	}
+
+	base := filepath.Join(dataPath, "volumes", volumeID, "_data")
+	full := filepath.Clean(filepath.Join(base, userPath))
+
+	rel, err := filepath.Rel(base, full)
+	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path traversal rejected"})
 		return "", false
 	}
-	full := filepath.Join(dataPath, "volumes", volumeID, "_data", userPath)
+
+	// Resolve symlinks and re-check containment
+	if resolved, err := filepath.EvalSymlinks(full); err == nil {
+		cleanBase := filepath.Clean(base)
+		if resolvedBase, err := filepath.EvalSymlinks(cleanBase); err == nil {
+			cleanBase = resolvedBase
+		}
+		relResolved, err := filepath.Rel(cleanBase, resolved)
+		if err != nil || strings.HasPrefix(relResolved, "..") || filepath.IsAbs(relResolved) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path traversal rejected"})
+			return "", false
+		}
+	}
+
 	return full, true
 }
 
