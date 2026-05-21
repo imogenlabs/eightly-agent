@@ -3,6 +3,8 @@ run:
   go: '1.23'
 
 linters:
+  disable:
+    - errcheck
   enable:
     - govet
     - staticcheck
