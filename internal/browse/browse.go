@@ -86,7 +86,7 @@ func Handler(dataPath string) http.Handler {
 			return
 		}
 
-		dst, err := os.Create(full)
+		dst, err := os.Create(full) // #nosec G304 -- path validated with filepath.Rel containment check
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return

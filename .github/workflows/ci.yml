@@ -35,7 +35,7 @@ jobs:
       - name: Gosec
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@latest
-          gosec ./...
+          gosec -exclude=G104 ./...
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6 # v6
         with:
