@@ -375,6 +375,46 @@ func TestSymlinkEscapeRejected(t *testing.T) {
 	}
 }
 
+func TestPutRejectsOversizeUpload(t *testing.T) {
+	dataPath, volID := setupVolume(t)
+	handler := Handler(dataPath)
+
+	// Build a multipart body with a file part that streams more than 100MB.
+	// We use io.Pipe so the multipart writer runs in a goroutine and produces
+	// data on demand without allocating 100MB+ of memory.
+	pr, pw := io.Pipe()
+	mpWriter := multipart.NewWriter(pw)
+
+	go func() {
+		part, err := mpWriter.CreateFormFile("file", "big.bin")
+		if err != nil {
+			pw.CloseWithError(err)
+			return
+		}
+		// Write 101 MB in 1 MB chunks to exceed the 100 MB limit
+		chunk := make([]byte, 1024*1024)
+		for i := 0; i < 101; i++ {
+			if _, err := part.Write(chunk); err != nil {
+				// Expected: the server closes the reader once limit is hit
+				pw.CloseWithError(err)
+				return
+			}
+		}
+		mpWriter.Close()
+		pw.Close()
+	}()
+
+	req := httptest.NewRequest("POST", "/browse/put?volumeID="+volID+"&path=big.bin", pr)
+	req.Header.Set("Content-Type", mpWriter.FormDataContentType())
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code == http.StatusCreated {
+		t.Fatalf("expected rejection for oversize upload, got 201")
+	}
+}
+
 func TestPutRejectsDirectoryTarget(t *testing.T) {
 	dataPath, volID := setupVolume(t)
 	dataDir := filepath.Join(dataPath, "volumes", volID, "_data")

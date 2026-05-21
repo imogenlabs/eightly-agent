@@ -1,13 +1,23 @@
 package register
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/rs/zerolog"
 )
 
 func TestRegister_SendsCorrectPayload(t *testing.T) {
@@ -319,5 +329,89 @@ func TestStateSave_CreatesIntermediateDirectories(t *testing.T) {
 
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("file should exist at %s", path)
+	}
+}
+
+func TestBuildServerTLSConfig_InsecureTrue(t *testing.T) {
+	log := zerolog.Nop()
+	cfg, err := BuildServerTLSConfig("", true, log)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.InsecureSkipVerify {
+		t.Error("expected InsecureSkipVerify=true when insecure=true")
+	}
+}
+
+func TestBuildServerTLSConfig_NoCANoInsecure_DefaultsInsecure(t *testing.T) {
+	log := zerolog.Nop()
+	cfg, err := BuildServerTLSConfig("", false, log)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.InsecureSkipVerify {
+		t.Error("expected InsecureSkipVerify=true as default fallback when no caPath and insecure=false")
+	}
+}
+
+func TestBuildServerTLSConfig_NonExistentCA_ReturnsError(t *testing.T) {
+	log := zerolog.Nop()
+	_, err := BuildServerTLSConfig("/nonexistent/path/ca.pem", false, log)
+	if err == nil {
+		t.Fatal("expected error for non-existent CA path")
+	}
+}
+
+func TestBuildServerTLSConfig_ValidCA_SetsRootCAs(t *testing.T) {
+	// Generate a self-signed CA cert
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("failed to create certificate: %v", err)
+	}
+
+	caFile := filepath.Join(t.TempDir(), "ca.pem")
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	if err := os.WriteFile(caFile, pemBytes, 0600); err != nil {
+		t.Fatalf("failed to write CA file: %v", err)
+	}
+
+	log := zerolog.Nop()
+	cfg, err := BuildServerTLSConfig(caFile, false, log)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify should be false when a valid CA is provided")
+	}
+	if cfg.RootCAs == nil {
+		t.Fatal("RootCAs should not be nil when a valid CA is provided")
+	}
+}
+
+func TestBuildServerTLSConfig_InvalidPEM_ReturnsError(t *testing.T) {
+	caFile := filepath.Join(t.TempDir(), "bad-ca.pem")
+	if err := os.WriteFile(caFile, []byte("not a valid PEM certificate"), 0600); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	log := zerolog.Nop()
+	_, err := BuildServerTLSConfig(caFile, false, log)
+	if err == nil {
+		t.Fatal("expected error for invalid PEM content")
 	}
 }

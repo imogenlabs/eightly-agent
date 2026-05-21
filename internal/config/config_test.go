@@ -161,6 +161,80 @@ func TestInsecureNoAuthDefaultFalse(t *testing.T) {
 	}
 }
 
+func TestAdvertiseIPEnvOverride(t *testing.T) {
+	c := &Config{AdvertiseIP: ""}
+	os.Setenv("EIGHTLY_ADVERTISE_IP", "10.0.0.50")
+	defer os.Unsetenv("EIGHTLY_ADVERTISE_IP")
+
+	envOverride(&c.AdvertiseIP, "EIGHTLY_ADVERTISE_IP")
+	if c.AdvertiseIP != "10.0.0.50" {
+		t.Fatalf("expected AdvertiseIP 10.0.0.50, got %q", c.AdvertiseIP)
+	}
+}
+
+func TestTLSSANsEnvOverride(t *testing.T) {
+	c := &Config{TLSSANs: ""}
+	os.Setenv("EIGHTLY_TLS_SANS", "node1.local,node2.local")
+	defer os.Unsetenv("EIGHTLY_TLS_SANS")
+
+	envOverride(&c.TLSSANs, "EIGHTLY_TLS_SANS")
+	if c.TLSSANs != "node1.local,node2.local" {
+		t.Fatalf("expected TLSSANs node1.local,node2.local, got %q", c.TLSSANs)
+	}
+}
+
+func TestServerCAEnvOverride(t *testing.T) {
+	c := &Config{ServerCA: ""}
+	os.Setenv("EIGHTLY_SERVER_CA", "/etc/ssl/custom-ca.pem")
+	defer os.Unsetenv("EIGHTLY_SERVER_CA")
+
+	envOverride(&c.ServerCA, "EIGHTLY_SERVER_CA")
+	if c.ServerCA != "/etc/ssl/custom-ca.pem" {
+		t.Fatalf("expected ServerCA /etc/ssl/custom-ca.pem, got %q", c.ServerCA)
+	}
+}
+
+func TestInsecureServerTLSEnvVar(t *testing.T) {
+	c := &Config{}
+	os.Setenv("EIGHTLY_INSECURE_SERVER_TLS", "true")
+	defer os.Unsetenv("EIGHTLY_INSECURE_SERVER_TLS")
+
+	if os.Getenv("EIGHTLY_INSECURE_SERVER_TLS") == "true" || os.Getenv("EIGHTLY_INSECURE_SERVER_TLS") == "1" {
+		c.InsecureServerTLS = true
+	}
+
+	if !c.InsecureServerTLS {
+		t.Fatal("expected InsecureServerTLS to be true when EIGHTLY_INSECURE_SERVER_TLS=true")
+	}
+}
+
+func TestInsecureServerTLSEnvVarNumeric(t *testing.T) {
+	c := &Config{}
+	os.Setenv("EIGHTLY_INSECURE_SERVER_TLS", "1")
+	defer os.Unsetenv("EIGHTLY_INSECURE_SERVER_TLS")
+
+	if os.Getenv("EIGHTLY_INSECURE_SERVER_TLS") == "true" || os.Getenv("EIGHTLY_INSECURE_SERVER_TLS") == "1" {
+		c.InsecureServerTLS = true
+	}
+
+	if !c.InsecureServerTLS {
+		t.Fatal("expected InsecureServerTLS to be true when EIGHTLY_INSECURE_SERVER_TLS=1")
+	}
+}
+
+func TestInsecureServerTLSDefaultFalse(t *testing.T) {
+	c := &Config{}
+	os.Unsetenv("EIGHTLY_INSECURE_SERVER_TLS")
+
+	if os.Getenv("EIGHTLY_INSECURE_SERVER_TLS") == "true" || os.Getenv("EIGHTLY_INSECURE_SERVER_TLS") == "1" {
+		c.InsecureServerTLS = true
+	}
+
+	if c.InsecureServerTLS {
+		t.Fatal("expected InsecureServerTLS to be false by default")
+	}
+}
+
 func TestPartialEnvOverride(t *testing.T) {
 	c := &Config{
 		Port:       "9001",
