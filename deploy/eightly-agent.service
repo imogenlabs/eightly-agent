@@ -1,0 +1,16 @@
+[Unit]
+Description=Eight.ly Agent
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/eightly-agent
+Restart=always
+RestartSec=5
+Environment=AGENT_PORT=9001
+Environment=LOG_LEVEL=info
+Environment=DATA_PATH=/var/lib/eightly-agent
+
+[Install]
+WantedBy=multi-user.target

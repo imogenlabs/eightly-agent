@@ -1,0 +1,168 @@
+# Configuration
+
+Eight.ly Agent is configured entirely through command-line flags and environment variables. There are no config files. Every flag has an equivalent environment variable, and **environment variables take precedence** over flags when both are set.
+
+## Reference Table
+
+| Flag | Env Var | Default | Category | Description |
+|------|---------|---------|----------|-------------|
+| `--addr` | -- | `0.0.0.0` | Network | Listen address |
+| `--port` | `AGENT_PORT` | `9001` | Network | Listen port |
+| `--socket-path` | `DOCKER_SOCKET` | `/var/run/docker.sock` | Network | Path to the Docker daemon Unix socket |
+| `--secret` | `EIGHTLY_AGENT_SECRET` | (empty) | Authentication | HMAC shared secret for token validation. When empty, authentication is disabled. |
+| `--server-url` | `EIGHTLY_SERVER_URL` | (empty) | Registration | EOS server URL for registration and heartbeat. When empty, registration is skipped. |
+| `--enroll-token` | `EIGHTLY_ENROLL_TOKEN` | (empty) | Registration | One-time enrollment token for first-time registration |
+| `--state-path` | `EIGHTLY_STATE_PATH` | `/data/eightly-agent.json` | Storage | Path to the JSON file that stores registration state |
+| `--data-path` | `DATA_PATH` | `/data` | Storage | Root data directory. TLS certificates are stored here, and the file browser resolves volume paths relative to this directory. |
+| `--log-level` | `LOG_LEVEL` | `info` | Logging | Log verbosity: `trace`, `debug`, `info`, `warn`, `error` |
+
+## Categories
+
+### Network
+
+**`--addr`** (no env var override)
+
+The IP address the agent binds to. Default `0.0.0.0` listens on all interfaces. Set to `127.0.0.1` to restrict to localhost only (useful for testing or when behind a reverse proxy).
+
+**`--port` / `AGENT_PORT`**
+
+TCP port for the HTTPS listener. Default `9001`. The agent always serves over TLS; there is no plaintext HTTP mode.
+
+**`--socket-path` / `DOCKER_SOCKET`**
+
+Path to the Docker daemon Unix socket. The agent proxies Docker API requests and WebSocket console sessions through this socket. Change this if your Docker daemon is configured to use a non-standard socket path.
+
+### Authentication
+
+**`--secret` / `EIGHTLY_AGENT_SECRET`**
+
+The HMAC-SHA256 shared secret used to validate Bearer tokens on incoming requests. This must match the secret configured in your EOS instance. See [[Authentication]] for the full token format and validation flow.
+
+When this value is empty (the default), the authentication middleware is bypassed entirely. Every request is accepted without a token. This is useful for local development but must never be used in production.
+
+### Registration
+
+**`--server-url` / `EIGHTLY_SERVER_URL`**
+
+The URL of the EOS server this agent should register with. Example: `https://192.168.1.227:7001` or `https://os.eight.ly`. When set, the agent will attempt to register on startup and begin sending heartbeats every 30 seconds. When empty, registration and heartbeat are both disabled. See [[Registration-and-Heartbeat]] for details.
+
+**`--enroll-token` / `EIGHTLY_ENROLL_TOKEN`**
+
+A one-time token provided by the EOS admin to authorize the first registration. This is sent in the `Authorization` header of the registration POST and in the request body. After successful registration, this token is no longer needed -- the agent receives a persistent token from EOS and stores it in the state file.
+
+### Storage
+
+**`--state-path` / `EIGHTLY_STATE_PATH`**
+
+Path to the JSON file where the agent stores its registration state (agent ID, server-assigned token, server URL, registration timestamp). This file is written atomically (write to `.tmp`, then rename). See [[Registration-and-Heartbeat]] for the file format.
+
+**`--data-path` / `DATA_PATH`**
+
+Root directory for agent data. Two things live here:
+
+1. TLS certificates: `<data-path>/cert.pem` and `<data-path>/key.pem` (auto-generated if missing). See [[TLS]].
+2. Volume file browser root: the file browser resolves paths as `<data-path>/volumes/<volumeID>/_data/<path>`. See [[File-Browser]].
+
+### Logging
+
+**`--log-level` / `LOG_LEVEL`**
+
+Controls log verbosity using zerolog levels:
+
+| Level | What it logs |
+|-------|-------------|
+| `trace` | Everything including internal state details |
+| `debug` | Heartbeat confirmations, request details, startup config. Enables human-readable console output. |
+| `info` | Startup, registration, shutdown events (default) |
+| `warn` | Heartbeat failures, registration retries |
+| `error` | Fatal-adjacent errors (state save failures, re-registration failures) |
+
+At `debug` or `trace` level, the logger switches from JSON to a human-readable console format with timestamps.
+
+## Example Configurations
+
+### Development (no auth, no registration)
+
+```bash
+./eightly-agent \
+  --log-level debug \
+  --data-path ./data \
+  --state-path ./data/agent.json
+```
+
+Or with Docker:
+
+```bash
+docker run -d \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v $(pwd)/data:/data \
+  -p 9001:9001 \
+  -e LOG_LEVEL=debug \
+  ghcr.io/smashingtags/eightly-agent:latest
+```
+
+Authentication is disabled (no secret set), registration is skipped (no server URL). All endpoints are open. Useful for testing the Docker proxy and file browser locally.
+
+### Single Host
+
+```bash
+docker run -d \
+  --name eightly-agent \
+  --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v agent-data:/data \
+  -p 9001:9001 \
+  -e EIGHTLY_AGENT_SECRET="a-strong-shared-secret" \
+  -e EIGHTLY_SERVER_URL="https://192.168.1.227:7001" \
+  -e EIGHTLY_ENROLL_TOKEN="token-from-eos-admin" \
+  ghcr.io/smashingtags/eightly-agent:latest
+```
+
+Standard deployment for a single remote Docker host managed by EOS.
+
+### Multi-Host Fleet
+
+Deploy the same image to each host with the same shared secret but unique enrollment tokens:
+
+```bash
+# Host A (192.168.1.50)
+docker run -d --name eightly-agent --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock -v agent-data:/data -p 9001:9001 \
+  -e EIGHTLY_AGENT_SECRET="fleet-secret" \
+  -e EIGHTLY_SERVER_URL="https://eos.local:7001" \
+  -e EIGHTLY_ENROLL_TOKEN="token-host-a" \
+  ghcr.io/smashingtags/eightly-agent:latest
+
+# Host B (192.168.1.51)
+docker run -d --name eightly-agent --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock -v agent-data:/data -p 9001:9001 \
+  -e EIGHTLY_AGENT_SECRET="fleet-secret" \
+  -e EIGHTLY_SERVER_URL="https://eos.local:7001" \
+  -e EIGHTLY_ENROLL_TOKEN="token-host-b" \
+  ghcr.io/smashingtags/eightly-agent:latest
+```
+
+All agents use the same shared secret so EOS can authenticate to any of them. Each gets its own enrollment token for initial registration. After enrollment, the token can be removed from the environment.
+
+### Custom TLS Certificates
+
+```bash
+docker run -d --name eightly-agent --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /etc/eightly-agent/certs/cert.pem:/data/cert.pem:ro \
+  -v /etc/eightly-agent/certs/key.pem:/data/key.pem:ro \
+  -v agent-data:/data \
+  -p 9001:9001 \
+  -e EIGHTLY_AGENT_SECRET="your-secret" \
+  ghcr.io/smashingtags/eightly-agent:latest
+```
+
+The agent checks for existing `cert.pem` and `key.pem` in the data directory before generating self-signed certs. See [[TLS]] for details.
+
+## See Also
+
+- [[Installation]] -- Setup instructions
+- [[Authentication]] -- Token format and validation
+- [[Registration-and-Heartbeat]] -- How registration uses `--server-url` and `--enroll-token`
+- [[TLS]] -- Certificate generation and custom certs
+- [[Troubleshooting]] -- Debug logging and common config issues

@@ -1,0 +1,19 @@
+name: eightly-agent
+arch: "${GOARCH}"
+platform: linux
+version: "${VERSION}"
+maintainer: "Michael Ashley <michael@mjashley.com>"
+description: "Lightweight Docker management agent for Eight.ly OS"
+vendor: "Imogen Labs"
+homepage: "https://eight.ly"
+license: "Apache-2.0"
+contents:
+  - src: ./eightly-agent-linux-${GOARCH}
+    dst: /usr/bin/eightly-agent
+    file_info:
+      mode: 0755
+  - src: ./deploy/eightly-agent.service
+    dst: /etc/systemd/system/eightly-agent.service
+    type: config
+scripts:
+  postinstall: ./deploy/postinstall.sh

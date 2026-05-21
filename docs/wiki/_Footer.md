@@ -1,0 +1,1 @@
+Eight.ly Agent is part of [Eight.ly OS](https://eight.ly) by [Imogen Labs](https://imogenlabs.ai). Proprietary software.

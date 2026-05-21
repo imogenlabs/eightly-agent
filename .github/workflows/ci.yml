@@ -45,8 +45,19 @@ jobs:
         include:
           - goos: linux
             goarch: amd64
+            suffix: ""
           - goos: linux
             goarch: arm64
+            suffix: ""
+          - goos: darwin
+            goarch: amd64
+            suffix: ""
+          - goos: darwin
+            goarch: arm64
+            suffix: ""
+          - goos: windows
+            goarch: amd64
+            suffix: ".exe"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -56,9 +67,9 @@ jobs:
         run: |
           CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
             go build -ldflags="-s -w -X main.version=ci-${{ github.sha }}" \
-            -o eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/agent/
+            -o eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }} ./cmd/agent/
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}
