@@ -57,7 +57,7 @@ func Handler(dataPath string) http.Handler {
 		if !ok {
 			return
 		}
-		http.ServeFile(w, r, full)
+		http.ServeFile(w, r, full) // #nosec G304 -- path is validated against base directory with filepath.Rel containment check
 	})
 
 	mux.HandleFunc("POST /browse/put", func(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +81,7 @@ func Handler(dataPath string) http.Handler {
 		}
 		defer file.Close()
 
-		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil { // #nosec G301 -- volume data directories need 0755 for Docker container access
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}

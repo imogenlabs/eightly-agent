@@ -179,7 +179,7 @@ func bridge(ws *websocket.Conn, docker net.Conn) {
 	}()
 
 	<-done
-	ws.Close()
-	docker.Close()
+	ws.Close()    // #nosec G104 -- best-effort cleanup, connection is already closing
+	docker.Close() // #nosec G104 -- best-effort cleanup, connection is already closing
 }
 

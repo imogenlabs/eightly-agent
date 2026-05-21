@@ -48,7 +48,7 @@ type AgentInfo struct {
 
 // LoadState reads the registration state from disk, returning nil if the file does not exist.
 func LoadState(path string) (*State, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path comes from admin-configured --state-file flag, not user input
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -142,7 +142,7 @@ func detectDockerVersion(socketPath string) string {
 // compatibility, and a warning is logged.
 func BuildServerTLSConfig(caPath string, insecure bool, log zerolog.Logger) (*tls.Config, error) {
 	if caPath != "" {
-		caCert, err := os.ReadFile(caPath)
+		caCert, err := os.ReadFile(caPath) // #nosec G304 -- path comes from admin-configured --server-ca flag, not user input
 		if err != nil {
 			return nil, fmt.Errorf("failed to read server CA cert %q: %w", caPath, err)
 		}

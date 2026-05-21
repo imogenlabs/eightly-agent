@@ -54,7 +54,7 @@ func readDisks() []PhysicalDisk {
 }
 
 func readSysfs(path string) string {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- reads from /sys kernel filesystem, not user-supplied paths
 	if err != nil {
 		return ""
 	}

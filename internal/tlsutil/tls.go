@@ -65,14 +65,14 @@ func EnsureCert(dir string, extraSANs ...string) (certPath, keyPath string, err 
 		return "", "", err
 	}
 
-	certFile, err := os.Create(certPath)
+	certFile, err := os.Create(certPath) // #nosec G304 -- path is derived from admin-configured dir flag, not user input
 	if err != nil {
 		return "", "", err
 	}
 	defer certFile.Close()
 	pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 
-	keyFile, err := os.OpenFile(keyPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	keyFile, err := os.OpenFile(keyPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600) // #nosec G304 -- path is derived from admin-configured dir flag, not user input
 	if err != nil {
 		return "", "", err
 	}
