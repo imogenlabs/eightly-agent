@@ -9,6 +9,8 @@ linters:
     - staticcheck
     - ineffassign
     - unused
+    - bodyclose
+    - noctx
 
 linters-settings:
   errcheck:

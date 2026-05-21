@@ -64,7 +64,7 @@ func TestAttachHandler_CrossOriginRejectedWithoutAuth(t *testing.T) {
 	defer srv.Close()
 
 	// Attempt a websocket upgrade with cross-origin
-	req, _ := http.NewRequest("GET", srv.URL+"/websocket/attach?id=abcdef123456", nil)
+	req, _ := http.NewRequest("GET", srv.URL+"/websocket/attach?id=abcdef123456", nil) //nolint:noctx // test helper, no meaningful context
 	req.Header.Set("Origin", "http://evil.example.com")
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")

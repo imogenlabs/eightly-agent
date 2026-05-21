@@ -125,17 +125,12 @@ docker connect failed
 
 ### Client gets "certificate signed by unknown authority"
 
-The agent uses a self-signed certificate by default. Clients must skip certificate verification:
+The connecting client (typically the EOS server, or curl) doesn't trust the agent's self-signed certificate. Options:
+- Provide a proper CA-signed certificate to the agent via `--tls-san` with the correct hostnames
+- Configure the EOS server to trust the agent's self-signed cert via `--server-ca`
+- For curl debugging only: `curl -k https://agent-host:9001/ping` (never in production)
 
-```bash
-# curl
-curl -k https://agent-host:9001/ping
-
-# Go
-&http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-```
-
-Or use custom certificates from a trusted CA. See [[TLS]].
+The agent no longer defaults to `InsecureSkipVerify` for outbound connections. If registering against an EOS server with a self-signed certificate, use `--insecure-server-tls` as an explicit opt-in. See [[TLS]].
 
 ### "failed to generate TLS cert"
 

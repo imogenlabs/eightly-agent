@@ -39,7 +39,7 @@ The data directory is created with mode `0755` if it does not exist. The key fil
 
 ### Limitations of Auto-Generated Certs
 
-- The certificate is self-signed, so clients must skip certificate verification (`-k` in curl, `InsecureSkipVerify` in Go, etc.).
+- The certificate is self-signed, so clients must either trust it explicitly (via `--server-ca` on the EOS side) or use `-k` in curl for debugging only.
 - The SAN only covers `localhost` and `127.0.0.1`. Connecting via hostname or LAN IP will trigger certificate name mismatch warnings.
 - The certificate expires after 1 year with no automatic renewal.
 
@@ -129,7 +129,7 @@ This model works with self-signed certificates because trust is established thro
 
 ## Registration and Heartbeat TLS
 
-When the agent connects to EOS for registration and heartbeat, it uses `InsecureSkipVerify: true`. This is because EOS may also use self-signed certificates. The trust relationship between EOS and the agent is established through the shared secret and enrollment token (see [[Authentication]] and [[Registration-and-Heartbeat]]), not through TLS certificate verification.
+When the agent connects to EOS for registration and heartbeat, it verifies the server's TLS certificate against the system trust store by default (fail-closed). If the EOS server uses a self-signed or internal CA certificate, configure the agent with `--server-ca <path>` to pin that CA. For development environments only, `--insecure-server-tls` disables certificate verification as an explicit opt-in. Trust between EOS and the agent is additionally established through the shared secret and enrollment token (see [[Authentication]] and [[Registration-and-Heartbeat]]).
 
 ## Server Configuration
 
@@ -158,5 +158,5 @@ openssl s_client -connect localhost:9001 </dev/null 2>/dev/null | openssl x509 -
 
 - [[Configuration]] -- `--data-path` flag that controls cert location
 - [[Installation]] -- Custom cert mount examples
-- [[Registration-and-Heartbeat]] -- Why outbound TLS skips verification
+- [[Registration-and-Heartbeat]] -- Outbound TLS configuration for registration and heartbeat
 - [[Troubleshooting]] -- TLS-related errors

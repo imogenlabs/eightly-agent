@@ -144,7 +144,7 @@ The heartbeat goroutine listens on the application's context. When the agent rec
 
 ## TLS for Registration and Heartbeat
 
-Both registration and heartbeat requests use `InsecureSkipVerify: true` for TLS. This is because the EOS server may also use self-signed certificates (see [[TLS]]). Trust between EOS and the agent is established through the shared secret and enrollment token, not through the TLS certificate chain.
+Registration and heartbeat requests verify the EOS server's TLS certificate against the system trust store by default (fail-closed). If the EOS server uses a self-signed or internal CA certificate, configure the agent with `--server-ca <path>` to pin that CA. For development environments only, `--insecure-server-tls` disables certificate verification as an explicit opt-in. Trust between EOS and the agent is additionally established through the shared secret and enrollment token (see [[TLS]]).
 
 ## Timeline
 
@@ -179,5 +179,5 @@ Startup
 
 - [[Configuration]] -- `--server-url`, `--enroll-token`, `--state-path` flags
 - [[Authentication]] -- How API tokens differ from enrollment/heartbeat tokens
-- [[TLS]] -- Why registration uses InsecureSkipVerify
+- [[TLS]] -- Outbound TLS configuration for registration and heartbeat
 - [[Troubleshooting]] -- Debugging registration and heartbeat failures

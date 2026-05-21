@@ -87,23 +87,23 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) // #nosec G104 -- HTTP response write
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		conn, err := net.DialTimeout("unix", cfg.SocketPath, 2*time.Second)
 		if err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]string{"status": "not ready", "error": "docker socket unreachable"})
+			json.NewEncoder(w).Encode(map[string]string{"status": "not ready", "error": "docker socket unreachable"}) // #nosec G104 -- HTTP response write
 			return
 		}
-		conn.Close()
+		conn.Close() // #nosec G104 -- probe connection, close is best-effort
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
+		json.NewEncoder(w).Encode(map[string]string{"status": "ready"}) // #nosec G104 -- HTTP response write
 	})
 	mux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
+		json.NewEncoder(w).Encode(map[string]string{ // #nosec G104 -- HTTP response write
 			"version":     cfg.Version,
 			"api_version": "2",
 		})

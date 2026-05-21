@@ -87,7 +87,7 @@ jobs:
           go-version: '1.23'
 
       - name: Install nfpm
-        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.41.3
 
       - name: Determine version
         id: version
@@ -200,14 +200,18 @@ jobs:
         continue-on-error: true
         uses: actions/attest-sbom@5026d3663739160db546203eeaffa6aa1c51a4d6 # v1
         with:
-          subject-path: 'release/eightly-agent-*'
+          subject-path: |
+            release/eightly-agent-*
+            release/eightly-agent_*.deb
           sbom-path: release/sbom.spdx.json
 
       - name: Generate build provenance
         continue-on-error: true
         uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # v1
         with:
-          subject-path: 'release/eightly-agent-*'
+          subject-path: |
+            release/eightly-agent-*
+            release/eightly-agent_*.deb
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2

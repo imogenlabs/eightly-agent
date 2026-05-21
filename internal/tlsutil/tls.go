@@ -70,14 +70,14 @@ func EnsureCert(dir string, extraSANs ...string) (certPath, keyPath string, err 
 		return "", "", err
 	}
 	defer certFile.Close()
-	pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}) // #nosec G104 -- file already opened; write failure surfaces as TLS load error
 
 	keyFile, err := os.OpenFile(keyPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600) // #nosec G304 -- path is derived from admin-configured dir flag, not user input
 	if err != nil {
 		return "", "", err
 	}
 	defer keyFile.Close()
-	pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}) // #nosec G104 -- file already opened; write failure surfaces as TLS load error
 
 	return certPath, keyPath, nil
 }

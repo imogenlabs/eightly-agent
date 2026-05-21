@@ -72,5 +72,5 @@ func Middleware(secret string) func(http.Handler) http.Handler {
 func unauthorized(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
-	w.Write([]byte(`{"message":"unauthorized"}`))
+	w.Write([]byte(`{"message":"unauthorized"}`)) // #nosec G104 -- HTTP response write
 }

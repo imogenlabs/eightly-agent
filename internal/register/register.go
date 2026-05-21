@@ -117,7 +117,11 @@ func detectDockerVersion(socketPath string) string {
 			},
 		},
 	}
-	resp, err := client.Get("http://docker/version")
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://docker/version", nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return ""
 	}
@@ -182,7 +186,7 @@ func Register(serverURL, enrollToken string, info AgentInfo, tlsCfg *tls.Config)
 		},
 	}
 
-	req, err := http.NewRequest("POST", serverURL+"/api/agents/register", bytes.NewReader(body))
+	req, err := http.NewRequest("POST", serverURL+"/api/agents/register", bytes.NewReader(body)) //nolint:noctx // Register() has no parent context; caller-provided timeout via http.Client
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +251,7 @@ func ReRegister(state *State, info AgentInfo, tlsCfg *tls.Config) (*State, error
 		},
 	}
 
-	req, err := http.NewRequest("POST", state.ServerURL+"/api/agents/register", bytes.NewReader(body))
+	req, err := http.NewRequest("POST", state.ServerURL+"/api/agents/register", bytes.NewReader(body)) //nolint:noctx // ReRegister() has no parent context; caller-provided timeout via http.Client
 	if err != nil {
 		return nil, err
 	}

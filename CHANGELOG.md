@@ -10,8 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Planned
 - Prometheus /metrics endpoint (see [#10](https://github.com/smashingtags/eightly-agent/issues/10))
 
-## [1.0.0] - 2026-05-21
-
 ### Changed (BREAKING)
 - Server TLS verification now uses the system trust store by default. Users connecting
   to EOS servers with self-signed certificates must now pass `--insecure-server-tls`
@@ -25,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/readyz` readiness probe (returns `200` if Docker socket is reachable, `503` otherwise)
 - Configurable TLS SANs via `--tls-san` flag (multiple values supported)
 - Token expiry (`exp` claim) enforcement in HMAC auth middleware
-- 96 tests across 9 packages (up from initial 117-count estimate)
+- 129 tests across 9 packages
 
 ### Security
 - Outbound connections to EOS servers now verify certificates by default instead of
@@ -40,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable `--tls-san` for auto-generated TLS certificates
 - Token expiry enforcement in auth middleware
 - Cosign keyless signing for release binaries and container images
-- SLSA build provenance attestations (via slsa-framework/slsa-github-generator)
+- SLSA build provenance attestations (via actions/attest-build-provenance)
 - SBOM generation (SPDX format)
 - `.deb` and `.rpm` packaging via nfpm (amd64 + arm64)
 - Homebrew tap (`smashingtags/homebrew-tap`)
@@ -81,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cosign-signed release binaries and container images
 - SLSA build provenance attestations
 - SBOM generation (SPDX)
-- 117 tests across 10 packages
+- 129 tests across 9 packages
 - GitHub wiki with 10 documentation pages
 - SECURITY.md with threat model and disclosure policy
 - CONTRIBUTING.md and CODE_OF_CONDUCT.md
@@ -97,6 +95,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Non-root container execution
 - systemd sandboxing (ProtectSystem=strict, NoNewPrivileges)
 
-[1.0.0]: https://github.com/smashingtags/eightly-agent/releases/tag/v1.0.0
 [1.0.0-rc1]: https://github.com/smashingtags/eightly-agent/releases/tag/v1.0.0-rc1
 [1.0.0-beta1]: https://github.com/smashingtags/eightly-agent/releases/tag/v1.0.0-beta1

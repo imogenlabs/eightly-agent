@@ -37,7 +37,7 @@ internal/
 ## Trust Boundaries
 
 - **Agent ↔ Docker**: Unix socket (Linux/macOS) or named pipe (Windows). Trusted — the agent has full Docker access.
-- **Agent ↔ EOS Server**: HTTPS with configurable CA or InsecureSkipVerify. Authentication via enrollment token (first registration) or existing agent token (re-registration/heartbeat).
+- **Agent ↔ EOS Server**: HTTPS with server certificate verification by default (system trust store). Use `--server-ca` to pin a custom CA, or `--insecure-server-tls` to disable verification (development only). Authentication via enrollment token (first registration) or existing agent token (re-registration/heartbeat).
 - **Agent ↔ Client**: HTTPS with self-signed or custom TLS cert. Authentication via HMAC-SHA256 Bearer token. A valid token grants root-equivalent access via the Docker socket.
 
 ## Platform Abstraction

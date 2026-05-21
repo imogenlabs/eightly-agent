@@ -75,20 +75,20 @@ func AttachHandler(socketPath string, authEnabled bool, allowedOrigins []string)
 
 		docker, err := net.Dial("unix", socketPath)
 		if err != nil {
-			ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, "docker connect failed"))
+			ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, "docker connect failed")) // #nosec G104 -- best-effort close message
 			return
 		}
 		defer docker.Close()
 
 		raw := fmt.Sprintf("POST /containers/%s/attach?stdin=1&stdout=1&stderr=1&stream=1 HTTP/1.1\r\nHost: docker\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n", containerID)
 		if _, err := docker.Write([]byte(raw)); err != nil {
-			ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, "docker write failed"))
+			ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, "docker write failed")) // #nosec G104 -- best-effort close message
 			return
 		}
 
-		resp, err := http.ReadResponse(bufio.NewReader(docker), nil)
+		resp, err := http.ReadResponse(bufio.NewReader(docker), nil) //nolint:bodyclose // hijacked connection, not a standard HTTP response
 		if err != nil || resp.StatusCode != http.StatusSwitchingProtocols {
-			ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, "docker attach failed"))
+			ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, "docker attach failed")) // #nosec G104 -- best-effort close message
 			return
 		}
 
@@ -118,7 +118,7 @@ func ExecHandler(socketPath string, authEnabled bool, allowedOrigins []string) h
 
 		docker, err := net.Dial("unix", socketPath)
 		if err != nil {
-			ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, "docker connect failed"))
+			ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, "docker connect failed")) // #nosec G104 -- best-effort close message
 			return
 		}
 		defer docker.Close()
@@ -126,13 +126,13 @@ func ExecHandler(socketPath string, authEnabled bool, allowedOrigins []string) h
 		body := `{"Tty":true,"Detach":false}`
 		raw := fmt.Sprintf("POST /exec/%s/start HTTP/1.1\r\nHost: docker\r\nConnection: Upgrade\r\nUpgrade: tcp\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s", execID, len(body), body)
 		if _, err := docker.Write([]byte(raw)); err != nil {
-			ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, "docker write failed"))
+			ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, "docker write failed")) // #nosec G104 -- best-effort close message
 			return
 		}
 
-		resp, err := http.ReadResponse(bufio.NewReader(docker), nil)
+		resp, err := http.ReadResponse(bufio.NewReader(docker), nil) //nolint:bodyclose // hijacked connection, not a standard HTTP response
 		if err != nil || resp.StatusCode != http.StatusSwitchingProtocols {
-			ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, "docker exec start failed"))
+			ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, "docker exec start failed")) // #nosec G104 -- best-effort close message
 			return
 		}
 
@@ -169,7 +169,7 @@ func bridge(ws *websocket.Conn, docker net.Conn) {
 		for {
 			_, msg, err := ws.ReadMessage()
 			if err != nil {
-				docker.Close()
+				docker.Close() // #nosec G104 -- best-effort cleanup to unblock reader goroutine
 				return
 			}
 			if _, err := docker.Write(msg); err != nil {

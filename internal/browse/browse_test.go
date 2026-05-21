@@ -33,7 +33,7 @@ func TestLsListsFiles(t *testing.T) {
 	srv := httptest.NewServer(Handler(dataPath))
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=" + volID + "&path=")
+	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=" + volID + "&path=") //nolint:noctx // test helper, no meaningful context
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestLsEmptyDir(t *testing.T) {
 	srv := httptest.NewServer(Handler(dataPath))
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=" + volID + "&path=")
+	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=" + volID + "&path=") //nolint:noctx // test helper, no meaningful context
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestGetDownloadsFile(t *testing.T) {
 	srv := httptest.NewServer(Handler(dataPath))
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/browse/get?volumeID=" + volID + "&path=data.bin")
+	resp, err := http.Get(srv.URL + "/browse/get?volumeID=" + volID + "&path=data.bin") //nolint:noctx // test helper, no meaningful context
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestPutUploadsFile(t *testing.T) {
 	part.Write([]byte("uploaded data"))
 	writer.Close()
 
-	req, _ := http.NewRequest("POST", srv.URL+"/browse/put?volumeID="+volID+"&path=upload.txt", &buf)
+	req, _ := http.NewRequest("POST", srv.URL+"/browse/put?volumeID="+volID+"&path=upload.txt", &buf) //nolint:noctx // test helper, no meaningful context
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	resp, err := http.DefaultClient.Do(req)
@@ -168,7 +168,7 @@ func TestDeleteRemovesFile(t *testing.T) {
 	srv := httptest.NewServer(Handler(dataPath))
 	defer srv.Close()
 
-	req, _ := http.NewRequest("DELETE", srv.URL+"/browse/delete?volumeID="+volID+"&path=gone.txt", nil)
+	req, _ := http.NewRequest("DELETE", srv.URL+"/browse/delete?volumeID="+volID+"&path=gone.txt", nil) //nolint:noctx // test helper, no meaningful context
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -193,7 +193,7 @@ func TestRenameFile(t *testing.T) {
 	defer srv.Close()
 
 	body, _ := json.Marshal(map[string]string{"path": "old.txt", "newName": "new.txt"})
-	req, _ := http.NewRequest("PUT", srv.URL+"/browse/rename?volumeID="+volID, bytes.NewReader(body))
+	req, _ := http.NewRequest("PUT", srv.URL+"/browse/rename?volumeID="+volID, bytes.NewReader(body)) //nolint:noctx // test helper, no meaningful context
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -223,7 +223,7 @@ func TestPathTraversalVolumeID(t *testing.T) {
 	srv := httptest.NewServer(Handler(dataPath))
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=../etc&path=")
+	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=../etc&path=") //nolint:noctx // test helper, no meaningful context
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestPathTraversalPath(t *testing.T) {
 	srv := httptest.NewServer(Handler(dataPath))
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=safe&path=../../etc/passwd")
+	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=safe&path=../../etc/passwd") //nolint:noctx // test helper, no meaningful context
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +259,7 @@ func TestRenameTraversalDotDot(t *testing.T) {
 	defer srv.Close()
 
 	body, _ := json.Marshal(map[string]string{"path": "a.txt", "newName": "../escape.txt"})
-	req, _ := http.NewRequest("PUT", srv.URL+"/browse/rename?volumeID="+volID, bytes.NewReader(body))
+	req, _ := http.NewRequest("PUT", srv.URL+"/browse/rename?volumeID="+volID, bytes.NewReader(body)) //nolint:noctx // test helper, no meaningful context
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -282,7 +282,7 @@ func TestRenameTraversalSlash(t *testing.T) {
 	defer srv.Close()
 
 	body, _ := json.Marshal(map[string]string{"path": "a.txt", "newName": "sub/escape.txt"})
-	req, _ := http.NewRequest("PUT", srv.URL+"/browse/rename?volumeID="+volID, bytes.NewReader(body))
+	req, _ := http.NewRequest("PUT", srv.URL+"/browse/rename?volumeID="+volID, bytes.NewReader(body)) //nolint:noctx // test helper, no meaningful context
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -301,7 +301,7 @@ func TestVolumeIDAbsolutePath(t *testing.T) {
 	srv := httptest.NewServer(Handler(dataPath))
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=/etc&path=")
+	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=/etc&path=") //nolint:noctx // test helper, no meaningful context
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestVolumeIDWithPathSeparator(t *testing.T) {
 	srv := httptest.NewServer(Handler(dataPath))
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=foo/bar&path=")
+	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=foo/bar&path=") //nolint:noctx // test helper, no meaningful context
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +333,7 @@ func TestVolumeIDStartingWithDot(t *testing.T) {
 	srv := httptest.NewServer(Handler(dataPath))
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=.hidden&path=")
+	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=.hidden&path=") //nolint:noctx // test helper, no meaningful context
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func TestSymlinkEscapeRejected(t *testing.T) {
 	defer srv.Close()
 
 	// Try to read through the symlink
-	resp, err := http.Get(srv.URL + "/browse/get?volumeID=" + volID + "&path=escape/secret.txt")
+	resp, err := http.Get(srv.URL + "/browse/get?volumeID=" + volID + "&path=escape/secret.txt") //nolint:noctx // test helper, no meaningful context
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +432,7 @@ func TestPutRejectsDirectoryTarget(t *testing.T) {
 	part.Write([]byte("data"))
 	writer.Close()
 
-	req, _ := http.NewRequest("POST", srv.URL+"/browse/put?volumeID="+volID+"&path=subdir", &buf)
+	req, _ := http.NewRequest("POST", srv.URL+"/browse/put?volumeID="+volID+"&path=subdir", &buf) //nolint:noctx // test helper, no meaningful context
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	resp, err := http.DefaultClient.Do(req)

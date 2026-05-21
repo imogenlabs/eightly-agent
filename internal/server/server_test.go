@@ -62,7 +62,7 @@ func TestRun_PingEndpoint(t *testing.T) {
 	var resp *http.Response
 	var lastErr error
 	for i := 0; i < 30; i++ {
-		resp, lastErr = client.Get(fmt.Sprintf("https://127.0.0.1:%s/ping", port))
+		resp, lastErr = client.Get(fmt.Sprintf("https://127.0.0.1:%s/ping", port)) //nolint:noctx // test helper, no meaningful context
 		if lastErr == nil {
 			break
 		}
@@ -250,7 +250,7 @@ func TestRun_CancelledContextShutsDown(t *testing.T) {
 		},
 	}
 	for i := 0; i < 30; i++ {
-		resp, err := client.Get(fmt.Sprintf("https://127.0.0.1:%s/ping", port))
+		resp, err := client.Get(fmt.Sprintf("https://127.0.0.1:%s/ping", port)) //nolint:noctx // test helper, no meaningful context
 		if err == nil {
 			resp.Body.Close()
 			break
@@ -294,7 +294,7 @@ func testToken(sub, secret string, exp int64) string {
 func waitForServer(t *testing.T, client *http.Client, port string) {
 	t.Helper()
 	for i := 0; i < 30; i++ {
-		resp, err := client.Get(fmt.Sprintf("https://127.0.0.1:%s/ping", port))
+		resp, err := client.Get(fmt.Sprintf("https://127.0.0.1:%s/ping", port)) //nolint:noctx // test helper, no meaningful context
 		if err == nil {
 			resp.Body.Close()
 			return
@@ -340,7 +340,7 @@ func TestIntegration_AuthEndpoints(t *testing.T) {
 
 	// 1. GET /ping — no auth required, should return 200
 	t.Run("ping_no_auth", func(t *testing.T) {
-		resp, err := client.Get(base + "/ping")
+		resp, err := client.Get(base + "/ping") //nolint:noctx // test helper, no meaningful context
 		if err != nil {
 			t.Fatalf("GET /ping: %v", err)
 		}
@@ -352,7 +352,7 @@ func TestIntegration_AuthEndpoints(t *testing.T) {
 
 	// 2. GET /host without auth — should return 401
 	t.Run("host_no_auth", func(t *testing.T) {
-		resp, err := client.Get(base + "/host")
+		resp, err := client.Get(base + "/host") //nolint:noctx // test helper, no meaningful context
 		if err != nil {
 			t.Fatalf("GET /host (no auth): %v", err)
 		}
@@ -365,7 +365,7 @@ func TestIntegration_AuthEndpoints(t *testing.T) {
 	// 3. GET /host with valid token — should return 200 + valid JSON
 	t.Run("host_with_auth", func(t *testing.T) {
 		token := testToken("admin", secret, time.Now().Add(5*time.Minute).Unix())
-		req, _ := http.NewRequest(http.MethodGet, base+"/host", nil)
+		req, _ := http.NewRequest(http.MethodGet, base+"/host", nil) //nolint:noctx // test helper, no meaningful context
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		resp, err := client.Do(req)

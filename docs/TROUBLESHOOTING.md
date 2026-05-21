@@ -40,7 +40,12 @@ The agent process doesn't have permission to access the socket. Either run as ro
 The EOS server is connecting by an IP or hostname not in the agent's certificate SANs. Use `--tls-san` to add the correct hostname/IP, or use `--advertise-ip` to set the IP that appears in the cert.
 
 **"x509: certificate signed by unknown authority"**
-The connecting client doesn't trust the agent's self-signed certificate. Use `InsecureSkipVerify` on the client side, or deploy a proper CA-signed certificate.
+The connecting client (typically the EOS server, or curl) doesn't trust the agent's self-signed certificate. Options:
+- Provide a proper CA-signed certificate to the agent via `--tls-san` with the correct hostnames
+- Configure the EOS server to trust the agent's self-signed cert via `--server-ca`
+- For curl debugging only: use `--insecure` (curl flag, never in production)
+
+The agent no longer defaults to InsecureSkipVerify for outbound connections. If registering against an EOS server with a self-signed certificate, use `--insecure-server-tls` as an explicit opt-in.
 
 ## WebSocket issues
 

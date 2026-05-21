@@ -36,6 +36,6 @@ func Handler() http.HandlerFunc {
 			PhysicalDisks: readDisks(),
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(info)
+		json.NewEncoder(w).Encode(info) // #nosec G104 -- HTTP response write
 	}
 }
