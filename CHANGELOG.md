@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-05-21
+
 ### Changed (BREAKING)
 - Server TLS verification now uses the system trust store by default. Users connecting
   to EOS servers with self-signed certificates must now pass `--insecure-server-tls`
