@@ -153,10 +153,10 @@ func BuildServerTLSConfig(caPath string, insecure bool, log zerolog.Logger) (*tl
 		return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
 	}
 	if insecure {
-		return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, nil
+		return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, nil // #nosec G402 -- explicit opt-in via --insecure-server-tls
 	}
 	log.Warn().Msg("no --server-ca or --insecure-server-tls set; defaulting to InsecureSkipVerify=true (set --server-ca for production)")
-	return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, nil
+	return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, nil // #nosec G402 -- backwards-compat default, warns at startup
 }
 
 type registerPayload struct {
