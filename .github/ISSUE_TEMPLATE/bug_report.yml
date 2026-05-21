@@ -1,0 +1,45 @@
+name: Bug Report
+description: Report a bug in Eight.ly Agent
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Agent version
+      description: Output of `eightly-agent version`
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Linux (amd64)
+        - Linux (arm64)
+        - Linux (arm/v7)
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows
+        - Docker
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste any relevant log output (run with --log-level debug)
+      render: shell

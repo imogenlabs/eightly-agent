@@ -1,0 +1,17 @@
+name: Security Vulnerability
+description: Report a security vulnerability (use GitHub Security Advisories instead for private disclosure)
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **For private vulnerability disclosure, please use [GitHub Security Advisories](https://github.com/smashingtags/eightly-agent/security/advisories/new) instead of this form.**
+
+        This form creates a public issue. Only use it for security-adjacent questions or low-severity issues that are safe to discuss publicly.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the security concern
+    validations:
+      required: true

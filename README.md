@@ -313,6 +313,37 @@ That's it. No frameworks, no ORM, no config libraries.
 | Windows service | Windows | Download `.exe` from [Releases](https://github.com/smashingtags/eightly-agent/releases), then `eightly-agent.exe install && eightly-agent.exe start` |
 | Binary | Linux, macOS, Windows | Download from [Releases](https://github.com/smashingtags/eightly-agent/releases) (5 platform builds) |
 
+## Verifying Releases
+
+All release binaries are signed with [Sigstore cosign](https://sigstore.dev) and include SLSA build provenance.
+
+### Verify a binary
+
+```bash
+cosign verify-blob \
+  --certificate eightly-agent-linux-amd64.crt \
+  --signature eightly-agent-linux-amd64.sig \
+  --certificate-identity-regexp 'https://github.com/smashingtags/eightly-agent' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  eightly-agent-linux-amd64
+```
+
+### Verify a container image
+
+```bash
+cosign verify \
+  --certificate-identity-regexp 'https://github.com/smashingtags/eightly-agent' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/smashingtags/eightly-agent:latest
+```
+
+### Verify build provenance
+
+```bash
+gh attestation verify eightly-agent-linux-amd64 \
+  --owner smashingtags
+```
+
 ---
 
 ## Security

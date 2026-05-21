@@ -188,6 +188,11 @@ jobs:
           format: spdx-json
           output-file: release/sbom.spdx.json
 
+      - name: Generate build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: 'release/eightly-agent-*'
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

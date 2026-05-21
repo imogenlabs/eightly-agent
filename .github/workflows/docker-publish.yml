@@ -9,6 +9,7 @@ permissions:
   contents: read
   packages: write
   id-token: write
+  attestations: write
 
 env:
   GHCR_IMAGE: ghcr.io/smashingtags/eightly-agent
@@ -85,6 +86,21 @@ jobs:
         env:
           COSIGN_EXPERIMENTAL: "1"
         run: |
-          echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n' | while read tag; do
+          echo "${{ steps.meta.outputs.tags }}" | while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
             cosign sign --yes "${tag}@${{ steps.docker.outputs.digest }}"
           done
+
+      - name: Attest GHCR image provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ghcr.io/smashingtags/eightly-agent
+          subject-digest: ${{ steps.docker.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest Docker Hub image provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: index.docker.io/smashingtags/eightly-agent
+          subject-digest: ${{ steps.docker.outputs.digest }}
+          push-to-registry: true

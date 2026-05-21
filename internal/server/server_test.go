@@ -2,8 +2,13 @@ package server
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -200,5 +205,138 @@ func TestRun_CancelledContextShutsDown(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Run did not return after context cancellation")
+	}
+}
+
+// testToken builds an HMAC-SHA256 signed token matching the format in
+// internal/auth. Duplicated here to avoid exporting test helpers from auth.
+func testToken(sub, secret string, exp int64) string {
+	type claims struct {
+		Sub  string `json:"sub"`
+		Iss  string `json:"iss"`
+		Type string `json:"type"`
+		Iat  int64  `json:"iat"`
+		Exp  int64  `json:"exp,omitempty"`
+	}
+	c := claims{Sub: sub, Iss: "eightly-server", Type: "api", Iat: time.Now().Unix(), Exp: exp}
+	payload, _ := json.Marshal(c)
+	encoded := base64.RawURLEncoding.EncodeToString(payload)
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(encoded))
+	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+
+	return encoded + "." + sig
+}
+
+func waitForServer(t *testing.T, client *http.Client, port string) {
+	t.Helper()
+	for i := 0; i < 30; i++ {
+		resp, err := client.Get(fmt.Sprintf("https://127.0.0.1:%s/ping", port))
+		if err == nil {
+			resp.Body.Close()
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("server never became ready")
+}
+
+func TestIntegration_AuthEndpoints(t *testing.T) {
+	dir := t.TempDir()
+	port := freePort(t)
+	secret := "integration-test-secret"
+
+	cfg := &config.Config{
+		Addr:       "127.0.0.1",
+		Port:       port,
+		Secret:     secret,
+		ServerURL:  "",
+		StatePath:  dir + "/state.json",
+		DataPath:   dir,
+		SocketPath: "/var/run/docker.sock",
+		Version:    "test-integration",
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- Run(ctx, cfg)
+	}()
+
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	waitForServer(t, client, port)
+	base := fmt.Sprintf("https://127.0.0.1:%s", port)
+
+	// 1. GET /ping — no auth required, should return 200
+	t.Run("ping_no_auth", func(t *testing.T) {
+		resp, err := client.Get(base + "/ping")
+		if err != nil {
+			t.Fatalf("GET /ping: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("GET /ping: got %d, want 200", resp.StatusCode)
+		}
+	})
+
+	// 2. GET /host without auth — should return 401
+	t.Run("host_no_auth", func(t *testing.T) {
+		resp, err := client.Get(base + "/host")
+		if err != nil {
+			t.Fatalf("GET /host (no auth): %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("GET /host (no auth): got %d, want 401", resp.StatusCode)
+		}
+	})
+
+	// 3. GET /host with valid token — should return 200 + valid JSON
+	t.Run("host_with_auth", func(t *testing.T) {
+		token := testToken("admin", secret, time.Now().Add(5*time.Minute).Unix())
+		req, _ := http.NewRequest(http.MethodGet, base+"/host", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("GET /host (authed): %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("GET /host (authed): got %d, body: %s", resp.StatusCode, body)
+		}
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			t.Fatalf("GET /host: response is not valid JSON: %v", err)
+		}
+		if _, ok := result["pci_devices"]; !ok {
+			t.Error("GET /host: response missing pci_devices field")
+		}
+		if _, ok := result["physical_disks"]; !ok {
+			t.Error("GET /host: response missing physical_disks field")
+		}
+	})
+
+	// Clean shutdown
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("Run returned error on shutdown: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not shut down within 10 seconds")
 	}
 }

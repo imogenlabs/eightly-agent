@@ -5,3 +5,8 @@ release/
 /eightly-agent.exe
 CLAUDE.md
 .env
+
+# Code review artifacts
+eightly-agent-code-review.md
+eightly-agent-round2-tasks.md
+eightly-agent-round3-tasks.md
