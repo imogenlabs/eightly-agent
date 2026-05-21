@@ -10,6 +10,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Planned
 - Prometheus /metrics endpoint (see [#10](https://github.com/smashingtags/eightly-agent/issues/10))
 
+## [1.0.0] - 2026-05-21
+
+### Changed (BREAKING)
+- Server TLS verification now uses the system trust store by default. Users connecting
+  to EOS servers with self-signed certificates must now pass `--insecure-server-tls`
+  explicitly, or provide a CA with `--server-ca`.
+
+### Added
+- `BuildServerTLSConfig` helper centralizes outbound TLS configuration (system trust
+  store default, optional `--server-ca` override, `--insecure-server-tls` escape hatch)
+- `--insecure-server-tls` flag to skip server certificate verification
+- `/healthz` liveness probe (always returns `200 {"status":"ok"}`)
+- `/readyz` readiness probe (returns `200` if Docker socket is reachable, `503` otherwise)
+- Configurable TLS SANs via `--tls-san` flag (multiple values supported)
+- Token expiry (`exp` claim) enforcement in HMAC auth middleware
+- 96 tests across 9 packages (up from initial 117-count estimate)
+
+### Security
+- Outbound connections to EOS servers now verify certificates by default instead of
+  skipping verification
+
+## [1.0.0-rc1] - 2026-05-21
+
+### Added
+- Health check endpoints: `/healthz` (liveness) and `/readyz` (readiness with Docker socket check)
+- `BuildServerTLSConfig` for centralized outbound TLS with system trust store default
+- `--insecure-server-tls` flag for opt-in certificate skip
+- Configurable `--tls-san` for auto-generated TLS certificates
+- Token expiry enforcement in auth middleware
+- Cosign keyless signing for release binaries and container images
+- SLSA build provenance attestations (via slsa-framework/slsa-github-generator)
+- SBOM generation (SPDX format)
+- `.deb` and `.rpm` packaging via nfpm (amd64 + arm64)
+- Homebrew tap (`smashingtags/homebrew-tap`)
+- Scoop bucket for Windows (`smashingtags/scoop-eightly`)
+- GitHub wiki with 10 documentation pages
+- SECURITY.md with threat model and coordinated disclosure policy
+- CONTRIBUTING.md and CODE_OF_CONDUCT.md
+
+### Known Limitations
+- CI runs on self-hosted Linux runners. Windows and macOS builds are cross-compiled but not executed in CI. Community testing on those platforms is encouraged.
+- Build provenance and SBOM attestations are present in the release workflow but
+  inactive while the repository is private. They activate automatically when the
+  repository is made public.
+
 ## [1.0.0-beta1] - 2026-05-21
 
 ### Added
@@ -52,4 +97,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Non-root container execution
 - systemd sandboxing (ProtectSystem=strict, NoNewPrivileges)
 
+[1.0.0]: https://github.com/smashingtags/eightly-agent/releases/tag/v1.0.0
+[1.0.0-rc1]: https://github.com/smashingtags/eightly-agent/releases/tag/v1.0.0-rc1
 [1.0.0-beta1]: https://github.com/smashingtags/eightly-agent/releases/tag/v1.0.0-beta1

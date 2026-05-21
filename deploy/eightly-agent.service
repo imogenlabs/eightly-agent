@@ -32,6 +32,9 @@ ProtectKernelLogs=true
 SystemCallFilter=@system-service
 SystemCallArchitectures=native
 UMask=0077
+# Requires systemd 247+ (Ubuntu 22.04+, Debian 12+, RHEL 9+)
+ProtectProc=invisible
+ProcSubset=pid
 # MemoryDenyWriteExecute=true is intentionally omitted — the Go runtime
 # requires writable+executable memory for goroutine stacks and the GC.
 

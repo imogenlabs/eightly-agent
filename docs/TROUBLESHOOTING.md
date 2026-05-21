@@ -77,3 +77,7 @@ docker run -e LOG_LEVEL=debug ...
 ```
 
 For the Windows service, set `LOG_LEVEL=debug` as a system environment variable and restart.
+
+## Platform testing limitations
+
+CI runs on self-hosted Linux runners. Windows and macOS builds are verified via cross-compilation but not executed in CI. Community testing on Windows and macOS is encouraged. If you encounter platform-specific issues, please file a bug report with your platform details.

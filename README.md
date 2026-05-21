@@ -351,7 +351,7 @@ cosign verify-blob \
 cosign verify \
   --certificate-identity-regexp 'https://github.com/smashingtags/eightly-agent' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/smashingtags/eightly-agent:latest
+  ghcr.io/smashingtags/eightly-agent:1.0.0
 ```
 
 ### Verify SBOM
@@ -383,7 +383,7 @@ Eight.ly Agent mediates access to the Docker daemon. Understanding the trust mod
 
 **Network exposure:**
 - Bind the agent to a private interface or VPN -- never expose port 9001 to the public internet.
-- Use proper CA-signed TLS certificates in production (`--server-ca`) instead of the default self-signed certs.
+- The agent verifies the EOS server's TLS certificate by default (system trust store). Use `--server-ca` to pin a custom CA. **Breaking change (v1.x):** previous versions defaulted to `InsecureSkipVerify=true`; if you relied on that behavior, add `--insecure-server-tls` explicitly.
 - Place the agent behind a firewall that restricts access to your EOS server's IP.
 
 For vulnerability reporting, see [SECURITY.md](SECURITY.md).

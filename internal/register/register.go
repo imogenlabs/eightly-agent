@@ -137,9 +137,8 @@ func detectDockerVersion(socketPath string) string {
 
 // BuildServerTLSConfig creates a *tls.Config for connections to the EOS server.
 // If caPath is set, the CA cert is loaded into a custom RootCAs pool.
-// If insecure is true, InsecureSkipVerify is used.
-// If neither is set, InsecureSkipVerify defaults to true for backwards
-// compatibility, and a warning is logged.
+// If insecure is true, InsecureSkipVerify is used (requires explicit opt-in).
+// Default: uses the system trust store with full certificate verification.
 func BuildServerTLSConfig(caPath string, insecure bool, log zerolog.Logger) (*tls.Config, error) {
 	if caPath != "" {
 		caCert, err := os.ReadFile(caPath) // #nosec G304 -- path comes from admin-configured --server-ca flag, not user input
@@ -153,10 +152,11 @@ func BuildServerTLSConfig(caPath string, insecure bool, log zerolog.Logger) (*tl
 		return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
 	}
 	if insecure {
+		log.Warn().Msg("--insecure-server-tls set: skipping server cert verification — DO NOT USE IN PRODUCTION")
 		return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, nil // #nosec G402 -- explicit opt-in via --insecure-server-tls
 	}
-	log.Warn().Msg("no --server-ca or --insecure-server-tls set; defaulting to InsecureSkipVerify=true (set --server-ca for production)")
-	return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, nil // #nosec G402 -- backwards-compat default, warns at startup
+	// Default: use system trust store, full verification
+	return &tls.Config{MinVersion: tls.VersionTLS12}, nil
 }
 
 type registerPayload struct {

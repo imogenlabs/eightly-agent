@@ -3,13 +3,25 @@ run:
   go: '1.23'
 
 linters:
-  disable:
-    - errcheck
   enable:
+    - errcheck
     - govet
     - staticcheck
     - ineffassign
     - unused
+
+linters-settings:
+  errcheck:
+    exclude-functions:
+      - (io.Closer).Close
+      - (*os.File).Close
+      - (net.Conn).Close
+      - (*github.com/gorilla/websocket.Conn).Close
+      - (*net/http.Response.Body).Close
+      - os.Unsetenv
+      - (net/http.ResponseWriter).Write
+      - encoding/json.(*Encoder).Encode
+      - encoding/pem.Encode
 
 issues:
   exclude-use-default: false

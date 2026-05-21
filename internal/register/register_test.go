@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
@@ -411,14 +412,71 @@ func TestBuildServerTLSConfig_InsecureTrue(t *testing.T) {
 	}
 }
 
-func TestBuildServerTLSConfig_NoCANoInsecure_DefaultsInsecure(t *testing.T) {
+func TestBuildServerTLSConfig_DefaultUsesSystemTrustStore(t *testing.T) {
 	log := zerolog.Nop()
 	cfg, err := BuildServerTLSConfig("", false, log)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !cfg.InsecureSkipVerify {
-		t.Error("expected InsecureSkipVerify=true as default fallback when no caPath and insecure=false")
+	if cfg.InsecureSkipVerify {
+		t.Error("default config must NOT set InsecureSkipVerify=true (fail-closed)")
+	}
+	if cfg.RootCAs != nil {
+		t.Error("default config should use system trust store (nil RootCAs)")
+	}
+	if cfg.MinVersion != tls.VersionTLS12 {
+		t.Errorf("MinVersion: got %d, want tls.VersionTLS12 (%d)", cfg.MinVersion, tls.VersionTLS12)
+	}
+}
+
+func TestBuildServerTLSConfig_DefaultRejectsSelfSigned(t *testing.T) {
+	// Generate a self-signed leaf cert (not in system trust store)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(42),
+		Subject:      pkix.Name{CommonName: "self-signed-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{"localhost"},
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create cert: %v", err)
+	}
+
+	// Build the default TLS config (fail-closed, system trust store)
+	log := zerolog.Nop()
+	cfg, err := BuildServerTLSConfig("", false, log)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Try to verify the self-signed cert against the default config's trust store
+	selfSignedCert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("parse cert: %v", err)
+	}
+
+	roots := cfg.RootCAs
+	if roots == nil {
+		// nil means system trust store — load it explicitly for the verification check
+		roots, err = x509.SystemCertPool()
+		if err != nil {
+			t.Skipf("cannot load system cert pool: %v", err)
+		}
+	}
+
+	_, verifyErr := selfSignedCert.Verify(x509.VerifyOptions{
+		Roots:     roots,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	})
+	if verifyErr == nil {
+		t.Fatal("self-signed cert should NOT verify against system trust store — fail-closed regression")
 	}
 }
 

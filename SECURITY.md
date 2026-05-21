@@ -84,7 +84,7 @@ The agent binds to `0.0.0.0:9001` by default, meaning it listens on all interfac
 | Threat | Mitigation |
 |--------|------------|
 | Token theft | Tokens support expiry (`exp` claim). Rotate the shared secret if a token is compromised. |
-| Network interception | All communication is over TLS. For production, configure a proper CA (`--server-ca`) instead of self-signed certs. |
+| Network interception | All communication is over TLS. The default is fail-closed: the agent verifies the server certificate against the system trust store. Use `--server-ca` to pin a custom CA, or `--insecure-server-tls` to disable verification (development only). |
 | Path traversal | Volume paths are validated with `filepath.Rel` containment checks. Volume IDs are restricted to safe identifiers. |
 | CRLF injection | Container and exec IDs are validated against `^[a-zA-Z0-9]{12,64}$` before use in Docker socket requests. |
 | Unauthenticated access | The agent refuses to start without `EIGHTLY_AGENT_SECRET` unless `--insecure-no-auth` is explicitly set. |
