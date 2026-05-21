@@ -111,13 +111,17 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           GOARCH: ${{ matrix.goarch }}
-        run: nfpm package --config nfpm.yml --packager deb --target eightly-agent_${{ steps.version.outputs.version }}_${{ matrix.goarch }}.deb
+        run: |
+          envsubst < nfpm.yml > nfpm-resolved.yml
+          nfpm package --config nfpm-resolved.yml --packager deb --target eightly-agent_${{ steps.version.outputs.version }}_${{ matrix.goarch }}.deb
 
       - name: Build .rpm package
         env:
           VERSION: ${{ steps.version.outputs.version }}
           GOARCH: ${{ matrix.goarch }}
-        run: nfpm package --config nfpm.yml --packager rpm --target eightly-agent-${{ steps.version.outputs.version }}.${{ matrix.goarch }}.rpm
+        run: |
+          envsubst < nfpm.yml > nfpm-resolved.yml
+          nfpm package --config nfpm-resolved.yml --packager rpm --target eightly-agent-${{ steps.version.outputs.version }}.${{ matrix.goarch }}.rpm
 
       - name: Upload .deb
         uses: actions/upload-artifact@v4
