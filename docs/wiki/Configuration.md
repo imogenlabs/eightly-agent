@@ -16,6 +16,28 @@ Eight.ly Agent is configured entirely through command-line flags and environment
 | `--data-path` | `DATA_PATH` | `/data` | Storage | Root data directory. TLS certificates are stored here, and the file browser resolves volume paths relative to this directory. |
 | `--log-level` | `LOG_LEVEL` | `info` | Logging | Log verbosity: `trace`, `debug`, `info`, `warn`, `error` |
 
+## Platform-Specific Defaults
+
+The agent detects the host OS at build time and applies appropriate defaults. Flags and environment variables override these defaults on any platform.
+
+### Linux / macOS
+
+| Setting | Default |
+|---------|---------|
+| Docker socket | `/var/run/docker.sock` |
+| Data path | `/data` |
+| State path | `/data/eightly-agent.json` |
+
+### Windows
+
+| Setting | Default |
+|---------|---------|
+| Docker socket | `//./pipe/docker_engine` |
+| Data path | `C:\ProgramData\eightly-agent` |
+| State path | `C:\ProgramData\eightly-agent\state.json` |
+
+These defaults are defined in `internal/config/defaults_linux.go`, `internal/config/defaults_darwin.go`, and `internal/config/defaults_windows.go` using Go build tags. You never need to set `--socket-path`, `--data-path`, or `--state-path` on any platform unless you want non-standard paths.
+
 ## Categories
 
 ### Network

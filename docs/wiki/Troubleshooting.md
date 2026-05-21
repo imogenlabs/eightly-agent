@@ -261,6 +261,89 @@ docker stop eightly-agent && docker rm eightly-agent
 
 ---
 
+## Windows
+
+### Service Won't Install
+
+**Symptoms**: Running `eightly-agent.exe install` fails with an access denied error.
+
+**Fix**: You must run the command from an **elevated (Administrator)** command prompt or PowerShell. Right-click Command Prompt or PowerShell and select "Run as administrator", then retry:
+
+```powershell
+eightly-agent.exe install
+eightly-agent.exe start
+```
+
+---
+
+### Service Starts but Immediately Stops
+
+**Symptoms**: `eightly-agent.exe start` succeeds, but the service shows as "Stopped" moments later in `services.msc`.
+
+**Diagnosis**: Open **Event Viewer > Windows Logs > Application** and filter by source `EightlyAgent`. The service logs startup errors there when running under the SCM.
+
+**Common causes**:
+
+1. **Missing environment variables**: The service needs `EIGHTLY_AGENT_SECRET` and `EIGHTLY_SERVER_URL` set as system-level environment variables (not user-level). Set them with:
+   ```powershell
+   [System.Environment]::SetEnvironmentVariable("EIGHTLY_AGENT_SECRET", "your-secret", "Machine")
+   [System.Environment]::SetEnvironmentVariable("EIGHTLY_SERVER_URL", "https://your-eos-server:7001", "Machine")
+   ```
+   Then reinstall and start the service.
+
+2. **Data directory permissions**: Ensure `C:\ProgramData\eightly-agent` exists and is writable by the service account (Local System by default).
+
+3. **Port conflict**: Another process is using port 9001. Check with:
+   ```powershell
+   netstat -ano | findstr :9001
+   ```
+
+---
+
+### Docker Socket Connection Refused on Windows
+
+**Symptoms**: Agent starts but Docker API requests fail. Logs show connection errors to the Docker socket.
+
+**Fixes**:
+
+1. **Docker Desktop must be running**: Unlike Linux where Docker runs as a system daemon, Docker Desktop on Windows must be launched and running. Check the system tray for the Docker whale icon.
+
+2. **Named pipe path**: The agent defaults to `//./pipe/docker_engine` on Windows, which is Docker Desktop's standard named pipe. If you use a non-standard Docker configuration, set the correct path:
+   ```powershell
+   [System.Environment]::SetEnvironmentVariable("DOCKER_SOCKET", "//./pipe/your_custom_pipe", "Machine")
+   ```
+
+3. **WSL2 backend**: If Docker Desktop is configured with the WSL2 backend, the named pipe should still be available on the Windows side. If it is not, ensure "Expose daemon on tcp://localhost:2375 without TLS" is disabled (use the pipe, not TCP).
+
+---
+
+### Viewing Logs When Running as a Windows Service
+
+When the agent runs as a Windows service, it logs to the Windows Event Log rather than stdout.
+
+**Event Viewer**:
+1. Open Event Viewer (`eventvwr.msc`)
+2. Navigate to **Windows Logs > Application**
+3. Filter by source: `EightlyAgent`
+
+**Debug logging**: Set the `LOG_LEVEL` environment variable at the system level before starting the service:
+
+```powershell
+[System.Environment]::SetEnvironmentVariable("LOG_LEVEL", "debug", "Machine")
+eightly-agent.exe restart
+```
+
+**Running interactively for debugging**: Stop the service and run the agent directly in a terminal to see real-time output:
+
+```powershell
+eightly-agent.exe stop
+eightly-agent.exe --log-level debug
+```
+
+Press Ctrl+C to stop, then restart the service when done debugging.
+
+---
+
 ## Collecting Diagnostic Information
 
 When reporting an issue, include:

@@ -1,8 +1,8 @@
 # Eight.ly Agent
 
-Eight.ly Agent is a lightweight Docker management daemon written in Go. It runs on remote Docker hosts and lets [Eight.ly OS](https://eight.ly) manage them from a single dashboard. Deploy the agent on any Linux machine with Docker, and EOS gains full container management, WebSocket console access, volume file browsing, and host monitoring -- all over authenticated TLS.
+Eight.ly Agent is a lightweight, cross-platform Docker management daemon written in Go. It runs on remote Docker hosts (Linux, macOS, and Windows) and lets [Eight.ly OS](https://eight.ly) manage them from a single dashboard. Deploy the agent on any machine with Docker, and EOS gains full container management, WebSocket console access, volume file browsing, and host monitoring -- all over authenticated TLS.
 
-**992 lines of Go. Two dependencies. Zero config files.**
+**~1,400 lines of Go. Two dependencies. Zero config files.**
 
 ## Key Capabilities
 
@@ -37,30 +37,39 @@ Eight.ly Agent is a lightweight Docker management daemon written in Go. It runs 
                   |  +---------------+  |
                   +----------+----------+
                              |
-                        Unix Socket
+                     Unix Socket / Named Pipe
                              |
                   +----------v----------+
                   |   Docker Daemon     |
                   |  /var/run/docker.sock|
+                  |  (or named pipe on  |
+                  |   Windows)          |
                   +---------------------+
 ```
 
-The agent sits between the EOS dashboard and the local Docker daemon. All communication from EOS to the agent is over HTTPS with HMAC-SHA256 Bearer token authentication. The agent communicates with Docker via the Unix socket.
+The agent sits between the EOS dashboard and the local Docker daemon. All communication from EOS to the agent is over HTTPS with HMAC-SHA256 Bearer token authentication. The agent communicates with Docker via the Unix socket on Linux/macOS or the named pipe (`//./pipe/docker_engine`) on Windows.
 
 ## Package Layout
 
 ```
-cmd/agent/main.go             128 LOC -- entry point, HTTP mux, TLS, graceful shutdown
-internal/auth/jwt.go           65 LOC -- HMAC shared-secret token validation middleware
-internal/browse/browse.go     143 LOC -- file browser (ls, get, put, delete, rename)
-internal/config/config.go      51 LOC -- CLI flags + env var parsing
-internal/hostinfo/hostinfo.go  87 LOC -- PCI device and physical disk detection
-internal/proxy/docker.go       50 LOC -- reverse proxy to Docker socket
-internal/register/register.go 268 LOC -- EOS registration + 30s heartbeat loop
-internal/tlsutil/tls.go        75 LOC -- self-signed cert generation
-internal/websocket/ws.go      125 LOC -- WebSocket attach + exec handlers
-                               -----
-                               992 LOC total
+cmd/agent/main.go                  128 LOC -- entry point, HTTP mux, TLS, graceful shutdown
+cmd/agent/service_linux.go          -- Linux service (systemd) integration
+cmd/agent/service_darwin.go         -- macOS service (launchd) integration
+cmd/agent/service_windows.go        -- Windows service (SCM) integration
+internal/auth/jwt.go                65 LOC -- HMAC shared-secret token validation middleware
+internal/browse/browse.go          143 LOC -- file browser (ls, get, put, delete, rename)
+internal/config/config.go           51 LOC -- CLI flags + env var parsing
+internal/config/defaults_linux.go   -- Linux platform defaults
+internal/config/defaults_darwin.go  -- macOS platform defaults
+internal/config/defaults_windows.go -- Windows platform defaults
+internal/hostinfo/hostinfo.go       87 LOC -- PCI device and physical disk detection
+internal/proxy/docker.go            50 LOC -- reverse proxy to Docker socket
+internal/register/register.go      268 LOC -- EOS registration + 30s heartbeat loop
+internal/server/server.go           -- HTTP server lifecycle (used by service wrappers)
+internal/tlsutil/tls.go             75 LOC -- self-signed cert generation
+internal/websocket/ws.go           125 LOC -- WebSocket attach + exec handlers
+                                   -----
+                                  ~1,400 LOC total
 ```
 
 ## Dependencies

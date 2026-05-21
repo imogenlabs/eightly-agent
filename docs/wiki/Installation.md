@@ -1,12 +1,47 @@
 # Installation
 
-Three ways to install Eight.ly Agent: Docker container (recommended), pre-built binary, or build from source.
+Multiple ways to install Eight.ly Agent: Docker container (recommended), Homebrew (macOS/Linux), Scoop (Windows), pre-built binary, Windows service, or build from source.
 
 ## Prerequisites
 
-- A Linux host with Docker installed
+- A host running Linux, macOS, or Windows with Docker installed
 - Network connectivity between the agent host and your Eight.ly OS server (for registration)
 - A shared secret or enrollment token from your EOS instance
+
+## Homebrew (macOS / Linux)
+
+```bash
+brew install smashingtags/tap/eightly-agent
+```
+
+After installation, configure and run:
+
+```bash
+eightly-agent \
+  --secret "your-shared-secret" \
+  --server-url "https://your-eos-server:7001" \
+  --enroll-token "your-enrollment-token"
+```
+
+Or start as a background service via `brew services start smashingtags/tap/eightly-agent`.
+
+## Scoop (Windows)
+
+```powershell
+scoop bucket add eightly https://github.com/smashingtags/scoop-bucket
+scoop install eightly-agent
+```
+
+After installation, see the [Windows Service](#windows-service) section below for running as a service, or run directly from a terminal:
+
+```powershell
+eightly-agent.exe `
+  --secret "your-shared-secret" `
+  --server-url "https://your-eos-server:7001" `
+  --enroll-token "your-enrollment-token"
+```
+
+> **Note:** On Windows, the default Docker socket path is `//./pipe/docker_engine` (Docker Desktop named pipe) and the default data path is `C:\ProgramData\eightly-agent`.
 
 ## Docker (Recommended)
 
@@ -80,7 +115,7 @@ volumes:
 
 ## Binary Download
 
-Pre-built binaries for linux/amd64 and linux/arm64 are available on [GitHub Releases](https://github.com/smashingtags/eightly-agent/releases).
+Pre-built binaries for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, and windows/amd64 are available on [GitHub Releases](https://github.com/smashingtags/eightly-agent/releases).
 
 ```bash
 # Download the latest release (amd64 example)
@@ -127,6 +162,40 @@ sudo cp eightly-agent.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now eightly-agent
 ```
+
+### Windows Service
+
+The agent binary has built-in Windows service support via the Service Control Manager (SCM). You must run these commands from an **elevated (Administrator) command prompt or PowerShell**.
+
+**Install and start the service:**
+
+```powershell
+eightly-agent.exe install
+eightly-agent.exe start
+```
+
+**Set environment variables before installing** so the service picks them up:
+
+```powershell
+[System.Environment]::SetEnvironmentVariable("EIGHTLY_AGENT_SECRET", "your-shared-secret", "Machine")
+[System.Environment]::SetEnvironmentVariable("EIGHTLY_SERVER_URL", "https://your-eos-server:7001", "Machine")
+[System.Environment]::SetEnvironmentVariable("EIGHTLY_ENROLL_TOKEN", "your-enrollment-token", "Machine")
+eightly-agent.exe install
+eightly-agent.exe start
+```
+
+**Other service commands:**
+
+```powershell
+eightly-agent.exe stop       # Stop the service
+eightly-agent.exe restart    # Restart the service
+eightly-agent.exe uninstall  # Remove the service
+```
+
+The service runs as `EightlyAgent` in the Windows Services panel. Default paths on Windows:
+- Docker socket: `//./pipe/docker_engine`
+- Data directory: `C:\ProgramData\eightly-agent`
+- State file: `C:\ProgramData\eightly-agent\state.json`
 
 ## Build from Source
 
