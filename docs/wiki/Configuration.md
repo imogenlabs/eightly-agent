@@ -9,11 +9,17 @@ Eight.ly Agent is configured entirely through command-line flags and environment
 | `--addr` | -- | `0.0.0.0` | Network | Listen address |
 | `--port` | `AGENT_PORT` | `9001` | Network | Listen port |
 | `--socket-path` | `DOCKER_SOCKET` | `/var/run/docker.sock` | Network | Path to the Docker daemon Unix socket |
-| `--secret` | `EIGHTLY_AGENT_SECRET` | (empty) | Authentication | HMAC shared secret for token validation. When empty, authentication is disabled. |
+| `--secret` | `EIGHTLY_AGENT_SECRET` | (empty) | Authentication | HMAC shared secret for token validation. **Required** unless `--insecure-no-auth` is set. |
 | `--server-url` | `EIGHTLY_SERVER_URL` | (empty) | Registration | EOS server URL for registration and heartbeat. When empty, registration is skipped. |
 | `--enroll-token` | `EIGHTLY_ENROLL_TOKEN` | (empty) | Registration | One-time enrollment token for first-time registration |
 | `--state-path` | `EIGHTLY_STATE_PATH` | `/data/eightly-agent.json` | Storage | Path to the JSON file that stores registration state |
 | `--data-path` | `DATA_PATH` | `/data` | Storage | Root data directory. TLS certificates are stored here, and the file browser resolves volume paths relative to this directory. |
+| `--metrics` | `EIGHTLY_METRICS_ENABLED` | `false` | Monitoring | Enable Prometheus `/metrics` endpoint |
+| `--allowed-origins` | `EIGHTLY_ALLOWED_ORIGINS` | (empty) | Security | Comma-separated WebSocket origin allowlist |
+| `--advertise-ip` | `EIGHTLY_ADVERTISE_IP` | (auto-detected) | Network | Override the detected local IP sent during registration |
+| `--tls-san` | `EIGHTLY_TLS_SANS` | (empty) | TLS | Extra SANs (DNS names or IPs) to include in auto-generated TLS certificates |
+| `--insecure-server-tls` | `EIGHTLY_INSECURE_SERVER_TLS` | `false` | TLS | Skip TLS verification for outbound connections to EOS. **Required** for self-signed EOS servers. Fail-closed by default. |
+| `--insecure-no-auth` | `EIGHTLY_INSECURE_NO_AUTH` | `false` | Authentication | Start without a shared secret. Dev only -- never use in production. |
 | `--log-level` | `LOG_LEVEL` | `info` | Logging | Log verbosity: `trace`, `debug`, `info`, `warn`, `error` |
 
 ## Platform-Specific Defaults
@@ -60,7 +66,11 @@ Path to the Docker daemon Unix socket. The agent proxies Docker API requests and
 
 The HMAC-SHA256 shared secret used to validate Bearer tokens on incoming requests. This must match the secret configured in your EOS instance. See [[Authentication]] for the full token format and validation flow.
 
-When this value is empty (the default), the authentication middleware is bypassed entirely. Every request is accepted without a token. This is useful for local development but must never be used in production.
+The agent **refuses to start** without this value unless `--insecure-no-auth` is explicitly set (fail-closed default). This prevents accidental deployment without authentication.
+
+**`--insecure-no-auth` / `EIGHTLY_INSECURE_NO_AUTH`**
+
+When set, allows the agent to start without a shared secret. Authentication is bypassed entirely -- every request is accepted without a token. **Dev/testing only. Never use in production.**
 
 ### Registration
 
@@ -101,12 +111,43 @@ Controls log verbosity using zerolog levels:
 
 At `debug` or `trace` level, the logger switches from JSON to a human-readable console format with timestamps.
 
+### Monitoring
+
+**`--metrics` / `EIGHTLY_METRICS_ENABLED`**
+
+When set to `true`, exposes a Prometheus-compatible `/metrics` endpoint. This endpoint requires authentication (Bearer token). Metrics include heartbeat counters, registration attempts, and standard Go runtime metrics. Disabled by default.
+
+### Security
+
+**`--allowed-origins` / `EIGHTLY_ALLOWED_ORIGINS`**
+
+Comma-separated list of allowed origins for WebSocket upgrade requests. When set, only connections with a matching `Origin` header are accepted. When empty (default), all origins are allowed.
+
+Example: `--allowed-origins "https://os.eight.ly,https://os-dev.eight.ly"`
+
+### TLS (Outbound)
+
+**`--insecure-server-tls` / `EIGHTLY_INSECURE_SERVER_TLS`**
+
+Outbound TLS to EOS is **fail-closed by default** -- the agent verifies the server certificate against the system trust store. If your EOS server uses a self-signed or internal CA certificate, you must either provide the CA with `--server-ca` or explicitly opt in to skipping verification with `--insecure-server-tls`. This flag is required for self-signed EOS servers.
+
+**`--tls-san` / `EIGHTLY_TLS_SANS`**
+
+Extra Subject Alternative Names to include in auto-generated TLS certificates. Comma-separated list of DNS names or IP addresses. Useful when the agent is accessed by hostname or LAN IP in addition to localhost.
+
+Example: `--tls-san "docker-host-01.local,192.168.1.50"`
+
+**`--advertise-ip` / `EIGHTLY_ADVERTISE_IP`**
+
+Override the auto-detected local IP that the agent sends to EOS during registration. Useful when the default-route IP detection picks the wrong interface (e.g., VPN or Docker bridge).
+
 ## Example Configurations
 
 ### Development (no auth, no registration)
 
 ```bash
 ./eightly-agent \
+  --insecure-no-auth \
   --log-level debug \
   --data-path ./data \
   --state-path ./data/agent.json
@@ -120,10 +161,11 @@ docker run -d \
   -v $(pwd)/data:/data \
   -p 9001:9001 \
   -e LOG_LEVEL=debug \
-  ghcr.io/smashingtags/eightly-agent:latest
+  -e EIGHTLY_INSECURE_NO_AUTH=true \
+  ghcr.io/smashingtags/eightly-agent:v1.0.0
 ```
 
-Authentication is disabled (no secret set), registration is skipped (no server URL). All endpoints are open. Useful for testing the Docker proxy and file browser locally.
+Authentication is disabled (`--insecure-no-auth`), registration is skipped (no server URL). All endpoints are open. Useful for testing the Docker proxy and file browser locally.
 
 ### Single Host
 
@@ -137,7 +179,7 @@ docker run -d \
   -e EIGHTLY_AGENT_SECRET="a-strong-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:7001" \
   -e EIGHTLY_ENROLL_TOKEN="token-from-eos-admin" \
-  ghcr.io/smashingtags/eightly-agent:latest
+  ghcr.io/smashingtags/eightly-agent:v1.0.0
 ```
 
 Standard deployment for a single remote Docker host managed by EOS.
@@ -153,7 +195,7 @@ docker run -d --name eightly-agent --restart unless-stopped \
   -e EIGHTLY_AGENT_SECRET="fleet-secret" \
   -e EIGHTLY_SERVER_URL="https://eos.local:7001" \
   -e EIGHTLY_ENROLL_TOKEN="token-host-a" \
-  ghcr.io/smashingtags/eightly-agent:latest
+  ghcr.io/smashingtags/eightly-agent:v1.0.0
 
 # Host B (192.168.1.51)
 docker run -d --name eightly-agent --restart unless-stopped \
@@ -161,7 +203,7 @@ docker run -d --name eightly-agent --restart unless-stopped \
   -e EIGHTLY_AGENT_SECRET="fleet-secret" \
   -e EIGHTLY_SERVER_URL="https://eos.local:7001" \
   -e EIGHTLY_ENROLL_TOKEN="token-host-b" \
-  ghcr.io/smashingtags/eightly-agent:latest
+  ghcr.io/smashingtags/eightly-agent:v1.0.0
 ```
 
 All agents use the same shared secret so EOS can authenticate to any of them. Each gets its own enrollment token for initial registration. After enrollment, the token can be removed from the environment.
@@ -176,7 +218,7 @@ docker run -d --name eightly-agent --restart unless-stopped \
   -v agent-data:/data \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="your-secret" \
-  ghcr.io/smashingtags/eightly-agent:latest
+  ghcr.io/smashingtags/eightly-agent:v1.0.0
 ```
 
 The agent checks for existing `cert.pem` and `key.pem` in the data directory before generating self-signed certs. See [[TLS]] for details.

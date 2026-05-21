@@ -13,9 +13,46 @@ All endpoints except `/ping` require a valid Bearer token. See [[Authentication]
 
 ## Health
 
+### GET /healthz
+
+Liveness check. No authentication required. Always returns 200 if the process is running.
+
+**Response**: `200 OK`
+
+```bash
+curl -k https://localhost:9001/healthz
+```
+
+### GET /readyz
+
+Readiness check. No authentication required. Returns 200 if the Docker daemon is reachable, 503 otherwise.
+
+**Response**: `200 OK` or `503 Service Unavailable`
+
+```bash
+curl -k https://localhost:9001/readyz
+```
+
+### GET /version
+
+Returns the agent version and API version. No authentication required.
+
+**Response**: `200 OK`
+
+```json
+{
+  "version": "1.0.0",
+  "api_version": 2
+}
+```
+
+```bash
+curl -k https://localhost:9001/version
+```
+
 ### GET /ping
 
-Health check endpoint. No authentication required.
+Legacy health check endpoint. No authentication required.
 
 **Response**: `200 OK` with an empty body.
 
@@ -23,7 +60,27 @@ Health check endpoint. No authentication required.
 curl -k https://localhost:9001/ping
 ```
 
-This endpoint is used by the Docker HEALTHCHECK in the container image and by external monitoring tools.
+---
+
+## Metrics
+
+### GET /metrics
+
+Prometheus metrics endpoint. Requires authentication. Only available when the agent is started with `--metrics` or `EIGHTLY_METRICS_ENABLED=true`.
+
+**Auth**: Required
+
+**Response**: `200 OK` with Prometheus text exposition format.
+
+```bash
+curl -k -H "Authorization: Bearer $TOKEN" https://localhost:9001/metrics
+```
+
+Exposed metrics include:
+- `eightly_agent_heartbeats_sent_total` -- total heartbeats sent
+- `eightly_agent_heartbeats_failed_total` -- total heartbeat failures
+- `eightly_agent_registration_attempts_total` -- total registration attempts
+- Standard Go runtime metrics (goroutines, memory, GC)
 
 ---
 

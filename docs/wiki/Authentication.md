@@ -38,10 +38,11 @@ The payload is a JSON object, base64url-encoded (no padding):
 | `iss` | string | Yes | Issuer -- **must** be `"eightly-server"` or the token is rejected |
 | `type` | string | No | Token type identifier |
 | `iat` | int64 | No | Issued-at timestamp (Unix epoch seconds) |
+| `exp` | int64 | No | Expiration timestamp (Unix epoch seconds). Enforced when present. |
 
-The `iss` field is the only claim that is validated beyond signature verification. If `iss` is not exactly `"eightly-server"`, the request is rejected with 401.
+The `iss` field is the only required claim beyond signature verification. If `iss` is not exactly `"eightly-server"`, the request is rejected with 401.
 
-Note: There is no `exp` (expiration) claim. Tokens do not expire based on time. Rotation is handled by changing the shared secret.
+Token expiry (`exp` claim) is **enforced when present**. If the `exp` field is set and the current time is past that timestamp, the token is rejected with 401. If `exp` is absent, the token does not expire based on time. Rotation is handled by changing the shared secret.
 
 ### Signature
 
@@ -109,14 +110,20 @@ When a request arrives, the auth middleware executes these steps in order:
 
 5. **Check issuer**: Verify that `claims.Iss == "eightly-server"`. If not, return 401.
 
-6. **Pass through**: If all checks pass, the request proceeds to the handler.
+6. **Check expiry**: If the `exp` claim is present and the current time exceeds it, return 401.
+
+7. **Pass through**: If all checks pass, the request proceeds to the handler.
 
 ## Middleware Chain
 
 The authentication middleware is applied as a wrapper around protected handlers in `main.go`:
 
 ```
-GET  /ping                   -- NO auth (health check, always open)
+GET  /healthz                -- NO auth (liveness, always open)
+GET  /readyz                 -- NO auth (readiness, checks Docker)
+GET  /version                -- NO auth (version info)
+GET  /ping                   -- NO auth (legacy health check)
+GET  /metrics                -- auth required (Prometheus, behind --metrics flag)
 *    /websocket/attach       -- auth required
 *    /websocket/exec         -- auth required
 *    /browse/*               -- auth required
@@ -124,7 +131,7 @@ GET  /host                   -- auth required
 *    /* (Docker proxy)       -- auth required
 ```
 
-The `/ping` endpoint is registered directly on the mux without the auth wrapper. Every other route passes through `auth.Middleware(secret)(handler)`.
+The `/healthz`, `/readyz`, `/version`, and `/ping` endpoints are registered directly on the mux without the auth wrapper. Every other route passes through `auth.Middleware(secret)(handler)`.
 
 ## Failure Responses
 
@@ -139,7 +146,7 @@ Content-Type: application/json
 
 ## Dev Mode (No Auth)
 
-When the shared secret is empty (no `--secret` flag and no `EIGHTLY_AGENT_SECRET` env var), the middleware returns the handler directly without wrapping it. No token validation occurs. All endpoints are open.
+The agent is **fail-closed by default**: it refuses to start without `EIGHTLY_AGENT_SECRET` set. To run without authentication (dev/testing only), you must explicitly pass `--insecure-no-auth` or set `EIGHTLY_INSECURE_NO_AUTH=true`. When running in this mode, the middleware is bypassed entirely -- no token validation occurs and all endpoints are open.
 
 This is only appropriate for local development and testing. In production, always set a strong shared secret.
 

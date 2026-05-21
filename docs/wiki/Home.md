@@ -2,7 +2,13 @@
 
 Eight.ly Agent is a lightweight, cross-platform Docker management daemon written in Go. It runs on remote Docker hosts (Linux, macOS, and Windows) and lets [Eight.ly OS](https://eight.ly) manage them from a single dashboard. Deploy the agent on any machine with Docker, and EOS gains full container management, WebSocket console access, volume file browsing, and host monitoring -- all over authenticated TLS.
 
-**~1,400 lines of Go. Two dependencies. Zero config files.**
+**~2,050 lines of Go. 134 tests. v1.0.0 released. Apache 2.0 license. Hardened through 6 rounds of security review.**
+
+![Remote Environments — connected agents with heartbeat status](https://imogenlabs.ai/images/eightly/agent/agent-environments.webp)
+
+| | |
+|---|---|
+| ![Container list on local host](https://imogenlabs.ai/images/eightly/agent/agent-containers-local.webp) | ![Containers on remote agent host](https://imogenlabs.ai/images/eightly/agent/agent-containers-remote.webp) |
 
 ## Key Capabilities
 
@@ -14,37 +20,44 @@ Eight.ly Agent is a lightweight, cross-platform Docker management daemon written
 | Host Info | Reports PCI devices, physical disks, and system metadata |
 | Registration | Auto-registers with Eight.ly OS and sends 30-second heartbeats |
 | Auto-TLS | Generates self-signed certificates on first start if none are provided |
+| Prometheus Metrics | Optional `/metrics` endpoint for monitoring (behind `--metrics` flag) |
 
 ## Architecture
 
-```
-                  +---------------------+
-                  |   Eight.ly OS UI    |
-                  |    (Dashboard)      |
-                  +----------+----------+
-                             |
-                   HTTPS + Bearer Token
-                             |
-                  +----------v----------+
-                  |  Eight.ly Agent     |
-                  |     :9001           |
-                  |                     |
-                  |  +---------------+  |
-                  |  | Auth (HMAC)   |  |
-                  |  | TLS (auto)    |  |
-                  |  | Registration  |  |
-                  |  | Heartbeat     |  |
-                  |  +---------------+  |
-                  +----------+----------+
-                             |
-                     Unix Socket / Named Pipe
-                             |
-                  +----------v----------+
-                  |   Docker Daemon     |
-                  |  /var/run/docker.sock|
-                  |  (or named pipe on  |
-                  |   Windows)          |
-                  +---------------------+
+```mermaid
+flowchart TB
+    subgraph clients["Clients"]
+        EOS["Eight.ly OS Dashboard"]
+        CLI["curl / SDK / Mobile"]
+    end
+
+    subgraph agent["Eight.ly Agent :9001"]
+        direction TB
+        TLS["TLS Termination"]
+        AUTH["HMAC-SHA256 Auth"]
+        subgraph endpoints["Endpoints"]
+            direction LR
+            HEALTH["/ping /healthz /readyz /version"]
+            METRICS["/metrics"]
+            PROXY["Docker API Proxy"]
+            WS["WebSocket Console"]
+            BROWSE["File Browser"]
+            HOST["Host Info"]
+        end
+        REG["Registration + Heartbeat"]
+    end
+
+    subgraph docker["Docker Engine"]
+        SOCK["Unix Socket / Named Pipe"]
+    end
+
+    clients -->|"HTTPS + Bearer Token"| TLS
+    TLS --> AUTH
+    AUTH --> endpoints
+    PROXY --> SOCK
+    WS -->|"WebSocket"| SOCK
+    BROWSE --> SOCK
+    REG -->|"HTTPS"| EOS
 ```
 
 The agent sits between the EOS dashboard and the local Docker daemon. All communication from EOS to the agent is over HTTPS with HMAC-SHA256 Bearer token authentication. The agent communicates with Docker via the Unix socket on Linux/macOS or the named pipe (`//./pipe/docker_engine`) on Windows.
@@ -69,7 +82,7 @@ internal/server/server.go           -- HTTP server lifecycle (used by service wr
 internal/tlsutil/tls.go             75 LOC -- self-signed cert generation
 internal/websocket/ws.go           125 LOC -- WebSocket attach + exec handlers
                                    -----
-                                  ~1,400 LOC total
+                                  ~2,050 LOC total
 ```
 
 ## Dependencies
@@ -78,6 +91,7 @@ internal/websocket/ws.go           125 LOC -- WebSocket attach + exec handlers
 |--------|---------|
 | `github.com/gorilla/websocket` | WebSocket upgrade for container console |
 | `github.com/rs/zerolog` | Structured JSON logging |
+| `github.com/prometheus/client_golang` | Prometheus metrics exposition |
 
 No frameworks, no ORM, no config libraries.
 

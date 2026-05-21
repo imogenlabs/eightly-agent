@@ -22,8 +22,8 @@ If **both** files exist, they are loaded and used as-is. If **either** file is m
 | Valid until | 1 year from generation |
 | Key usage | Digital Signature, Key Encipherment |
 | Extended key usage | Server Authentication |
-| SAN DNS names | `localhost` |
-| SAN IP addresses | `127.0.0.1` |
+| SAN DNS names | `localhost` (plus any from `--tls-san`) |
+| SAN IP addresses | `127.0.0.1` (plus any from `--tls-san`) |
 | Key file permissions | `0600` |
 
 ### File Locations
@@ -37,10 +37,20 @@ With the default `--data-path /data`:
 
 The data directory is created with mode `0755` if it does not exist. The key file is created with mode `0600` (owner read/write only).
 
+### Extra SANs via `--tls-san`
+
+To include additional DNS names or IP addresses in the auto-generated certificate, use the `--tls-san` flag (or `EIGHTLY_TLS_SANS` env var) with a comma-separated list:
+
+```bash
+./eightly-agent --tls-san "docker-host-01.local,192.168.1.50"
+```
+
+This is useful when the agent is accessed by hostname or LAN IP in addition to localhost, avoiding certificate name mismatch warnings without needing to generate custom certificates.
+
 ### Limitations of Auto-Generated Certs
 
 - The certificate is self-signed, so clients must either trust it explicitly (via `--server-ca` on the EOS side) or use `-k` in curl for debugging only.
-- The SAN only covers `localhost` and `127.0.0.1`. Connecting via hostname or LAN IP will trigger certificate name mismatch warnings.
+- Without `--tls-san`, the SAN only covers `localhost` and `127.0.0.1`. Connecting via hostname or LAN IP will trigger certificate name mismatch warnings.
 - The certificate expires after 1 year with no automatic renewal.
 
 ## Custom Certificates
@@ -127,9 +137,20 @@ This model works with self-signed certificates because trust is established thro
 - Do not regenerate the agent's certificates unnecessarily -- this will break the TOFU trust and require re-acceptance in EOS.
 - If you do need to regenerate (e.g., key compromise), delete both `cert.pem` and `key.pem` and restart the agent. Then re-accept the new fingerprint in EOS.
 
-## Registration and Heartbeat TLS
+## Outbound TLS (Registration and Heartbeat)
 
-When the agent connects to EOS for registration and heartbeat, it verifies the server's TLS certificate against the system trust store by default (fail-closed). If the EOS server uses a self-signed or internal CA certificate, configure the agent with `--server-ca <path>` to pin that CA. For development environments only, `--insecure-server-tls` disables certificate verification as an explicit opt-in. Trust between EOS and the agent is additionally established through the shared secret and enrollment token (see [[Authentication]] and [[Registration-and-Heartbeat]]).
+Outbound TLS to EOS is **fail-closed by default**. The agent verifies the EOS server's TLS certificate against the system trust store. If verification fails, the connection is refused.
+
+**Options for non-public CAs:**
+
+| Flag | Env Var | Effect |
+|------|---------|--------|
+| `--server-ca <path>` | `EIGHTLY_SERVER_CA` | Pin a custom CA certificate for outbound connections |
+| `--insecure-server-tls` | `EIGHTLY_INSECURE_SERVER_TLS` | Skip TLS verification entirely (explicit opt-in, dev only) |
+
+If your EOS server uses a self-signed certificate, you **must** use one of these options or the agent will fail to register. `--server-ca` is the recommended approach; `--insecure-server-tls` should only be used in development environments.
+
+Trust between EOS and the agent is additionally established through the shared secret and enrollment token (see [[Authentication]] and [[Registration-and-Heartbeat]]).
 
 ## Server Configuration
 

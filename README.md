@@ -25,7 +25,7 @@ Run on every Docker host. Manage them all from one dashboard.
 
 Eight.ly Agent is a single Go binary that turns any Docker host into a managed node for Eight.ly OS. Deploy the agent on Linux, macOS, or Windows, point EOS at it, and get full container management, WebSocket console, file browsing, and system monitoring — all over authenticated TLS.
 
-**~1,550 lines of Go. Three dependencies. Zero config files.**
+**~2,050 lines of Go. Four dependencies. Zero config files.**
 
 ### Key Capabilities
 
@@ -294,7 +294,7 @@ internal/server/server.go      108 LOC — HTTP mux, TLS, graceful shutdown
 internal/tlsutil/tls.go         75 LOC — self-signed cert generation
 internal/websocket/websocket.go 125 LOC — WebSocket attach + exec handlers
                                ─────
-                             ~1,550 LOC total
+                             ~2,050 LOC total
 ```
 
 </details>

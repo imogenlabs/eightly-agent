@@ -1,6 +1,6 @@
 # Architecture
 
-Eight.ly Agent is a single Go binary (~1,800 LOC) organized into focused internal packages.
+Eight.ly Agent is a single Go binary (~2,050 LOC) organized into focused internal packages.
 
 ## Package Layout
 

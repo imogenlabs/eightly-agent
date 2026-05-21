@@ -1,6 +1,6 @@
 # Installation
 
-Multiple ways to install Eight.ly Agent: Docker container (recommended), Homebrew (macOS/Linux), Scoop (Windows), pre-built binary, Windows service, or build from source.
+Multiple ways to install Eight.ly Agent: Docker Compose (recommended), Docker container, Homebrew (macOS/Linux), Scoop (Windows), pre-built binary, Windows service, or build from source. The current release is **v1.0.0**.
 
 ## Prerequisites
 
@@ -43,7 +43,43 @@ eightly-agent.exe `
 
 > **Note:** On Windows, the default Docker socket path is `//./pipe/docker_engine` (Docker Desktop named pipe) and the default data path is `C:\ProgramData\eightly-agent`.
 
-## Docker (Recommended)
+## Docker Compose (Recommended)
+
+The easiest way to deploy. A `docker-compose.yml` and `.env.example` are included in the repo:
+
+```bash
+cp .env.example .env
+# Edit .env with your shared secret and EOS server URL
+docker compose up -d
+```
+
+The compose file contents for reference:
+
+```yaml
+services:
+  eightly-agent:
+    image: ghcr.io/smashingtags/eightly-agent:v1.0.0
+    container_name: eightly-agent
+    restart: unless-stopped
+    ports:
+      - "9001:9001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - agent-data:/data
+    env_file: .env
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "https://localhost:9001/healthz", "--no-check-certificate"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  agent-data:
+```
+
+See [[Configuration]] for all available environment variables to put in `.env`.
+
+## Docker
 
 The agent is published to both GitHub Container Registry and Docker Hub as a multi-arch image (amd64 and arm64).
 
@@ -59,7 +95,7 @@ docker run -d \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:7001" \
   -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
-  ghcr.io/smashingtags/eightly-agent:latest
+  ghcr.io/smashingtags/eightly-agent:v1.0.0
 ```
 
 ### Docker Hub
@@ -74,44 +110,7 @@ docker run -d \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:7001" \
   -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
-  smashingtags/eightly-agent:latest
-```
-
-### Docker Compose
-
-A `docker-compose.yml` and `.env.example` are included in the repo for quick setup:
-
-```bash
-cp .env.example .env
-# Edit .env with your shared secret and EOS server URL
-docker compose up -d
-```
-
-The compose file contents for reference:
-
-```yaml
-services:
-  eightly-agent:
-    image: ghcr.io/smashingtags/eightly-agent:latest
-    container_name: eightly-agent
-    restart: unless-stopped
-    ports:
-      - "9001:9001"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - agent-data:/data
-    environment:
-      - EIGHTLY_AGENT_SECRET=your-shared-secret
-      - EIGHTLY_SERVER_URL=https://your-eos-server:7001
-      - EIGHTLY_ENROLL_TOKEN=your-enrollment-token
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "https://localhost:9001/ping", "--no-check-certificate"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
-volumes:
-  agent-data:
+  smashingtags/eightly-agent:v1.0.0
 ```
 
 ### Volume Mounts
@@ -235,7 +234,7 @@ make build
 
 ```bash
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
-  -ldflags "-s -w -X main.version=2.0.0" \
+  -ldflags "-s -w -X main.version=1.0.0" \
   -o build/eightly-agent-arm64 \
   ./cmd/agent
 ```
@@ -247,14 +246,22 @@ The binary is fully static (`CGO_ENABLED=0`) and has no runtime dependencies.
 After starting the agent, verify it is running:
 
 ```bash
-# Health check (no auth required)
+# Liveness check (no auth required)
+curl -k https://localhost:9001/healthz
+# Expected: 200 OK
+
+# Readiness check (verifies Docker is reachable, no auth required)
+curl -k https://localhost:9001/readyz
+# Expected: 200 OK (or 503 if Docker is unreachable)
+
+# Legacy health check
 curl -k https://localhost:9001/ping
 # Expected: 200 OK with empty body
 
 # Check the response headers
 curl -kI https://localhost:9001/ping
 # Should include:
-#   Eightly-Agent: 2.0.0
+#   Eightly-Agent: 1.0.0
 #   Eightly-Agent-API-Version: 2
 ```
 

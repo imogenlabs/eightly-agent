@@ -121,16 +121,44 @@ docker connect failed
 
 ---
 
+## Agent Refuses to Start
+
+**Symptoms**: Agent exits immediately on startup with an error about missing secret.
+
+**Cause**: The agent is fail-closed by default -- `EIGHTLY_AGENT_SECRET` is required. Without it, the agent will not start.
+
+**Fixes**:
+
+1. **Production**: Set the shared secret:
+   ```bash
+   -e EIGHTLY_AGENT_SECRET="your-shared-secret"
+   ```
+
+2. **Development only**: Explicitly opt in to no-auth mode:
+   ```bash
+   -e EIGHTLY_INSECURE_NO_AUTH=true
+   ```
+   Or with the binary: `--insecure-no-auth`
+
+---
+
 ## TLS Errors
 
 ### Client gets "certificate signed by unknown authority"
 
 The connecting client (typically the EOS server, or curl) doesn't trust the agent's self-signed certificate. Options:
-- Provide a proper CA-signed certificate to the agent via `--tls-san` with the correct hostnames
+- Use `--tls-san` to include the correct hostnames/IPs in the auto-generated cert
+- Provide a proper CA-signed certificate to the agent
 - Configure the EOS server to trust the agent's self-signed cert via `--server-ca`
 - For curl debugging only: `curl -k https://agent-host:9001/ping` (never in production)
 
-The agent no longer defaults to `InsecureSkipVerify` for outbound connections. If registering against an EOS server with a self-signed certificate, use `--insecure-server-tls` as an explicit opt-in. See [[TLS]].
+### Agent fails to register -- outbound TLS error
+
+Outbound TLS to EOS is **fail-closed by default**. The agent verifies the EOS server's certificate against the system trust store. If your EOS server uses a self-signed certificate:
+- **Recommended**: Use `--server-ca <path-to-ca.pem>` to pin the CA
+- **Dev only**: Use `--insecure-server-tls` to skip verification
+
+See [[TLS]] for full details.
 
 ### "failed to generate TLS cert"
 

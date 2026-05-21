@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/readyz` readiness probe (returns `200` if Docker socket is reachable, `503` otherwise)
 - Configurable TLS SANs via `--tls-san` flag (multiple values supported)
 - Token expiry (`exp` claim) enforcement in HMAC auth middleware
-- 129 tests across 9 packages
+- 134 tests across 10 packages
 
 ### Security
 - Outbound connections to EOS servers now verify certificates by default instead of
@@ -80,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cosign-signed release binaries and container images
 - SLSA build provenance attestations
 - SBOM generation (SPDX)
-- 129 tests across 9 packages
+- 134 tests across 10 packages
 - GitHub wiki with 10 documentation pages
 - SECURITY.md with threat model and disclosure policy
 - CONTRIBUTING.md and CODE_OF_CONDUCT.md

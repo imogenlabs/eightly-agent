@@ -129,7 +129,7 @@ When a heartbeat fails (network error or 4xx/5xx response):
 After **3 consecutive heartbeat failures**, the agent attempts to re-register with EOS:
 
 1. Calls `DetectInfo()` again to get current host information.
-2. Sends a new `POST /api/agents/register` request (without an enrollment token).
+2. Sends a new `POST /api/agents/register` request via the `ReRegister` function. The existing Bearer token from state is included in the `Authorization` header (not the enrollment token).
 3. If successful, replaces the in-memory state and saves the new state file.
 4. Resets the failure counter and interval back to 30 seconds.
 5. If re-registration also fails, the heartbeat loop continues with backoff. It will try re-registration again after the next 3 consecutive failures.
@@ -142,9 +142,21 @@ The heartbeat goroutine listens on the application's context. When the agent rec
 2. The heartbeat loop logs "heartbeat stopped" and exits.
 3. The HTTP server shuts down with a 10-second grace period.
 
+## Prometheus Metrics
+
+When the agent is started with `--metrics`, the following counters related to registration and heartbeat are exposed at `/metrics`:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `eightly_agent_heartbeats_sent_total` | Counter | Total heartbeats sent (successful and failed) |
+| `eightly_agent_heartbeats_failed_total` | Counter | Total failed heartbeats |
+| `eightly_agent_registration_attempts_total` | Counter | Total registration and re-registration attempts |
+
+These counters are useful for alerting on connectivity issues (e.g., alert when `heartbeats_failed_total` increases over a window).
+
 ## TLS for Registration and Heartbeat
 
-Registration and heartbeat requests verify the EOS server's TLS certificate against the system trust store by default (fail-closed). If the EOS server uses a self-signed or internal CA certificate, configure the agent with `--server-ca <path>` to pin that CA. For development environments only, `--insecure-server-tls` disables certificate verification as an explicit opt-in. Trust between EOS and the agent is additionally established through the shared secret and enrollment token (see [[TLS]]).
+Outbound TLS is **fail-closed by default**. Registration and heartbeat requests verify the EOS server's TLS certificate against the system trust store. If verification fails, the connection is refused. For EOS servers with self-signed or internal CA certificates, use `--server-ca <path>` to pin the CA, or `--insecure-server-tls` as an explicit opt-in for dev environments only. See [[TLS]] for full details.
 
 ## Timeline
 
