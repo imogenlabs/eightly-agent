@@ -260,7 +260,7 @@ internal/proxy/docker.go        50 LOC — reverse proxy to Docker socket
 internal/register/register.go  268 LOC — EOS registration + 30s heartbeat loop
 internal/server/server.go      108 LOC — HTTP mux, TLS, graceful shutdown
 internal/tlsutil/tls.go         75 LOC — self-signed cert generation
-internal/websocket/ws.go       125 LOC — WebSocket attach + exec handlers
+internal/websocket/websocket.go 125 LOC — WebSocket attach + exec handlers
                                ─────
                              ~1,550 LOC total
 ```
@@ -286,21 +286,22 @@ That's it. No frameworks, no ORM, no config libraries.
 
 | Workflow | Trigger | What it does |
 |:---------|:--------|:-------------|
-| **CI** | Push/PR to `main`, `dev` | Lint (vet + staticcheck) → Test (race) → Build matrix (5 platforms) |
+| **CI** | Push/PR to `main`, `dev` | Lint (vet + staticcheck) → Test (race) → Build matrix (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64) |
 | **Docker Publish** | Push to `main`, tags | Multi-arch build → GHCR + Docker Hub |
-| **Release** | Tags (`v*`) | Build binaries + .deb + .rpm → GitHub Release with SHA256 checksums |
+| **Release** | Tags (`v*`) or manual dispatch | Build 5 platform binaries + `.deb`/`.rpm` packages (amd64 + arm64) → GitHub Release with SHA256 checksums |
 
 ### Install Methods
 
-| Method | Command |
-|:-------|:--------|
-| Docker (GHCR) | `docker pull ghcr.io/smashingtags/eightly-agent:latest` |
-| Docker (Hub) | `docker pull smashingtags/eightly-agent:latest` |
-| Homebrew | `brew install smashingtags/tap/eightly-agent` |
-| Scoop (Windows) | `scoop bucket add eightly https://github.com/smashingtags/scoop-eightly && scoop install eightly-agent` |
-| Debian/Ubuntu | Download `.deb` from [Releases](https://github.com/smashingtags/eightly-agent/releases) |
-| RHEL/Fedora | Download `.rpm` from [Releases](https://github.com/smashingtags/eightly-agent/releases) |
-| Binary | Download from [Releases](https://github.com/smashingtags/eightly-agent/releases) — Linux, macOS, Windows |
+| Method | Platform | Command / Source |
+|:-------|:---------|:-----------------|
+| Docker (GHCR) | Linux, macOS | `docker pull ghcr.io/smashingtags/eightly-agent:latest` |
+| Docker (Hub) | Linux, macOS | `docker pull smashingtags/eightly-agent:latest` |
+| Homebrew | macOS, Linux | `brew install smashingtags/tap/eightly-agent` |
+| Scoop | Windows | `scoop bucket add eightly https://github.com/smashingtags/scoop-eightly && scoop install eightly-agent` |
+| .deb package | Debian, Ubuntu | Download from [Releases](https://github.com/smashingtags/eightly-agent/releases) (amd64, arm64) |
+| .rpm package | RHEL, Fedora | Download from [Releases](https://github.com/smashingtags/eightly-agent/releases) (amd64, arm64) |
+| Windows service | Windows | Download `.exe` from [Releases](https://github.com/smashingtags/eightly-agent/releases), then `eightly-agent.exe install && eightly-agent.exe start` |
+| Binary | Linux, macOS, Windows | Download from [Releases](https://github.com/smashingtags/eightly-agent/releases) (5 platform builds) |
 
 ---
 
