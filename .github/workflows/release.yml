@@ -18,7 +18,7 @@ permissions:
 jobs:
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     strategy:
       matrix:
         include:
@@ -74,7 +74,7 @@ jobs:
 
   package:
     name: Package (${{ matrix.goarch }})
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: build
     strategy:
       matrix:
@@ -133,7 +133,7 @@ jobs:
 
   release:
     name: Create Release
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: [build, package]
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
