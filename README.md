@@ -1,6 +1,8 @@
 # Eight.ly Agent
 
-Lightweight Docker management agent for Eight.ly OS. Runs on remote Docker hosts and provides secure API access for container management, console access, file operations, and system monitoring.
+Lightweight Docker management agent for [Eight.ly OS](https://eight.ly). Runs on remote Docker hosts and provides secure API access for container management, console access, file operations, and system monitoring.
+
+![Remote Environments — connected agents with heartbeat status](docs/images/agent-environments.webp)
 
 ## What It Does
 
@@ -11,28 +13,42 @@ Lightweight Docker management agent for Eight.ly OS. Runs on remote Docker hosts
 - **Registration** — auto-registers with an Eight.ly OS server and sends 30-second heartbeats
 - **Auto-TLS** — generates self-signed certificates if none are provided
 
+### Multi-Host Container Management
+
+Manage containers across your entire fleet from a single Eight.ly OS dashboard. The environment dropdown lets you switch between local and remote hosts instantly.
+
+<p float="left">
+  <img src="docs/images/agent-containers-local.webp" width="49%" alt="Container list on local host" />
+  <img src="docs/images/agent-containers-remote.webp" width="49%" alt="Containers on remote agent host" />
+</p>
+
 ## Quick Start
 
+### Docker (recommended)
+
 ```bash
-# Build
-make build
-
-# Run (dev mode, no auth)
-./build/eightly-agent --port 9001
-
-# Run with auth + registration
-./build/eightly-agent \
-  --secret "your-shared-secret" \
-  --server-url "https://your-eos-server:7001" \
-  --enroll-token "your-enrollment-token"
-
-# Docker
 docker run -d \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:7001" \
   ghcr.io/smashingtags/eightly-agent:latest
+```
+
+Also available on Docker Hub:
+
+```bash
+docker pull smashingtags/eightly-agent:latest
+```
+
+### Binary
+
+```bash
+make build
+./build/eightly-agent \
+  --secret "your-shared-secret" \
+  --server-url "https://your-eos-server:7001" \
+  --enroll-token "your-enrollment-token"
 ```
 
 ## Configuration
@@ -77,7 +93,7 @@ Eight.ly Agent (:9001)
 Docker Daemon (/var/run/docker.sock)
 ```
 
-~975 lines of Go. Zero external dependencies beyond gorilla/websocket and zerolog. No Portainer code.
+~975 lines of Go. Zero external dependencies beyond gorilla/websocket and zerolog.
 
 ## License
 
