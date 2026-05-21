@@ -79,6 +79,8 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 
+	// TODO(v1.1.0): /metrics endpoint behind --metrics-enabled flag — see GitHub issue #10
+
 	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

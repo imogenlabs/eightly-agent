@@ -19,6 +19,21 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/var/lib/eightly-agent
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectKernelLogs=true
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+UMask=0077
+# MemoryDenyWriteExecute=true is intentionally omitted — the Go runtime
+# requires writable+executable memory for goroutine stacks and the GC.
 
 [Install]
 WantedBy=multi-user.target

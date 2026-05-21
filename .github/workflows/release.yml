@@ -188,6 +188,12 @@ jobs:
           format: spdx-json
           output-file: release/sbom.spdx.json
 
+      - name: Attest SBOM
+        uses: actions/attest-sbom@5026d3663739160db546203eeaffa6aa1571a001 # v1
+        with:
+          subject-path: 'release/eightly-agent-*'
+          sbom-path: release/sbom.spdx.json
+
       - name: Generate build provenance
         uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # v1
         with:

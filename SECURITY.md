@@ -58,7 +58,7 @@ A valid HMAC-signed token grants **full Docker API access** on the host where th
 
 ### What the agent does NOT trust
 
-- **HTTP Origin headers when auth is enabled.** With a valid `EIGHTLY_AGENT_SECRET`, the WebSocket upgrader accepts any Origin because the Bearer token is the access control boundary, not the Origin header.
+- **HTTP Origin headers when auth is enabled.** With a valid `EIGHTLY_AGENT_SECRET`, the WebSocket upgrader accepts any Origin because the Bearer token is the access control boundary, not the Origin header. When `--allowed-origins` is set, requests with no Origin header are still permitted to support non-browser clients (curl, SDKs, EOS server). The Origin header is not an authentication mechanism — rely on the Bearer token for security. To require Origin on all requests, set `--allowed-origins` AND ensure all legitimate clients send the Origin header.
 - **Client-supplied paths in `/browse/*`.** All paths are resolved against a volume base directory. `filepath.Rel` containment checks and post-symlink-resolution re-checks reject any traversal attempt.
 
 ### Privilege required

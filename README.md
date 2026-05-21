@@ -354,6 +354,14 @@ cosign verify \
   ghcr.io/smashingtags/eightly-agent:latest
 ```
 
+### Verify SBOM
+
+```bash
+gh attestation verify eightly-agent-linux-amd64 \
+  --owner smashingtags \
+  --predicate-type https://spdx.dev/Document
+```
+
 ### Verify build provenance
 
 ```bash
