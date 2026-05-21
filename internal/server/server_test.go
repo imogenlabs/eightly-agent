@@ -475,6 +475,8 @@ func TestMetricsEndpoint(t *testing.T) {
 
 		for _, metric := range []string{
 			"eightly_agent_heartbeats_sent_total",
+			"eightly_agent_heartbeats_failed_total",
+			"eightly_agent_registration_attempts_total",
 			"eightly_agent_ws_clients_connected",
 			"eightly_agent_docker_socket_reachable",
 		} {
@@ -483,6 +485,72 @@ func TestMetricsEndpoint(t *testing.T) {
 			}
 		}
 	})
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("Run returned error on shutdown: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not shut down within 10 seconds")
+	}
+}
+
+func TestMetricsEndpoint_Disabled(t *testing.T) {
+	dir := t.TempDir()
+	port := freePort(t)
+	secret := "metrics-disabled-secret"
+
+	cfg := &config.Config{
+		Addr:           "127.0.0.1",
+		Port:           port,
+		Secret:         secret,
+		ServerURL:      "",
+		StatePath:      dir + "/state.json",
+		DataPath:       dir,
+		SocketPath:     "/var/run/docker.sock",
+		Version:        "test-metrics-disabled",
+		MetricsEnabled: false,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- Run(ctx, cfg)
+	}()
+
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	waitForServer(t, client, port)
+	base := fmt.Sprintf("https://127.0.0.1:%s", port)
+
+	token := testToken("admin", secret, time.Now().Add(5*time.Minute).Unix())
+	req, _ := http.NewRequest(http.MethodGet, base+"/metrics", nil) //nolint:noctx // test helper
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /metrics (disabled): %v", err)
+	}
+	defer resp.Body.Close()
+
+	// When metrics is disabled the Prometheus handler is not mounted.
+	// The catch-all Docker proxy will handle the request instead, so we
+	// check that the response does NOT contain Prometheus output.
+	if resp.StatusCode == http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		if strings.Contains(string(body), "eightly_agent_") {
+			t.Error("GET /metrics (disabled): should not serve Prometheus metrics")
+		}
+	}
 
 	cancel()
 	select {

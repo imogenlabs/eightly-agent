@@ -35,4 +35,11 @@ func init() {
 		RegistrationAttempts,
 		DockerSocketReachable,
 	)
+
+	// Pre-initialize CounterVec label combos so they appear in /metrics
+	// output immediately (counters start at 0).
+	HeartbeatsFailed.WithLabelValues("send_error")
+	RegistrationAttempts.WithLabelValues("success")
+	RegistrationAttempts.WithLabelValues("error")
+	RegistrationAttempts.WithLabelValues("rejected")
 }

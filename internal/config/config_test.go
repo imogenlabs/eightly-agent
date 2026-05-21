@@ -28,6 +28,7 @@ func clearEnv(t *testing.T) {
 		"EIGHTLY_ADVERTISE_IP", "EIGHTLY_TLS_SANS",
 		"EIGHTLY_ALLOWED_ORIGINS",
 		"EIGHTLY_INSECURE_NO_AUTH", "EIGHTLY_INSECURE_SERVER_TLS",
+		"EIGHTLY_METRICS_ENABLED",
 	} {
 		os.Unsetenv(key)
 	}
@@ -218,6 +219,17 @@ func TestParseArgsBoolEnvFalse(t *testing.T) {
 
 	if c.InsecureNoAuth {
 		t.Error("InsecureNoAuth: env=false should override flag to false")
+	}
+}
+
+func TestParseArgsMetricsEnabledEnv(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("EIGHTLY_METRICS_ENABLED", "true")
+
+	c := parseTestArgs(t, nil, "v1.0.0")
+
+	if !c.MetricsEnabled {
+		t.Error("MetricsEnabled: expected true with env=true")
 	}
 }
 
