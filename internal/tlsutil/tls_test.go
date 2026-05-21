@@ -115,6 +115,45 @@ func TestCertSANs(t *testing.T) {
 	}
 }
 
+func TestCertExtraSANs(t *testing.T) {
+	dir := t.TempDir()
+
+	certPath, _, err := EnsureCert(dir, "myhost.local", "192.168.1.50", "agent.eight.ly")
+	if err != nil {
+		t.Fatalf("EnsureCert with extra SANs failed: %v", err)
+	}
+
+	certData, _ := os.ReadFile(certPath)
+	block, _ := pem.Decode(certData)
+	cert, _ := x509.ParseCertificate(block.Bytes)
+
+	wantDNS := map[string]bool{"localhost": false, "myhost.local": false, "agent.eight.ly": false}
+	for _, name := range cert.DNSNames {
+		if _, ok := wantDNS[name]; ok {
+			wantDNS[name] = true
+		}
+	}
+	for name, found := range wantDNS {
+		if !found {
+			t.Errorf("expected %q in DNS SANs, got %v", name, cert.DNSNames)
+		}
+	}
+
+	wantIPs := []string{"127.0.0.1", "192.168.1.50"}
+	for _, want := range wantIPs {
+		found := false
+		for _, ip := range cert.IPAddresses {
+			if ip.Equal(net.ParseIP(want)) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected %s in IP SANs, got %v", want, cert.IPAddresses)
+		}
+	}
+}
+
 func TestCertProperties(t *testing.T) {
 	dir := t.TempDir()
 

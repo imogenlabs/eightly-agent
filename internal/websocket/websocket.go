@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package websocket
 
 import (
@@ -16,6 +18,10 @@ func validDockerID(id string) bool {
 	return dockerIDRe.MatchString(id)
 }
 
+// CheckOrigin accepts all origins. Access control is handled by HMAC token
+// authentication on the HTTP upgrade request. Browsers cannot set the
+// Authorization header on WebSocket handshakes, so CSRF via cross-origin
+// WS is not exploitable when authentication is enabled.
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }

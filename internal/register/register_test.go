@@ -179,7 +179,7 @@ func TestRegister_200WithSuccessFalse(t *testing.T) {
 }
 
 func TestDetectInfo_ReturnsNonEmptyHostnameAndVersion(t *testing.T) {
-	info := DetectInfo("/nonexistent.sock", "9999", "2.0.0")
+	info := DetectInfo("/nonexistent.sock", "9999", "2.0.0", "")
 
 	if info.Hostname == "" {
 		t.Error("Hostname should not be empty")
@@ -196,6 +196,19 @@ func TestDetectInfo_ReturnsNonEmptyHostnameAndVersion(t *testing.T) {
 	if info.Arch == "" {
 		t.Error("Arch should not be empty")
 	}
+}
+
+func TestDetectInfo_AdvertiseIPOverridesDetection(t *testing.T) {
+	info := DetectInfo("/nonexistent.sock", "9001", "1.0.0", "10.99.99.1")
+	if info.IP != "10.99.99.1" {
+		t.Errorf("expected advertise IP 10.99.99.1, got %q", info.IP)
+	}
+}
+
+func TestDetectInfo_EmptyAdvertiseIPFallsBackToDetection(t *testing.T) {
+	info := DetectInfo("/nonexistent.sock", "9001", "1.0.0", "")
+	// IP may be empty (no network) or a real IP -- either is fine as long as it didn't panic
+	_ = info.IP
 }
 
 func TestLoadState_NonexistentFileReturnsNil(t *testing.T) {

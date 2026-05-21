@@ -1,4 +1,6 @@
 //go:build windows
+// SPDX-License-Identifier: Apache-2.0
+
 
 package main
 
@@ -141,6 +143,7 @@ func installService() error {
 	defer s.Close()
 
 	fmt.Printf("service %s installed\n", serviceName)
+	fmt.Println("WARNING: Set EIGHTLY_AGENT_SECRET as a system environment variable before starting the service.")
 	return nil
 }
 

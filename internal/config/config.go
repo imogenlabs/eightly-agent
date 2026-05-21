@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package config
 
 import (
@@ -17,6 +19,8 @@ type Config struct {
 	SocketPath        string
 	Version           string
 	ServerCA          string
+	AdvertiseIP       string
+	TLSSANs           string
 	InsecureNoAuth    bool
 	InsecureServerTLS bool
 	ShowVersion       bool
@@ -35,6 +39,8 @@ func Parse(version string) *Config {
 	flag.StringVar(&c.LogLevel, "log-level", "info", "log level")
 	flag.StringVar(&c.SocketPath, "socket", DefaultSocketPath, "Docker socket path")
 	flag.StringVar(&c.ServerCA, "server-ca", "", "path to CA cert file for validating EOS server TLS")
+	flag.StringVar(&c.AdvertiseIP, "advertise-ip", "", "IP address to advertise instead of auto-detecting")
+	flag.StringVar(&c.TLSSANs, "tls-san", "", "comma-separated extra SANs for the self-signed TLS cert")
 	flag.BoolVar(&c.InsecureNoAuth, "insecure-no-auth", false, "disable authentication (NOT recommended for production)")
 	flag.BoolVar(&c.InsecureServerTLS, "insecure-server-tls", false, "skip TLS verification for EOS server connections")
 	flag.BoolVar(&c.ShowVersion, "version", false, "print version and exit")
@@ -49,6 +55,8 @@ func Parse(version string) *Config {
 	envOverride(&c.LogLevel, "LOG_LEVEL")
 	envOverride(&c.SocketPath, "DOCKER_SOCKET")
 	envOverride(&c.ServerCA, "EIGHTLY_SERVER_CA")
+	envOverride(&c.AdvertiseIP, "EIGHTLY_ADVERTISE_IP")
+	envOverride(&c.TLSSANs, "EIGHTLY_TLS_SANS")
 	if os.Getenv("EIGHTLY_INSECURE_NO_AUTH") == "true" || os.Getenv("EIGHTLY_INSECURE_NO_AUTH") == "1" {
 		c.InsecureNoAuth = true
 	}

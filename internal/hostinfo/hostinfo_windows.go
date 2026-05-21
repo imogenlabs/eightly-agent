@@ -1,9 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package hostinfo
 
 import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 func readPCIDevices() []PCIDevice {
@@ -11,6 +15,7 @@ func readPCIDevices() []PCIDevice {
 		"Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -like 'PCI*' } | Select-Object InstanceId,FriendlyName,Manufacturer,Class | ConvertTo-Csv -NoTypeInformation",
 	).Output()
 	if err != nil {
+		log.Debug().Err(err).Msg("powershell Get-PnpDevice failed")
 		return []PCIDevice{}
 	}
 
@@ -40,6 +45,7 @@ func readDisks() []PhysicalDisk {
 		"Get-PhysicalDisk | Select-Object DeviceId,FriendlyName,Size,Manufacturer | ConvertTo-Csv -NoTypeInformation",
 	).Output()
 	if err != nil {
+		log.Debug().Err(err).Msg("powershell Get-PhysicalDisk failed")
 		return []PhysicalDisk{}
 	}
 

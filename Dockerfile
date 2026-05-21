@@ -1,3 +1,5 @@
+# Base images use version tags (not digests) for readability.
+# Dependabot monitors for updates via .github/dependabot.yml.
 FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS builder
 ARG TARGETOS TARGETARCH
 ARG VERSION=dev

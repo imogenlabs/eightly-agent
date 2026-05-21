@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package proxy
 
 import (
@@ -33,18 +35,17 @@ func NewDockerProxy(socketPath string) http.Handler {
 	return proxy
 }
 
-var dockerListEndpoints = map[string]string{
-	"/containers": "/containers/json",
-	"/images":     "/images/json",
-	"/volumes":    "/volumes",
-	"/networks":   "/networks",
-}
-
 func rewriteDockerPath(path string) string {
-	for short, full := range dockerListEndpoints {
-		if path == short {
-			return full
-		}
+	switch path {
+	case "/containers":
+		return "/containers/json"
+	case "/images":
+		return "/images/json"
+	case "/volumes":
+		return "/volumes"
+	case "/networks":
+		return "/networks"
+	default:
+		return path
 	}
-	return path
 }

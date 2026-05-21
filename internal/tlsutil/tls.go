@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package tlsutil
 
 import (
@@ -13,7 +15,7 @@ import (
 	"time"
 )
 
-func EnsureCert(dir string) (certPath, keyPath string, err error) {
+func EnsureCert(dir string, extraSANs ...string) (certPath, keyPath string, err error) {
 	certPath = filepath.Join(dir, "cert.pem")
 	keyPath = filepath.Join(dir, "key.pem")
 
@@ -31,6 +33,16 @@ func EnsureCert(dir string) (certPath, keyPath string, err error) {
 		return "", "", err
 	}
 
+	dnsNames := []string{"localhost"}
+	ipAddrs := []net.IP{net.ParseIP("127.0.0.1")}
+	for _, san := range extraSANs {
+		if ip := net.ParseIP(san); ip != nil {
+			ipAddrs = append(ipAddrs, ip)
+		} else {
+			dnsNames = append(dnsNames, san)
+		}
+	}
+
 	now := time.Now()
 	template := &x509.Certificate{
 		SerialNumber: serial,
@@ -39,8 +51,8 @@ func EnsureCert(dir string) (certPath, keyPath string, err error) {
 		NotAfter:     now.Add(365 * 24 * time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     []string{"localhost"},
-		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		DNSNames:     dnsNames,
+		IPAddresses:  ipAddrs,
 	}
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)

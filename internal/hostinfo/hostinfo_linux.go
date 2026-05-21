@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package hostinfo
 
 import (
@@ -38,10 +40,14 @@ func readDisks() []PhysicalDisk {
 		}
 		base := filepath.Join("/sys/block", name)
 		sectors, _ := strconv.ParseInt(readSysfs(filepath.Join(base, "size")), 10, 64)
+		vendor := readSysfs(filepath.Join(base, "device", "vendor"))
+		if vendor == "" {
+			vendor = readSysfs(filepath.Join(base, "device", "model"))
+		}
 		disks = append(disks, PhysicalDisk{
 			Name:   name,
 			SizeGB: sectors * 512 / (1024 * 1024 * 1024),
-			Vendor: readSysfs(filepath.Join(base, "device", "vendor")),
+			Vendor: vendor,
 		})
 	}
 	return disks

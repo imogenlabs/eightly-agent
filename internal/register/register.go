@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package register
 
 import (
@@ -16,6 +18,13 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+)
+
+const (
+	heartbeatInterval    = 30 * time.Second
+	heartbeatMaxInterval = 300 * time.Second
+	heartbeatMaxFailures = 3
 )
 
 type State struct {
@@ -65,7 +74,7 @@ func (s *State) Save(path string) error {
 	return os.Rename(tmp, path)
 }
 
-func DetectInfo(socketPath, port, version string) AgentInfo {
+func DetectInfo(socketPath, port, version, advertiseIP string) AgentInfo {
 	info := AgentInfo{
 		Port:         port,
 		OS:           runtime.GOOS,
@@ -74,7 +83,11 @@ func DetectInfo(socketPath, port, version string) AgentInfo {
 	}
 
 	info.Hostname, _ = os.Hostname()
-	info.IP = detectLocalIP()
+	if advertiseIP != "" {
+		info.IP = advertiseIP
+	} else {
+		info.IP = detectLocalIP()
+	}
 	info.DockerVersion = detectDockerVersion(socketPath)
 
 	return info
@@ -83,6 +96,7 @@ func DetectInfo(socketPath, port, version string) AgentInfo {
 func detectLocalIP() string {
 	conn, err := net.DialTimeout("udp", "8.8.8.8:53", 3*time.Second)
 	if err != nil {
+		log.Debug().Err(err).Msg("UDP dial to 8.8.8.8:53 failed during local IP detection")
 		return ""
 	}
 	defer conn.Close()
@@ -142,26 +156,14 @@ func BuildServerTLSConfig(caPath string, insecure bool, log zerolog.Logger) (*tl
 }
 
 type registerPayload struct {
-	Hostname      string `json:"hostname"`
-	IP            string `json:"ip"`
-	Port          string `json:"port"`
-	DockerVersion string `json:"docker_version"`
-	OS            string `json:"os"`
-	Arch          string `json:"arch"`
-	AgentVersion  string `json:"agent_version"`
-	EnrollToken   string `json:"enroll_token,omitempty"`
+	AgentInfo
+	EnrollToken string `json:"enroll_token,omitempty"`
 }
 
 func Register(serverURL, enrollToken string, info AgentInfo, tlsCfg *tls.Config) (*State, error) {
 	payload := registerPayload{
-		Hostname:      info.Hostname,
-		IP:            info.IP,
-		Port:          info.Port,
-		DockerVersion: info.DockerVersion,
-		OS:            info.OS,
-		Arch:          info.Arch,
-		AgentVersion:  info.AgentVersion,
-		EnrollToken:   enrollToken,
+		AgentInfo:   info,
+		EnrollToken: enrollToken,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -217,9 +219,9 @@ func Register(serverURL, enrollToken string, info AgentInfo, tlsCfg *tls.Config)
 	}, nil
 }
 
-func StartHeartbeat(ctx context.Context, state *State, statePath, socketPath, version string, tlsCfg *tls.Config, log zerolog.Logger) {
-	interval := 30 * time.Second
-	maxInterval := 300 * time.Second
+func StartHeartbeat(ctx context.Context, state *State, statePath, socketPath, version, advertiseIP string, tlsCfg *tls.Config, log zerolog.Logger) {
+	interval := heartbeatInterval
+	maxInterval := heartbeatMaxInterval
 	failures := 0
 
 	for {
@@ -240,9 +242,9 @@ func StartHeartbeat(ctx context.Context, state *State, statePath, socketPath, ve
 				interval = maxInterval
 			}
 
-			if failures >= 3 {
+			if failures >= heartbeatMaxFailures {
 				log.Warn().Msg("re-registering after repeated heartbeat failures")
-				info := DetectInfo(socketPath, "", version)
+				info := DetectInfo(socketPath, "", version, advertiseIP)
 				newState, regErr := Register(state.ServerURL, "", info, tlsCfg)
 				if regErr != nil {
 					log.Error().Err(regErr).Msg("re-registration failed")
@@ -253,14 +255,14 @@ func StartHeartbeat(ctx context.Context, state *State, statePath, socketPath, ve
 					log.Error().Err(saveErr).Msg("failed to save new state")
 				}
 				failures = 0
-				interval = 30 * time.Second
+				interval = heartbeatInterval
 				log.Info().Str("agent_id", state.AgentID).Msg("re-registered")
 			}
 			continue
 		}
 
 		failures = 0
-		interval = 30 * time.Second
+		interval = heartbeatInterval
 		log.Debug().Str("agent_id", state.AgentID).Msg("heartbeat ok")
 	}
 }

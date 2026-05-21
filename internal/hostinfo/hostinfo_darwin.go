@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package hostinfo
 
 import (
@@ -5,11 +7,14 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 func readPCIDevices() []PCIDevice {
 	out, err := exec.Command("system_profiler", "SPPCIDataType", "-json").Output()
 	if err != nil {
+		log.Debug().Err(err).Msg("system_profiler SPPCIDataType failed")
 		return []PCIDevice{}
 	}
 
@@ -38,6 +43,7 @@ func readPCIDevices() []PCIDevice {
 func readDisks() []PhysicalDisk {
 	out, err := exec.Command("diskutil", "list").Output()
 	if err != nil {
+		log.Debug().Err(err).Msg("diskutil list failed")
 		return []PhysicalDisk{}
 	}
 
@@ -51,7 +57,11 @@ func readDisks() []PhysicalDisk {
 		if strings.Contains(line, "synthesized") || strings.Contains(line, "virtual") {
 			continue
 		}
-		name := strings.Fields(line)[0]
+		parts := strings.Fields(line)
+		if len(parts) == 0 {
+			continue
+		}
+		name := parts[0]
 		name = strings.TrimPrefix(name, "/dev/")
 
 		sizeGB := diskSizeGB(name)
@@ -70,6 +80,7 @@ func readDisks() []PhysicalDisk {
 func diskSizeGB(name string) int64 {
 	out, err := exec.Command("diskutil", "info", name).Output()
 	if err != nil {
+		log.Debug().Err(err).Str("disk", name).Msg("diskutil info failed (size)")
 		return 0
 	}
 	for _, line := range strings.Split(string(out), "\n") {
@@ -94,6 +105,7 @@ func diskSizeGB(name string) int64 {
 func diskVendor(name string) string {
 	out, err := exec.Command("diskutil", "info", name).Output()
 	if err != nil {
+		log.Debug().Err(err).Str("disk", name).Msg("diskutil info failed (vendor)")
 		return ""
 	}
 	for _, line := range strings.Split(string(out), "\n") {

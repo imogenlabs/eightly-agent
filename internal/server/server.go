@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package server
 
 import (
@@ -5,6 +7,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -36,7 +39,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		log.Warn().Err(err).Msg("failed to load registration state")
 	}
 	if state == nil && cfg.ServerURL != "" {
-		info := register.DetectInfo(cfg.SocketPath, cfg.Port, cfg.Version)
+		info := register.DetectInfo(cfg.SocketPath, cfg.Port, cfg.Version, cfg.AdvertiseIP)
 		state, err = register.Register(cfg.ServerURL, cfg.EnrollToken, info, serverTLS)
 		if err != nil {
 			log.Warn().Err(err).Msg("registration failed, will retry via heartbeat")
@@ -48,10 +51,28 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 	if state != nil && cfg.ServerURL != "" {
-		go register.StartHeartbeat(ctx, state, cfg.StatePath, cfg.SocketPath, cfg.Version, serverTLS, log.Logger)
+		go register.StartHeartbeat(ctx, state, cfg.StatePath, cfg.SocketPath, cfg.Version, cfg.AdvertiseIP, serverTLS, log.Logger)
 	}
 
-	certPath, keyPath, err := tlsutil.EnsureCert(cfg.DataPath)
+	// Build extra SANs for the self-signed cert from hostname, detected IP, and --tls-san flag
+	agentInfo := register.DetectInfo(cfg.SocketPath, cfg.Port, cfg.Version, cfg.AdvertiseIP)
+	var certSANs []string
+	if agentInfo.Hostname != "" {
+		certSANs = append(certSANs, agentInfo.Hostname)
+	}
+	if agentInfo.IP != "" {
+		certSANs = append(certSANs, agentInfo.IP)
+	}
+	if cfg.TLSSANs != "" {
+		for _, san := range strings.Split(cfg.TLSSANs, ",") {
+			san = strings.TrimSpace(san)
+			if san != "" {
+				certSANs = append(certSANs, san)
+			}
+		}
+	}
+
+	certPath, keyPath, err := tlsutil.EnsureCert(cfg.DataPath, certSANs...)
 	if err != nil {
 		return fmt.Errorf("failed to generate TLS cert: %w", err)
 	}
@@ -84,6 +105,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		},
 		ReadTimeout:  120 * time.Second,
 		WriteTimeout: 30 * time.Minute,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
@@ -106,6 +128,10 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	return srv.Shutdown(shutdownCtx)
 }
 
+// headerMiddleware sets agent version headers on responses. These headers are
+// not written for WebSocket connections — the WS upgrade hijacks the connection
+// before response headers are flushed. This is a known limitation; callers
+// should read version info from the /ping endpoint instead.
 func headerMiddleware(next http.Handler, version string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Eightly-Agent", version)
