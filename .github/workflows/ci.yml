@@ -25,7 +25,7 @@ jobs:
       - name: Go vet
         run: go vet ./...
       - name: Static check
-        uses: dominikh/staticcheck-action@fe1dd0c3658873b46f8c9bb3291096a617310571 # v1
+        uses: dominikh/staticcheck-action@v1
         with:
           version: "latest"
       - name: Govulncheck
@@ -33,7 +33,7 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
       - name: Gosec
-        uses: securego/gosec@6fbd381238e97e1d1f3358f0d6f65de78dcf9245 # v2
+        uses: securego/gosec@master
         with:
           args: ./...
       - name: golangci-lint
