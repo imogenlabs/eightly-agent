@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/smashingtags/eightly-agent/internal/metrics"
 )
 
 var dockerIDRe = regexp.MustCompile(`^[a-zA-Z0-9]{12,64}$`)
@@ -71,7 +73,11 @@ func AttachHandler(socketPath string, authEnabled bool, allowedOrigins []string)
 		if err != nil {
 			return
 		}
-		defer ws.Close()
+		metrics.WSClientsConnected.Inc()
+		defer func() {
+			metrics.WSClientsConnected.Dec()
+			ws.Close()
+		}()
 
 		docker, err := net.Dial("unix", socketPath)
 		if err != nil {
@@ -114,7 +120,11 @@ func ExecHandler(socketPath string, authEnabled bool, allowedOrigins []string) h
 		if err != nil {
 			return
 		}
-		defer ws.Close()
+		metrics.WSClientsConnected.Inc()
+		defer func() {
+			metrics.WSClientsConnected.Dec()
+			ws.Close()
+		}()
 
 		docker, err := net.Dial("unix", socketPath)
 		if err != nil {

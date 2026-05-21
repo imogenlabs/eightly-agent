@@ -7,15 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned
-- Prometheus /metrics endpoint (see [#10](https://github.com/smashingtags/eightly-agent/issues/10))
-
 ### Changed (BREAKING)
 - Server TLS verification now uses the system trust store by default. Users connecting
   to EOS servers with self-signed certificates must now pass `--insecure-server-tls`
   explicitly, or provide a CA with `--server-ca`.
 
 ### Added
+- Prometheus `/metrics` endpoint behind `--metrics` flag with heartbeat, registration,
+  WebSocket, and Docker socket reachability gauges/counters (closes [#10](https://github.com/smashingtags/eightly-agent/issues/10))
 - `BuildServerTLSConfig` helper centralizes outbound TLS configuration (system trust
   store default, optional `--server-ca` override, `--insecure-server-tls` escape hatch)
 - `--insecure-server-tls` flag to skip server certificate verification

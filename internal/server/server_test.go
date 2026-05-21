@@ -12,10 +12,13 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/smashingtags/eightly-agent/internal/config"
+
+	_ "github.com/smashingtags/eightly-agent/internal/metrics" // register prometheus metrics
 )
 
 func freePort(t *testing.T) string {
@@ -392,6 +395,95 @@ func TestIntegration_AuthEndpoints(t *testing.T) {
 	})
 
 	// Clean shutdown
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("Run returned error on shutdown: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not shut down within 10 seconds")
+	}
+}
+
+func TestMetricsEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	port := freePort(t)
+	secret := "metrics-test-secret"
+
+	cfg := &config.Config{
+		Addr:           "127.0.0.1",
+		Port:           port,
+		Secret:         secret,
+		ServerURL:      "",
+		StatePath:      dir + "/state.json",
+		DataPath:       dir,
+		SocketPath:     "/var/run/docker.sock",
+		Version:        "test-metrics",
+		MetricsEnabled: true,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- Run(ctx, cfg)
+	}()
+
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	waitForServer(t, client, port)
+	base := fmt.Sprintf("https://127.0.0.1:%s", port)
+
+	// /metrics without auth should return 401
+	t.Run("metrics_no_auth", func(t *testing.T) {
+		resp, err := client.Get(base + "/metrics") //nolint:noctx // test helper
+		if err != nil {
+			t.Fatalf("GET /metrics: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("GET /metrics (no auth): got %d, want 401", resp.StatusCode)
+		}
+	})
+
+	// /metrics with valid auth should return 200 and contain expected metric names
+	t.Run("metrics_with_auth", func(t *testing.T) {
+		token := testToken("admin", secret, time.Now().Add(5*time.Minute).Unix())
+		req, _ := http.NewRequest(http.MethodGet, base+"/metrics", nil) //nolint:noctx // test helper
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("GET /metrics (authed): %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("GET /metrics (authed): got %d, body: %s", resp.StatusCode, body)
+		}
+
+		body, _ := io.ReadAll(resp.Body)
+		text := string(body)
+
+		for _, metric := range []string{
+			"eightly_agent_heartbeats_sent_total",
+			"eightly_agent_ws_clients_connected",
+			"eightly_agent_docker_socket_reachable",
+		} {
+			if !strings.Contains(text, metric) {
+				t.Errorf("metrics response missing %q", metric)
+			}
+		}
+	})
+
 	cancel()
 	select {
 	case err := <-errCh:

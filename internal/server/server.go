@@ -13,12 +13,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog/log"
 
 	"github.com/smashingtags/eightly-agent/internal/auth"
 	"github.com/smashingtags/eightly-agent/internal/browse"
 	"github.com/smashingtags/eightly-agent/internal/config"
 	"github.com/smashingtags/eightly-agent/internal/hostinfo"
+	"github.com/smashingtags/eightly-agent/internal/metrics"
 	"github.com/smashingtags/eightly-agent/internal/proxy"
 	"github.com/smashingtags/eightly-agent/internal/register"
 	"github.com/smashingtags/eightly-agent/internal/tlsutil"
@@ -79,7 +81,9 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 
-	// TODO(v1.1.0): /metrics endpoint behind --metrics-enabled flag — see GitHub issue #10
+	if cfg.MetricsEnabled {
+		mux.Handle("GET /metrics", authed(promhttp.Handler()))
+	}
 
 	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -93,11 +97,13 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		w.Header().Set("Content-Type", "application/json")
 		conn, err := net.DialTimeout("unix", cfg.SocketPath, 2*time.Second)
 		if err != nil {
+			metrics.DockerSocketReachable.Set(0)
 			w.WriteHeader(http.StatusServiceUnavailable)
 			json.NewEncoder(w).Encode(map[string]string{"status": "not ready", "error": "docker socket unreachable"}) // #nosec G104 -- HTTP response write
 			return
 		}
 		conn.Close() // #nosec G104 -- probe connection, close is best-effort
+		metrics.DockerSocketReachable.Set(1)
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{"status": "ready"}) // #nosec G104 -- HTTP response write
 	})

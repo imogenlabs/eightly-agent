@@ -25,6 +25,7 @@ type Config struct {
 	AdvertiseIP       string
 	TLSSANs           string
 	AllowedOrigins    string
+	MetricsEnabled    bool
 	InsecureNoAuth    bool
 	InsecureServerTLS bool
 	ShowVersion       bool
@@ -49,6 +50,7 @@ func ParseArgs(fs *flag.FlagSet, args []string, version string) (*Config, error)
 	fs.StringVar(&c.AdvertiseIP, "advertise-ip", "", "IP address to advertise instead of auto-detecting")
 	fs.StringVar(&c.TLSSANs, "tls-san", "", "comma-separated extra SANs for the self-signed TLS cert")
 	fs.StringVar(&c.AllowedOrigins, "allowed-origins", "", "comma-separated WebSocket origin allowlist (empty = same-origin check)")
+	fs.BoolVar(&c.MetricsEnabled, "metrics", false, "enable Prometheus /metrics endpoint")
 	fs.BoolVar(&c.InsecureNoAuth, "insecure-no-auth", false, "disable authentication (NOT recommended for production)")
 	fs.BoolVar(&c.InsecureServerTLS, "insecure-server-tls", false, "skip TLS verification for EOS server connections")
 	fs.BoolVar(&c.ShowVersion, "version", false, "print version and exit")
@@ -69,6 +71,7 @@ func ParseArgs(fs *flag.FlagSet, args []string, version string) (*Config, error)
 	envOverride(&c.AdvertiseIP, "EIGHTLY_ADVERTISE_IP")
 	envOverride(&c.TLSSANs, "EIGHTLY_TLS_SANS")
 	envOverride(&c.AllowedOrigins, "EIGHTLY_ALLOWED_ORIGINS")
+	envOverrideBool(&c.MetricsEnabled, "EIGHTLY_METRICS_ENABLED")
 	envOverrideBool(&c.InsecureNoAuth, "EIGHTLY_INSECURE_NO_AUTH")
 	envOverrideBool(&c.InsecureServerTLS, "EIGHTLY_INSECURE_SERVER_TLS")
 

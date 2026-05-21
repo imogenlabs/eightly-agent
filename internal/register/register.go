@@ -19,6 +19,8 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	"github.com/smashingtags/eightly-agent/internal/metrics"
 )
 
 const (
@@ -197,11 +199,13 @@ func Register(serverURL, enrollToken string, info AgentInfo, tlsCfg *tls.Config)
 
 	resp, err := client.Do(req)
 	if err != nil {
+		metrics.RegistrationAttempts.WithLabelValues("error").Inc()
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		metrics.RegistrationAttempts.WithLabelValues("rejected").Inc()
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, fmt.Errorf("register failed: %d %s", resp.StatusCode, string(raw))
 	}
@@ -214,12 +218,15 @@ func Register(serverURL, enrollToken string, info AgentInfo, tlsCfg *tls.Config)
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		metrics.RegistrationAttempts.WithLabelValues("error").Inc()
 		return nil, fmt.Errorf("register: bad response: %w", err)
 	}
 	if !result.Success {
+		metrics.RegistrationAttempts.WithLabelValues("rejected").Inc()
 		return nil, fmt.Errorf("register: server returned success=false")
 	}
 
+	metrics.RegistrationAttempts.WithLabelValues("success").Inc()
 	return &State{
 		AgentID:      result.Data.AgentID,
 		Token:        result.Data.Token,
@@ -260,11 +267,13 @@ func ReRegister(state *State, info AgentInfo, tlsCfg *tls.Config) (*State, error
 
 	resp, err := client.Do(req)
 	if err != nil {
+		metrics.RegistrationAttempts.WithLabelValues("error").Inc()
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		metrics.RegistrationAttempts.WithLabelValues("rejected").Inc()
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, fmt.Errorf("re-register failed: %d %s", resp.StatusCode, string(raw))
 	}
@@ -277,12 +286,15 @@ func ReRegister(state *State, info AgentInfo, tlsCfg *tls.Config) (*State, error
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		metrics.RegistrationAttempts.WithLabelValues("error").Inc()
 		return nil, fmt.Errorf("re-register: bad response: %w", err)
 	}
 	if !result.Success {
+		metrics.RegistrationAttempts.WithLabelValues("rejected").Inc()
 		return nil, fmt.Errorf("re-register: server returned success=false")
 	}
 
+	metrics.RegistrationAttempts.WithLabelValues("success").Inc()
 	return &State{
 		AgentID:      result.Data.AgentID,
 		Token:        result.Data.Token,
@@ -308,6 +320,7 @@ func StartHeartbeat(ctx context.Context, state *State, statePath, socketPath, ve
 		err := sendHeartbeat(ctx, state, tlsCfg)
 		if err != nil {
 			failures++
+			metrics.HeartbeatsFailed.WithLabelValues("send_error").Inc()
 			log.Warn().Err(err).Int("failures", failures).Msg("heartbeat failed")
 
 			interval = interval * 2
@@ -334,6 +347,7 @@ func StartHeartbeat(ctx context.Context, state *State, statePath, socketPath, ve
 			continue
 		}
 
+		metrics.HeartbeatsSent.Inc()
 		failures = 0
 		interval = heartbeatInterval
 		log.Debug().Str("agent_id", state.AgentID).Msg("heartbeat ok")

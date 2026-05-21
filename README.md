@@ -142,6 +142,7 @@ Every flag has an equivalent environment variable. Env vars take precedence.
 | `--data` | `DATA_PATH` | `/data` | Data directory (TLS certs, state) |
 | `--socket` | `DOCKER_SOCKET` | `/var/run/docker.sock` | Docker socket path |
 | `--log-level` | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
+| `--metrics` | `EIGHTLY_METRICS_ENABLED` | `false` | Enable Prometheus `/metrics` endpoint |
 
 ---
 
@@ -207,6 +208,7 @@ All endpoints except `/ping` require a valid Bearer token (HMAC-signed).
 | `GET` | `/ping` | Health check — returns `200 OK` |
 | `GET` | `/healthz` | Liveness probe — always returns `200 {"status":"ok"}` |
 | `GET` | `/readyz` | Readiness probe — returns `200` if Docker socket is reachable, `503` otherwise |
+| `GET` | `/metrics` | Prometheus metrics (requires `--metrics` flag and auth) |
 | `GET` | `/host` | PCI devices and physical disk info |
 | `GET` | `/browse/ls` | List directory contents in a volume |
 | `GET` | `/browse/get` | Download a file from a volume |
@@ -300,10 +302,9 @@ internal/websocket/websocket.go 125 LOC — WebSocket attach + exec handlers
 | Module | Purpose |
 |:-------|:--------|
 | `github.com/gorilla/websocket` | WebSocket upgrade for container console |
+| `github.com/prometheus/client_golang` | Prometheus metrics (optional, `--metrics` flag) |
 | `github.com/rs/zerolog` | Structured JSON logging |
 | `golang.org/x/sys` | Windows service management (SCM API) |
-
-That's it. No frameworks, no ORM, no config libraries.
 
 </details>
 
