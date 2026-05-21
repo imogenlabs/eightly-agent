@@ -12,7 +12,7 @@ RUN export GOARM="${TARGETVARIANT#v}" && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOARM=${GOARM} \
     go build -ldflags="-s -w -X main.version=${VERSION}" -o /eightly-agent ./cmd/agent
 
-FROM alpine:3.21
+FROM alpine:3.23
 RUN apk add --no-cache ca-certificates tzdata && \
     addgroup -g 999 docker && \
     adduser -S -u 1000 -G docker eightly-agent && \
