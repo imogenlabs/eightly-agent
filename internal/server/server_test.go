@@ -158,6 +158,68 @@ func TestDetectCertSANs_EmptyConfig(t *testing.T) {
 	}
 }
 
+func TestDetectCertSANs_EmptyAdvertiseAndSANs(t *testing.T) {
+	cfg := &config.Config{
+		AdvertiseIP: "",
+		TLSSANs:     "",
+	}
+	sans := detectCertSANs(cfg)
+
+	hostname, _ := os.Hostname()
+	if hostname != "" {
+		if len(sans) != 1 || sans[0] != hostname {
+			t.Errorf("expected only hostname %q, got %v", hostname, sans)
+		}
+	} else {
+		if len(sans) != 0 {
+			t.Errorf("expected empty SANs when hostname fails, got %v", sans)
+		}
+	}
+}
+
+func TestDetectCertSANs_AdvertiseIPOnly(t *testing.T) {
+	cfg := &config.Config{
+		AdvertiseIP: "192.168.1.100",
+		TLSSANs:     "",
+	}
+	sans := detectCertSANs(cfg)
+
+	found := false
+	for _, s := range sans {
+		if s == "192.168.1.100" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected advertise IP 192.168.1.100 in SANs %v", sans)
+	}
+}
+
+func TestDetectCertSANs_TLSSANsOnly(t *testing.T) {
+	cfg := &config.Config{
+		AdvertiseIP: "",
+		TLSSANs:     "foo.local,10.0.0.1",
+	}
+	sans := detectCertSANs(cfg)
+
+	foundFoo, foundIP := false, false
+	for _, s := range sans {
+		if s == "foo.local" {
+			foundFoo = true
+		}
+		if s == "10.0.0.1" {
+			foundIP = true
+		}
+	}
+	if !foundFoo {
+		t.Errorf("expected foo.local in SANs %v", sans)
+	}
+	if !foundIP {
+		t.Errorf("expected 10.0.0.1 in SANs %v", sans)
+	}
+}
+
 func TestRun_CancelledContextShutsDown(t *testing.T) {
 	dir := t.TempDir()
 	port := freePort(t)

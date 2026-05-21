@@ -42,9 +42,9 @@ jobs:
             goarch: amd64
             suffix: ".exe"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
           go-version: '1.23'
 
@@ -67,7 +67,7 @@ jobs:
             -o eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }} ./cmd/agent/
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }}
           path: eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}
@@ -80,9 +80,9 @@ jobs:
       matrix:
         goarch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
           go-version: '1.23'
 
@@ -100,7 +100,7 @@ jobs:
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Download linux binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: eightly-agent-linux-${{ matrix.goarch }}
 
@@ -120,13 +120,13 @@ jobs:
         run: nfpm package --packager rpm --target eightly-agent-${{ steps.version.outputs.version }}.${{ matrix.goarch }}.rpm
 
       - name: Upload .deb
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: eightly-agent-deb-${{ matrix.goarch }}
           path: eightly-agent_${{ steps.version.outputs.version }}_${{ matrix.goarch }}.deb
 
       - name: Upload .rpm
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: eightly-agent-rpm-${{ matrix.goarch }}
           path: eightly-agent-${{ steps.version.outputs.version }}.${{ matrix.goarch }}.rpm
@@ -136,7 +136,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build, package]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
 
       - name: Determine version
         id: version
@@ -150,7 +150,7 @@ jobs:
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: dist/
 
@@ -171,7 +171,7 @@ jobs:
           cd release && sha256sum * > SHA256SUMS
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@d7d6bc7722e3daa8354c50bcb52f4837da5e9b6a # v3
 
       - name: Sign release binaries
         run: |
@@ -182,19 +182,19 @@ jobs:
           done
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@fc46e51fd3cb168ffb36c6d1915723c47db58f3d # v0
         with:
           path: .
           format: spdx-json
           output-file: release/sbom.spdx.json
 
       - name: Generate build provenance
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # v1
         with:
           subject-path: 'release/eightly-agent-*'
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@c95fe4b7eed1a749b02e04cfe5e7de30e2e1138e # v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: Eight.ly Agent ${{ steps.version.outputs.tag }}

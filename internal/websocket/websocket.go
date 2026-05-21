@@ -19,9 +19,21 @@ func validDockerID(id string) bool {
 	return dockerIDRe.MatchString(id)
 }
 
-func newUpgrader(authEnabled bool) websocket.Upgrader {
+func newUpgrader(authEnabled bool, allowedOrigins []string) websocket.Upgrader {
 	return websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
+			if len(allowedOrigins) > 0 {
+				origin := r.Header.Get("Origin")
+				if origin == "" {
+					return true
+				}
+				for _, allowed := range allowedOrigins {
+					if origin == allowed {
+						return true
+					}
+				}
+				return false
+			}
 			if authEnabled {
 				return true
 			}
@@ -33,7 +45,6 @@ func newUpgrader(authEnabled bool) websocket.Upgrader {
 			if host == "" {
 				host = r.Header.Get("Host")
 			}
-			// Strip scheme from origin to compare with Host
 			trimmed := origin
 			trimmed = strings.TrimPrefix(trimmed, "https://")
 			trimmed = strings.TrimPrefix(trimmed, "http://")
@@ -42,8 +53,9 @@ func newUpgrader(authEnabled bool) websocket.Upgrader {
 	}
 }
 
-func AttachHandler(socketPath string, authEnabled bool) http.HandlerFunc {
-	up := newUpgrader(authEnabled)
+// AttachHandler returns an HTTP handler that upgrades to WebSocket and attaches to a running container's stdio.
+func AttachHandler(socketPath string, authEnabled bool, allowedOrigins []string) http.HandlerFunc {
+	up := newUpgrader(authEnabled, allowedOrigins)
 	return func(w http.ResponseWriter, r *http.Request) {
 		containerID := r.URL.Query().Get("id")
 		if containerID == "" {
@@ -84,8 +96,9 @@ func AttachHandler(socketPath string, authEnabled bool) http.HandlerFunc {
 	}
 }
 
-func ExecHandler(socketPath string, authEnabled bool) http.HandlerFunc {
-	up := newUpgrader(authEnabled)
+// ExecHandler returns an HTTP handler that upgrades to WebSocket and starts an exec session in a container.
+func ExecHandler(socketPath string, authEnabled bool, allowedOrigins []string) http.HandlerFunc {
+	up := newUpgrader(authEnabled, allowedOrigins)
 	return func(w http.ResponseWriter, r *http.Request) {
 		execID := r.URL.Query().Get("id")
 		if execID == "" {
@@ -130,6 +143,9 @@ func ExecHandler(socketPath string, authEnabled bool) http.HandlerFunc {
 func bridge(ws *websocket.Conn, docker net.Conn) {
 	done := make(chan struct{})
 
+	// docker->ws: reads from the Docker connection and writes to the WebSocket.
+	// Exits when docker.Read returns an error (connection closed by peer or by
+	// the ws->docker goroutine calling docker.Close). Signals completion via done.
 	go func() {
 		defer close(done)
 		buf := make([]byte, 32*1024)
@@ -146,6 +162,9 @@ func bridge(ws *websocket.Conn, docker net.Conn) {
 		}
 	}()
 
+	// ws->docker: reads from the WebSocket and writes to the Docker connection.
+	// Exits when ws.ReadMessage returns an error (client disconnect or ws.Close
+	// called below). Calls docker.Close to unblock the docker->ws goroutine.
 	go func() {
 		for {
 			_, msg, err := ws.ReadMessage()

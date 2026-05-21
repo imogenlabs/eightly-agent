@@ -13,6 +13,7 @@ import (
 
 var versionPrefix = regexp.MustCompile(`^/v[0-9]+\.[0-9]+`)
 
+// NewDockerProxy returns a reverse proxy that forwards HTTP requests to the Docker daemon via a Unix socket.
 func NewDockerProxy(socketPath string) http.Handler {
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {

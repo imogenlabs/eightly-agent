@@ -9,6 +9,7 @@ import (
 	"strings"
 )
 
+// Config holds all agent configuration from CLI flags and environment variables.
 type Config struct {
 	Addr              string
 	Port              string
@@ -23,6 +24,7 @@ type Config struct {
 	ServerCA          string
 	AdvertiseIP       string
 	TLSSANs           string
+	AllowedOrigins    string
 	InsecureNoAuth    bool
 	InsecureServerTLS bool
 	ShowVersion       bool
@@ -46,6 +48,7 @@ func ParseArgs(fs *flag.FlagSet, args []string, version string) (*Config, error)
 	fs.StringVar(&c.ServerCA, "server-ca", "", "path to CA cert file for validating EOS server TLS")
 	fs.StringVar(&c.AdvertiseIP, "advertise-ip", "", "IP address to advertise instead of auto-detecting")
 	fs.StringVar(&c.TLSSANs, "tls-san", "", "comma-separated extra SANs for the self-signed TLS cert")
+	fs.StringVar(&c.AllowedOrigins, "allowed-origins", "", "comma-separated WebSocket origin allowlist (empty = same-origin check)")
 	fs.BoolVar(&c.InsecureNoAuth, "insecure-no-auth", false, "disable authentication (NOT recommended for production)")
 	fs.BoolVar(&c.InsecureServerTLS, "insecure-server-tls", false, "skip TLS verification for EOS server connections")
 	fs.BoolVar(&c.ShowVersion, "version", false, "print version and exit")
@@ -65,6 +68,7 @@ func ParseArgs(fs *flag.FlagSet, args []string, version string) (*Config, error)
 	envOverride(&c.ServerCA, "EIGHTLY_SERVER_CA")
 	envOverride(&c.AdvertiseIP, "EIGHTLY_ADVERTISE_IP")
 	envOverride(&c.TLSSANs, "EIGHTLY_TLS_SANS")
+	envOverride(&c.AllowedOrigins, "EIGHTLY_ALLOWED_ORIGINS")
 	envOverrideBool(&c.InsecureNoAuth, "EIGHTLY_INSECURE_NO_AUTH")
 	envOverrideBool(&c.InsecureServerTLS, "EIGHTLY_INSECURE_SERVER_TLS")
 
@@ -102,6 +106,7 @@ func envOverrideBool(target *bool, key string) {
 	}
 }
 
+// Validate checks that required configuration fields are set.
 func (c *Config) Validate() error {
 	if c.Secret == "" && !c.InsecureNoAuth {
 		return errors.New("EIGHTLY_AGENT_SECRET is required; use --insecure-no-auth to explicitly disable authentication")

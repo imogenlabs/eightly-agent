@@ -12,6 +12,7 @@ import (
 	"time"
 )
 
+// Claims represents the payload of an HMAC-signed agent token.
 type Claims struct {
 	Sub  string `json:"sub"`
 	Iss  string `json:"iss"`
@@ -20,6 +21,7 @@ type Claims struct {
 	Exp  int64  `json:"exp,omitempty"`
 }
 
+// Middleware returns an HTTP middleware that validates HMAC-SHA256 Bearer tokens.
 func Middleware(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		if secret == "" {

@@ -51,6 +51,34 @@ Eight.ly Agent provides authenticated, TLS-encrypted access to a Docker daemon. 
 
 A valid HMAC-signed token grants **full Docker API access** on the host where the agent runs. This is equivalent to root access on that host. Treat your `EIGHTLY_AGENT_SECRET` with the same care as a root password.
 
+### What the agent trusts
+
+- **The enrollment token issuer.** The one-time `--enroll-token` is assumed to come from a legitimate EOS administrator. It is exchanged for a persistent agent token during registration.
+- **The EOS server's identity via `--server-ca`.** When a CA cert is provided, the agent pins its TLS root of trust to that CA. All heartbeat and registration traffic validates the server's certificate chain against it.
+
+### What the agent does NOT trust
+
+- **HTTP Origin headers when auth is enabled.** With a valid `EIGHTLY_AGENT_SECRET`, the WebSocket upgrader accepts any Origin because the Bearer token is the access control boundary, not the Origin header.
+- **Client-supplied paths in `/browse/*`.** All paths are resolved against a volume base directory. `filepath.Rel` containment checks and post-symlink-resolution re-checks reject any traversal attempt.
+
+### Privilege required
+
+Access to the Docker socket is **root-equivalent**. Any process that can issue Docker API calls can create privileged containers, mount the host filesystem, and escalate to full root. The agent must be treated as a root-level service.
+
+### Network exposure
+
+The agent binds to `0.0.0.0:9001` by default, meaning it listens on all interfaces. In production, you should:
+- Restrict the listen address to a private interface (`--addr 10.0.0.5`) or use a VPN/firewall.
+- Never expose port 9001 to the public internet.
+
+### Attacker scenarios
+
+| Scenario | Impact |
+|----------|--------|
+| **Stolen HMAC token or shared secret** | Full Docker API access on the host = root-equivalent. The attacker can create privileged containers, mount `/`, read/write any file, and pivot to other hosts. **Rotate the secret immediately** if compromised. |
+| **Same-LAN attacker without a token** | Cannot do anything. All endpoints except `/ping`, `/healthz`, and `/readyz` require a valid HMAC-signed Bearer token. TLS prevents passive eavesdropping. |
+| **`--insecure-no-auth` enabled** | Any host that can reach port 9001 has full Docker API access. This flag exists only for development and must never be used in production. |
+
 ### Threat model
 
 | Threat | Mitigation |

@@ -27,6 +27,7 @@ const (
 	heartbeatMaxFailures = 3
 )
 
+// State holds the persistent registration state for this agent.
 type State struct {
 	AgentID      string `json:"agent_id"`
 	Token        string `json:"token"`
@@ -34,6 +35,7 @@ type State struct {
 	RegisteredAt string `json:"registered_at"`
 }
 
+// AgentInfo describes the agent's host environment for registration.
 type AgentInfo struct {
 	Hostname      string `json:"hostname"`
 	IP            string `json:"ip"`
@@ -44,6 +46,7 @@ type AgentInfo struct {
 	AgentVersion  string `json:"agent_version"`
 }
 
+// LoadState reads the registration state from disk, returning nil if the file does not exist.
 func LoadState(path string) (*State, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -74,6 +77,7 @@ func (s *State) Save(path string) error {
 	return os.Rename(tmp, path)
 }
 
+// DetectInfo probes the local system and Docker socket to build an AgentInfo.
 func DetectInfo(socketPath, port, version, advertiseIP string) AgentInfo {
 	info := AgentInfo{
 		Port:         port,
@@ -146,13 +150,13 @@ func BuildServerTLSConfig(caPath string, insecure bool, log zerolog.Logger) (*tl
 		if !pool.AppendCertsFromPEM(caCert) {
 			return nil, fmt.Errorf("server CA cert %q contains no valid PEM certificates", caPath)
 		}
-		return &tls.Config{RootCAs: pool}, nil
+		return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
 	}
 	if insecure {
-		return &tls.Config{InsecureSkipVerify: true}, nil
+		return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, nil
 	}
 	log.Warn().Msg("no --server-ca or --insecure-server-tls set; defaulting to InsecureSkipVerify=true (set --server-ca for production)")
-	return &tls.Config{InsecureSkipVerify: true}, nil
+	return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, nil
 }
 
 type registerPayload struct {
@@ -160,6 +164,7 @@ type registerPayload struct {
 	EnrollToken string `json:"enroll_token,omitempty"`
 }
 
+// Register performs initial agent enrollment with the EOS server.
 func Register(serverURL, enrollToken string, info AgentInfo, tlsCfg *tls.Config) (*State, error) {
 	payload := registerPayload{
 		AgentInfo:   info,
@@ -224,6 +229,7 @@ type reRegisterPayload struct {
 	AgentID string `json:"agent_id"`
 }
 
+// ReRegister re-enrolls an already-registered agent after repeated heartbeat failures.
 func ReRegister(state *State, info AgentInfo, tlsCfg *tls.Config) (*State, error) {
 	payload := reRegisterPayload{
 		AgentInfo: info,
@@ -281,6 +287,7 @@ func ReRegister(state *State, info AgentInfo, tlsCfg *tls.Config) (*State, error
 	}, nil
 }
 
+// StartHeartbeat sends periodic heartbeats to the EOS server, re-registering on repeated failures.
 func StartHeartbeat(ctx context.Context, state *State, statePath, socketPath, version, advertiseIP string, tlsCfg *tls.Config, log zerolog.Logger) {
 	interval := heartbeatInterval
 	maxInterval := heartbeatMaxInterval
@@ -294,7 +301,7 @@ func StartHeartbeat(ctx context.Context, state *State, statePath, socketPath, ve
 		case <-time.After(interval):
 		}
 
-		err := sendHeartbeat(state, tlsCfg)
+		err := sendHeartbeat(ctx, state, tlsCfg)
 		if err != nil {
 			failures++
 			log.Warn().Err(err).Int("failures", failures).Msg("heartbeat failed")
@@ -329,7 +336,7 @@ func StartHeartbeat(ctx context.Context, state *State, statePath, socketPath, ve
 	}
 }
 
-func sendHeartbeat(state *State, tlsCfg *tls.Config) error {
+func sendHeartbeat(ctx context.Context, state *State, tlsCfg *tls.Config) error {
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
@@ -337,7 +344,7 @@ func sendHeartbeat(state *State, tlsCfg *tls.Config) error {
 		},
 	}
 	url := fmt.Sprintf("%s/api/agents/%s/heartbeat", state.ServerURL, state.AgentID)
-	req, err := http.NewRequest("PUT", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "PUT", url, nil)
 	if err != nil {
 		return err
 	}

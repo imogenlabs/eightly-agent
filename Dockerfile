@@ -22,7 +22,7 @@ VOLUME /data
 EXPOSE 9001
 USER eightly-agent
 HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
-  CMD wget -q --spider https://localhost:9001/ping --no-check-certificate || exit 1
+  CMD wget -q --spider https://localhost:9001/healthz --no-check-certificate || exit 1
 ENTRYPOINT ["/app/eightly-agent"]
 
 LABEL org.opencontainers.image.title="Eight.ly Agent"

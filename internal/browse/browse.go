@@ -22,6 +22,7 @@ type fileEntry struct {
 	ModTime time.Time `json:"modTime"`
 }
 
+// Handler returns an HTTP handler for listing, downloading, uploading, deleting, and renaming files in Docker volumes.
 func Handler(dataPath string) http.Handler {
 	mux := http.NewServeMux()
 

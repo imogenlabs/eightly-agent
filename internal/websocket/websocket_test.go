@@ -7,7 +7,7 @@ import (
 )
 
 func TestNewUpgrader_AuthDisabled_RejectsCrossOrigin(t *testing.T) {
-	up := newUpgrader(false)
+	up := newUpgrader(false, nil)
 
 	r := httptest.NewRequest("GET", "http://localhost:9001/websocket/attach?id=abcdef123456", nil)
 	r.Host = "localhost:9001"
@@ -19,7 +19,7 @@ func TestNewUpgrader_AuthDisabled_RejectsCrossOrigin(t *testing.T) {
 }
 
 func TestNewUpgrader_AuthDisabled_AllowsSameOrigin(t *testing.T) {
-	up := newUpgrader(false)
+	up := newUpgrader(false, nil)
 
 	r := httptest.NewRequest("GET", "http://localhost:9001/websocket/attach?id=abcdef123456", nil)
 	r.Host = "localhost:9001"
@@ -31,7 +31,7 @@ func TestNewUpgrader_AuthDisabled_AllowsSameOrigin(t *testing.T) {
 }
 
 func TestNewUpgrader_AuthDisabled_AllowsNoOrigin(t *testing.T) {
-	up := newUpgrader(false)
+	up := newUpgrader(false, nil)
 
 	r := httptest.NewRequest("GET", "http://localhost:9001/websocket/attach?id=abcdef123456", nil)
 	r.Host = "localhost:9001"
@@ -43,7 +43,7 @@ func TestNewUpgrader_AuthDisabled_AllowsNoOrigin(t *testing.T) {
 }
 
 func TestNewUpgrader_AuthEnabled_AllowsCrossOrigin(t *testing.T) {
-	up := newUpgrader(true)
+	up := newUpgrader(true, nil)
 
 	r := httptest.NewRequest("GET", "http://localhost:9001/websocket/attach?id=abcdef123456", nil)
 	r.Host = "localhost:9001"
@@ -55,7 +55,7 @@ func TestNewUpgrader_AuthEnabled_AllowsCrossOrigin(t *testing.T) {
 }
 
 func TestAttachHandler_CrossOriginRejectedWithoutAuth(t *testing.T) {
-	handler := AttachHandler("/nonexistent.sock", false)
+	handler := AttachHandler("/nonexistent.sock", false, nil)
 
 	// We need a real HTTP server to test the WS upgrade rejection
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

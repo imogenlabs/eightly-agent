@@ -2,6 +2,7 @@ package config
 
 import (
 	"flag"
+	"io"
 	"os"
 	"testing"
 )
@@ -25,6 +26,7 @@ func clearEnv(t *testing.T) {
 		"EIGHTLY_ENROLL_TOKEN", "EIGHTLY_STATE_PATH", "DATA_PATH",
 		"LOG_LEVEL", "DOCKER_SOCKET", "EIGHTLY_SERVER_CA",
 		"EIGHTLY_ADVERTISE_IP", "EIGHTLY_TLS_SANS",
+		"EIGHTLY_ALLOWED_ORIGINS",
 		"EIGHTLY_INSECURE_NO_AUTH", "EIGHTLY_INSECURE_SERVER_TLS",
 	} {
 		os.Unsetenv(key)
@@ -310,4 +312,21 @@ func TestValidateAcceptsSecret(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatalf("expected no error with secret set, got: %v", err)
 	}
+}
+
+func FuzzParseArgs(f *testing.F) {
+	f.Add("9001", "secret123", "info")
+	f.Add("", "", "")
+	f.Add("0", "a", "debug")
+	f.Fuzz(func(t *testing.T, port, secret, logLevel string) {
+		fs := flag.NewFlagSet("fuzz", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		cfg, err := ParseArgs(fs, []string{"--port", port, "--secret", secret, "--log-level", logLevel}, "fuzz")
+		if err != nil {
+			return // invalid flags are expected
+		}
+		if cfg.Port != port {
+			t.Errorf("port: got %q, want %q", cfg.Port, port)
+		}
+	})
 }

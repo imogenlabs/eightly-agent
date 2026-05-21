@@ -15,6 +15,7 @@ import (
 	"time"
 )
 
+// EnsureCert returns paths to a TLS cert and key in dir, generating a self-signed pair if they don't exist.
 func EnsureCert(dir string, extraSANs ...string) (certPath, keyPath string, err error) {
 	certPath = filepath.Join(dir, "cert.pem")
 	keyPath = filepath.Join(dir, "key.pem")

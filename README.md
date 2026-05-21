@@ -205,6 +205,8 @@ All endpoints except `/ping` require a valid Bearer token (HMAC-signed).
 | Method | Path | Description |
 |:-------|:-----|:------------|
 | `GET` | `/ping` | Health check — returns `200 OK` |
+| `GET` | `/healthz` | Liveness probe — always returns `200 {"status":"ok"}` |
+| `GET` | `/readyz` | Readiness probe — returns `200` if Docker socket is reachable, `503` otherwise |
 | `GET` | `/host` | PCI devices and physical disk info |
 | `GET` | `/browse/ls` | List directory contents in a volume |
 | `GET` | `/browse/get` | Download a file from a volume |
@@ -246,6 +248,21 @@ All endpoints except `/ping` require a valid Bearer token (HMAC-signed).
                   │  /var/run/docker.sock│
                   └─────────────────────┘
 ```
+
+<details>
+<summary>Mermaid diagram</summary>
+
+```mermaid
+graph TD
+    EOS[Eight.ly OS Dashboard] -->|HTTPS + Bearer Token| Agent[Eight.ly Agent :9001]
+    Agent -->|Unix Socket / Named Pipe| Docker[Docker Engine]
+    Agent -->|WebSocket| Console[Container Console]
+    Agent -->|HTTP| Browse[Volume File Browser]
+    Agent -->|HTTP| HostInfo[Host Info API]
+    Agent -->|HTTPS| Registration[EOS Registration + Heartbeat]
+```
+
+</details>
 
 <details>
 <summary><strong>Package Layout</strong></summary>

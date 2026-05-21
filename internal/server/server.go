@@ -5,7 +5,9 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -23,6 +25,7 @@ import (
 	"github.com/smashingtags/eightly-agent/internal/websocket"
 )
 
+// Run starts the agent's HTTPS server and blocks until ctx is cancelled or a fatal error occurs.
 func Run(ctx context.Context, cfg *config.Config) error {
 	log.Info().
 		Str("version", cfg.Version).
@@ -66,11 +69,45 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	authed := auth.Middleware(cfg.Secret)
 	authEnabled := cfg.Secret != ""
 
+	var allowedOrigins []string
+	if cfg.AllowedOrigins != "" {
+		for _, o := range strings.Split(cfg.AllowedOrigins, ",") {
+			o = strings.TrimSpace(o)
+			if o != "" {
+				allowedOrigins = append(allowedOrigins, o)
+			}
+		}
+	}
+
 	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.Handle("/websocket/attach", authed(websocket.AttachHandler(cfg.SocketPath, authEnabled)))
-	mux.Handle("/websocket/exec", authed(websocket.ExecHandler(cfg.SocketPath, authEnabled)))
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		conn, err := net.DialTimeout("unix", cfg.SocketPath, 2*time.Second)
+		if err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{"status": "not ready", "error": "docker socket unreachable"})
+			return
+		}
+		conn.Close()
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
+	})
+	mux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"version":     cfg.Version,
+			"api_version": "2",
+		})
+	})
+	mux.Handle("/websocket/attach", authed(websocket.AttachHandler(cfg.SocketPath, authEnabled, allowedOrigins)))
+	mux.Handle("/websocket/exec", authed(websocket.ExecHandler(cfg.SocketPath, authEnabled, allowedOrigins)))
 	mux.Handle("/browse/", authed(browse.Handler(cfg.DataPath)))
 	mux.Handle("/host", authed(hostinfo.Handler()))
 	mux.Handle("/", authed(proxy.NewDockerProxy(cfg.SocketPath)))
@@ -88,13 +125,25 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		Handler: handler,
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{tlsCert},
+			MinVersion:   tls.VersionTLS12,
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+			},
 		},
-		ReadTimeout:  120 * time.Second,
-		WriteTimeout: 30 * time.Minute,
-		IdleTimeout:  120 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Minute,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	errCh := make(chan error, 1)
+	// Stopped by srv.Shutdown below when ctx is cancelled.
 	go func() {
 		log.Info().Str("addr", addr).Msg("listening (TLS)")
 		if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
@@ -141,6 +190,9 @@ func headerMiddleware(next http.Handler, version string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Eightly-Agent", version)
 		w.Header().Set("Eightly-Agent-API-Version", "2")
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
 		next.ServeHTTP(w, r)
 	})
 }
