@@ -223,48 +223,51 @@ All endpoints except `/ping` require a valid Bearer token (HMAC-signed).
 
 ## Architecture
 
-```
-                  ┌─────────────────────┐
-                  │   Eight.ly OS UI    │
-                  │    (Dashboard)      │
-                  └──────────┬──────────┘
-                             │
-                   HTTPS + Bearer Token
-                             │
-                  ┌──────────▼──────────┐
-                  │  Eight.ly Agent     │
-                  │     :9001           │
-                  │                     │
-                  │  ┌───────────────┐  │
-                  │  │ Auth (HMAC)   │  │
-                  │  │ TLS (auto)    │  │
-                  │  │ Registration  │  │
-                  │  │ Heartbeat     │  │
-                  │  └───────────────┘  │
-                  └──────────┬──────────┘
-                             │
-                        Unix Socket
-                             │
-                  ┌──────────▼──────────┐
-                  │   Docker Daemon     │
-                  │  /var/run/docker.sock│
-                  └─────────────────────┘
-```
-
-<details>
-<summary>Mermaid diagram</summary>
-
 ```mermaid
-graph TD
-    EOS[Eight.ly OS Dashboard] -->|HTTPS + Bearer Token| Agent[Eight.ly Agent :9001]
-    Agent -->|Unix Socket / Named Pipe| Docker[Docker Engine]
-    Agent -->|WebSocket| Console[Container Console]
-    Agent -->|HTTP| Browse[Volume File Browser]
-    Agent -->|HTTP| HostInfo[Host Info API]
-    Agent -->|HTTPS| Registration[EOS Registration + Heartbeat]
-```
+flowchart TB
+    subgraph clients["Clients"]
+        EOS["Eight.ly OS<br/>Dashboard"]
+        CLI["curl / SDK /<br/>Mobile App"]
+    end
 
-</details>
+    subgraph agent["Eight.ly Agent :9001"]
+        direction TB
+        TLS["TLS Termination<br/><i>Auto-generated or custom certs</i>"]
+        AUTH["HMAC-SHA256 Auth<br/><i>Bearer token validation + expiry</i>"]
+
+        subgraph endpoints["Endpoints"]
+            direction LR
+            PING["/ping<br/>/healthz<br/>/readyz<br/>/version"]
+            METRICS["/metrics<br/><i>Prometheus</i>"]
+            PROXY["/* Docker<br/>API Proxy"]
+            WS["/websocket/*<br/>Console"]
+            BROWSE["/browse/*<br/>File Browser"]
+            HOST["/host<br/>System Info"]
+        end
+
+        REG["Registration<br/>+ Heartbeat<br/><i>30s interval</i>"]
+    end
+
+    subgraph docker["Docker Engine"]
+        SOCK["Unix Socket<br/><i>/var/run/docker.sock</i><br/>Named Pipe <i>(Windows)</i>"]
+    end
+
+    clients -->|"HTTPS + Bearer Token"| TLS
+    TLS --> AUTH
+    AUTH --> endpoints
+    PROXY --> SOCK
+    WS -->|"WebSocket upgrade"| SOCK
+    BROWSE -->|"Volume paths"| SOCK
+    REG -->|"HTTPS to EOS"| EOS
+
+    style agent fill:#111113,stroke:#27272a,color:#e4e4e7
+    style endpoints fill:#1f1f23,stroke:#27272a,color:#e4e4e7
+    style clients fill:#0a0a0b,stroke:#3b82f6,color:#e4e4e7
+    style docker fill:#0a0a0b,stroke:#27272a,color:#e4e4e7
+    style TLS fill:#1f1f23,stroke:#3b82f6,color:#60a5fa
+    style AUTH fill:#1f1f23,stroke:#3b82f6,color:#60a5fa
+    style REG fill:#1f1f23,stroke:#27272a,color:#a1a1aa
+```
 
 <details>
 <summary><strong>Package Layout</strong></summary>
