@@ -66,7 +66,7 @@ When this value is empty (the default), the authentication middleware is bypasse
 
 **`--server-url` / `EIGHTLY_SERVER_URL`**
 
-The URL of the EOS server this agent should register with. Example: `https://192.168.1.227:7001` or `https://os.eight.ly`. When set, the agent will attempt to register on startup and begin sending heartbeats every 30 seconds. When empty, registration and heartbeat are both disabled. See [[Registration-and-Heartbeat]] for details.
+The URL of the EOS server this agent should register with. Example: `https://your-eos-server:7001` or `https://os.eight.ly`. When set, the agent will attempt to register on startup and begin sending heartbeats every 30 seconds. When empty, registration and heartbeat are both disabled. See [[Registration-and-Heartbeat]] for details.
 
 **`--enroll-token` / `EIGHTLY_ENROLL_TOKEN`**
 
@@ -135,7 +135,7 @@ docker run -d \
   -v agent-data:/data \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="a-strong-shared-secret" \
-  -e EIGHTLY_SERVER_URL="https://192.168.1.227:7001" \
+  -e EIGHTLY_SERVER_URL="https://your-eos-server:7001" \
   -e EIGHTLY_ENROLL_TOKEN="token-from-eos-admin" \
   ghcr.io/smashingtags/eightly-agent:latest
 ```

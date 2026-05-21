@@ -89,7 +89,7 @@ After successful registration, the agent writes a JSON state file:
 {
   "agent_id": "agt_a1b2c3d4",
   "token": "persistent-auth-token-from-eos",
-  "server_url": "https://192.168.1.227:7001",
+  "server_url": "https://your-eos-server:7001",
   "registered_at": "2026-05-20T15:30:00Z"
 }
 ```
