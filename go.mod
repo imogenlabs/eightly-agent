@@ -1,12 +1,12 @@
 module github.com/smashingtags/eightly-agent
 
-go 1.23.0
+go 1.25.0
 
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/zerolog v1.33.0
-	golang.org/x/sys v0.35.0
+	golang.org/x/sys v0.44.0
 )
 
 require (
