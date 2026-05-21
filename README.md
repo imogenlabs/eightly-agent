@@ -2,9 +2,10 @@
 
 # Eight.ly Agent
 
-**Lightweight Docker management daemon for [Eight.ly OS](https://eight.ly)**
+**Cross-platform Docker management daemon for [Eight.ly OS](https://eight.ly)**
 
 [![Go](https://img.shields.io/badge/Go-1.23-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
+[![Releases](https://img.shields.io/github/v/release/smashingtags/eightly-agent?style=flat-square&label=Release)](https://github.com/smashingtags/eightly-agent/releases)
 [![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?style=flat-square&logo=docker&logoColor=white)](https://hub.docker.com/r/smashingtags/eightly-agent)
 [![GHCR](https://img.shields.io/badge/GHCR-Latest-8957e5?style=flat-square&logo=github&logoColor=white)](https://github.com/smashingtags/eightly-agent/pkgs/container/eightly-agent)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
@@ -22,9 +23,9 @@ Run on every Docker host. Manage them all from one dashboard.
 
 ## Overview
 
-Eight.ly Agent is a single Go binary that turns any Docker host into a managed node for Eight.ly OS. Deploy the agent, point EOS at it, and get full container management, WebSocket console, file browsing, and system monitoring — all over authenticated TLS.
+Eight.ly Agent is a single Go binary that turns any Docker host into a managed node for Eight.ly OS. Deploy the agent on Linux, macOS, or Windows, point EOS at it, and get full container management, WebSocket console, file browsing, and system monitoring — all over authenticated TLS.
 
-**992 lines of Go. Two dependencies. Zero config files.**
+**~1,550 lines of Go. Three dependencies. Zero config files.**
 
 ### Key Capabilities
 
@@ -73,11 +74,43 @@ docker run -d \
 
 > Also on Docker Hub: `docker pull smashingtags/eightly-agent:latest`
 
-### Binary
+### Homebrew (macOS / Linux)
 
 ```bash
-make build
-./build/eightly-agent \
+brew install smashingtags/tap/eightly-agent
+```
+
+### Scoop (Windows)
+
+```powershell
+scoop bucket add eightly https://github.com/smashingtags/scoop-eightly
+scoop install eightly-agent
+```
+
+### Debian / Ubuntu
+
+Download the `.deb` from [Releases](https://github.com/smashingtags/eightly-agent/releases):
+
+```bash
+sudo dpkg -i eightly-agent_*.deb
+sudo systemctl enable --now eightly-agent
+```
+
+### RHEL / Fedora
+
+Download the `.rpm` from [Releases](https://github.com/smashingtags/eightly-agent/releases):
+
+```bash
+sudo rpm -i eightly-agent-*.rpm
+sudo systemctl enable --now eightly-agent
+```
+
+### Binary
+
+Download the binary for your platform from [Releases](https://github.com/smashingtags/eightly-agent/releases) (Linux amd64/arm64, macOS amd64/arm64, Windows amd64).
+
+```bash
+./eightly-agent \
   --secret "your-shared-secret" \
   --server-url "https://your-eos-server:7001" \
   --enroll-token "your-enrollment-token"
@@ -99,6 +132,59 @@ Every flag has an equivalent environment variable. Env vars take precedence.
 | `--data` | `DATA_PATH` | `/data` | Data directory (TLS certs, state) |
 | `--socket` | `DOCKER_SOCKET` | `/var/run/docker.sock` | Docker socket path |
 | `--log-level` | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
+
+---
+
+## Windows Service
+
+On Windows, the agent runs as a native Windows service — no terminal window, starts automatically on boot.
+
+```powershell
+# Install and start (run as Administrator)
+eightly-agent.exe install
+eightly-agent.exe start
+
+# Manage
+eightly-agent.exe status
+eightly-agent.exe stop
+eightly-agent.exe uninstall
+```
+
+| Subcommand | Description |
+|:-----------|:------------|
+| `install` | Registers the agent as a Windows service (automatic start) |
+| `uninstall` | Stops and removes the service |
+| `start` | Starts the service |
+| `stop` | Sends a stop signal to the running service |
+| `status` | Prints current service state (running, stopped, etc.) |
+
+Configure via environment variables set in the system environment or the service registry. Default data path on Windows is `C:\ProgramData\eightly-agent`.
+
+---
+
+## Linux Service
+
+The `.deb` and `.rpm` packages install a systemd unit automatically. For manual installs, copy the service file from the repo:
+
+```bash
+sudo cp deploy/eightly-agent.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now eightly-agent
+```
+
+Override defaults with a drop-in:
+
+```bash
+sudo systemctl edit eightly-agent
+```
+
+```ini
+[Service]
+Environment=EIGHTLY_AGENT_SECRET=your-shared-secret
+Environment=EIGHTLY_SERVER_URL=https://your-eos-server:7001
+```
+
+The service restarts automatically on failure (5-second delay) and starts after `docker.service`.
 
 ---
 
@@ -155,17 +241,28 @@ All endpoints except `/ping` require a valid Bearer token (HMAC-signed).
 <summary><strong>Package Layout</strong></summary>
 
 ```
-cmd/agent/main.go             128 LOC — entry point, HTTP mux, TLS, graceful shutdown
-internal/auth/jwt.go           65 LOC — HMAC shared-secret token validation middleware
-internal/browse/browse.go     143 LOC — file browser (ls, get, put, delete, rename)
-internal/config/config.go      51 LOC — CLI flags + env var parsing
-internal/hostinfo/hostinfo.go  87 LOC — PCI device and physical disk detection
-internal/proxy/docker.go       50 LOC — reverse proxy to Docker socket
-internal/register/register.go 268 LOC — EOS registration + 30s heartbeat loop
-internal/tlsutil/tls.go        75 LOC — self-signed cert generation
-internal/websocket/ws.go      125 LOC — WebSocket attach + exec handlers
+cmd/agent/
+  main.go                       67 LOC — entry point, subcommands, signal handling
+  service_windows.go           257 LOC — Windows service (install/uninstall/start/stop/status)
+  service_other.go              30 LOC — no-op stubs for non-Windows platforms
+internal/auth/jwt.go            65 LOC — HMAC shared-secret token validation middleware
+internal/browse/browse.go      143 LOC — file browser (ls, get, put, delete, rename)
+internal/config/
+  config.go                     51 LOC — CLI flags + env var parsing
+  defaults_windows.go            9 LOC — Windows default paths (named pipes, ProgramData)
+  defaults_other.go              9 LOC — Linux/macOS default paths (unix socket, /data)
+internal/hostinfo/
+  hostinfo.go                   35 LOC — handler + shared types
+  hostinfo_linux.go             56 LOC — PCI + disk detection (Linux)
+  hostinfo_darwin.go           118 LOC — system_profiler parsing (macOS)
+  hostinfo_windows.go           85 LOC — WMI queries (Windows)
+internal/proxy/docker.go        50 LOC — reverse proxy to Docker socket
+internal/register/register.go  268 LOC — EOS registration + 30s heartbeat loop
+internal/server/server.go      108 LOC — HTTP mux, TLS, graceful shutdown
+internal/tlsutil/tls.go         75 LOC — self-signed cert generation
+internal/websocket/ws.go       125 LOC — WebSocket attach + exec handlers
                                ─────
-                               992 LOC total
+                             ~1,550 LOC total
 ```
 
 </details>
@@ -177,6 +274,7 @@ internal/websocket/ws.go      125 LOC — WebSocket attach + exec handlers
 |:-------|:--------|
 | `github.com/gorilla/websocket` | WebSocket upgrade for container console |
 | `github.com/rs/zerolog` | Structured JSON logging |
+| `golang.org/x/sys` | Windows service management (SCM API) |
 
 That's it. No frameworks, no ORM, no config libraries.
 
