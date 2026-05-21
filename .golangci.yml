@@ -1,5 +1,6 @@
 run:
   timeout: 5m
+  go: '1.23'
 
 linters:
   enable:
@@ -11,7 +12,6 @@ linters:
     - gosec
     - bodyclose
     - noctx
-    - exportloopref
 
 issues:
   exclude-use-default: false
