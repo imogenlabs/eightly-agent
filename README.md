@@ -315,6 +315,29 @@ That's it. No frameworks, no ORM, no config libraries.
 
 ---
 
+## Security
+
+Eight.ly Agent mediates access to the Docker daemon. Understanding the trust model is critical before deploying it.
+
+**Who's trusted:** Anyone with a valid HMAC-signed Bearer token. A valid token grants full Docker API access on the host, which is equivalent to root access. Treat `EIGHTLY_AGENT_SECRET` with the same care as a root password.
+
+**What the secret protects:** The shared secret (`EIGHTLY_AGENT_SECRET`) gates all Docker operations, file browser access, host info queries, and WebSocket console sessions. Without it, the agent rejects every request.
+
+**What happens if it leaks:** An attacker with the secret can issue valid tokens, gaining full Docker API control on every host using that secret. They can create privileged containers, mount the host filesystem, and escalate to root. **Rotate the secret immediately** if you suspect compromise.
+
+**Network exposure:**
+- Bind the agent to a private interface or VPN -- never expose port 9001 to the public internet.
+- Use proper CA-signed TLS certificates in production (`--server-ca`) instead of the default self-signed certs.
+- Place the agent behind a firewall that restricts access to your EOS server's IP.
+
+For vulnerability reporting, see [SECURITY.md](SECURITY.md).
+
+---
+
+### License Commitment
+
+This repository will remain Apache License 2.0 in perpetuity. Future versions of the EOS protocol may be implemented in closed-source server components, but the agent itself will not change license.
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE) for details.

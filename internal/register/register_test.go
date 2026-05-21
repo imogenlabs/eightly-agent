@@ -188,6 +188,74 @@ func TestRegister_200WithSuccessFalse(t *testing.T) {
 	}
 }
 
+func TestReRegister_SendsBearerToken(t *testing.T) {
+	var authHeader string
+	var received reRegisterPayload
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader = r.Header.Get("Authorization")
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &received)
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"data": map[string]string{
+				"agent_id": "agent-renewed",
+				"token":    "tok-renewed",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	state := &State{
+		AgentID:   "agent-original",
+		Token:     "tok-original-secret",
+		ServerURL: srv.URL,
+	}
+	info := AgentInfo{Hostname: "rehost", AgentVersion: "2.0.0"}
+
+	newState, err := ReRegister(state, info, nil)
+	if err != nil {
+		t.Fatalf("ReRegister failed: %v", err)
+	}
+
+	if authHeader != "Bearer tok-original-secret" {
+		t.Errorf("Authorization header: got %q, want %q", authHeader, "Bearer tok-original-secret")
+	}
+	if received.AgentID != "agent-original" {
+		t.Errorf("agent_id in payload: got %q, want %q", received.AgentID, "agent-original")
+	}
+	if received.Hostname != "rehost" {
+		t.Errorf("hostname in payload: got %q, want %q", received.Hostname, "rehost")
+	}
+	if newState.AgentID != "agent-renewed" {
+		t.Errorf("returned AgentID: got %q, want %q", newState.AgentID, "agent-renewed")
+	}
+	if newState.Token != "tok-renewed" {
+		t.Errorf("returned Token: got %q, want %q", newState.Token, "tok-renewed")
+	}
+}
+
+func TestReRegister_ServerErrorReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("forbidden"))
+	}))
+	defer srv.Close()
+
+	state := &State{
+		AgentID:   "agent-1",
+		Token:     "tok-expired",
+		ServerURL: srv.URL,
+	}
+	info := AgentInfo{Hostname: "h"}
+	_, err := ReRegister(state, info, nil)
+	if err == nil {
+		t.Fatal("expected error for 403 response")
+	}
+}
+
 func TestDetectInfo_ReturnsNonEmptyHostnameAndVersion(t *testing.T) {
 	info := DetectInfo("/nonexistent.sock", "9999", "2.0.0", "")
 

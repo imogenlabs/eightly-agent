@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -54,23 +55,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		go register.StartHeartbeat(ctx, state, cfg.StatePath, cfg.SocketPath, cfg.Version, cfg.AdvertiseIP, serverTLS, log.Logger)
 	}
 
-	// Build extra SANs for the self-signed cert from hostname, detected IP, and --tls-san flag
-	agentInfo := register.DetectInfo(cfg.SocketPath, cfg.Port, cfg.Version, cfg.AdvertiseIP)
-	var certSANs []string
-	if agentInfo.Hostname != "" {
-		certSANs = append(certSANs, agentInfo.Hostname)
-	}
-	if agentInfo.IP != "" {
-		certSANs = append(certSANs, agentInfo.IP)
-	}
-	if cfg.TLSSANs != "" {
-		for _, san := range strings.Split(cfg.TLSSANs, ",") {
-			san = strings.TrimSpace(san)
-			if san != "" {
-				certSANs = append(certSANs, san)
-			}
-		}
-	}
+	certSANs := detectCertSANs(cfg)
 
 	certPath, keyPath, err := tlsutil.EnsureCert(cfg.DataPath, certSANs...)
 	if err != nil {
@@ -79,12 +64,13 @@ func Run(ctx context.Context, cfg *config.Config) error {
 
 	mux := http.NewServeMux()
 	authed := auth.Middleware(cfg.Secret)
+	authEnabled := cfg.Secret != ""
 
 	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.Handle("/websocket/attach", authed(websocket.AttachHandler(cfg.SocketPath)))
-	mux.Handle("/websocket/exec", authed(websocket.ExecHandler(cfg.SocketPath)))
+	mux.Handle("/websocket/attach", authed(websocket.AttachHandler(cfg.SocketPath, authEnabled)))
+	mux.Handle("/websocket/exec", authed(websocket.ExecHandler(cfg.SocketPath, authEnabled)))
 	mux.Handle("/browse/", authed(browse.Handler(cfg.DataPath)))
 	mux.Handle("/host", authed(hostinfo.Handler()))
 	mux.Handle("/", authed(proxy.NewDockerProxy(cfg.SocketPath)))
@@ -126,6 +112,25 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+func detectCertSANs(cfg *config.Config) []string {
+	var sans []string
+	if h, err := os.Hostname(); err == nil && h != "" {
+		sans = append(sans, h)
+	}
+	if cfg.AdvertiseIP != "" {
+		sans = append(sans, cfg.AdvertiseIP)
+	}
+	if cfg.TLSSANs != "" {
+		for _, san := range strings.Split(cfg.TLSSANs, ",") {
+			san = strings.TrimSpace(san)
+			if san != "" {
+				sans = append(sans, san)
+			}
+		}
+	}
+	return sans
 }
 
 // headerMiddleware sets agent version headers on responses. These headers are

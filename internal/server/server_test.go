@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
@@ -90,6 +91,65 @@ func TestRun_PingEndpoint(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("server did not shut down within 10 seconds")
+	}
+}
+
+func TestDetectCertSANs_NoNetworkCalls(t *testing.T) {
+	cfg := &config.Config{
+		AdvertiseIP: "10.0.0.42",
+		TLSSANs:     "node1.local, node2.local",
+	}
+
+	sans := detectCertSANs(cfg)
+
+	// Should contain hostname (whatever the test machine returns)
+	hostname, _ := os.Hostname()
+	found := false
+	for _, s := range sans {
+		if s == hostname {
+			found = true
+			break
+		}
+	}
+	if hostname != "" && !found {
+		t.Errorf("expected hostname %q in SANs %v", hostname, sans)
+	}
+
+	// Should contain advertise IP
+	foundIP := false
+	for _, s := range sans {
+		if s == "10.0.0.42" {
+			foundIP = true
+			break
+		}
+	}
+	if !foundIP {
+		t.Errorf("expected advertise IP 10.0.0.42 in SANs %v", sans)
+	}
+
+	// Should contain the two TLS SANs
+	foundNode1, foundNode2 := false, false
+	for _, s := range sans {
+		if s == "node1.local" {
+			foundNode1 = true
+		}
+		if s == "node2.local" {
+			foundNode2 = true
+		}
+	}
+	if !foundNode1 || !foundNode2 {
+		t.Errorf("expected node1.local and node2.local in SANs %v", sans)
+	}
+}
+
+func TestDetectCertSANs_EmptyConfig(t *testing.T) {
+	cfg := &config.Config{}
+	sans := detectCertSANs(cfg)
+
+	// Should still have hostname at minimum (unless hostname fails)
+	hostname, _ := os.Hostname()
+	if hostname != "" && len(sans) == 0 {
+		t.Error("expected at least hostname in SANs")
 	}
 }
 

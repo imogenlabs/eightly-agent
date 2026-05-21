@@ -65,10 +65,11 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
+        id: docker
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -76,3 +77,14 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign container images
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n' | while read tag; do
+            cosign sign --yes "${tag}@${{ steps.docker.outputs.digest }}"
+          done

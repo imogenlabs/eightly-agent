@@ -39,8 +39,8 @@ func main() {
 		return
 	}
 
-	if cfg.Secret == "" && !cfg.InsecureNoAuth {
-		log.Fatal().Msg("EIGHTLY_AGENT_SECRET is required. Use --insecure-no-auth to explicitly disable authentication (NOT recommended for production).")
+	if err := cfg.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("invalid configuration")
 	}
 	if cfg.InsecureNoAuth && cfg.Secret == "" {
 		log.Warn().Str("port", cfg.Port).Msg("Authentication is DISABLED. The Docker socket is accessible to anyone who can reach this port.")

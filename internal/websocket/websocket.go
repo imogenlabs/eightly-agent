@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/gorilla/websocket"
 )
@@ -18,15 +19,31 @@ func validDockerID(id string) bool {
 	return dockerIDRe.MatchString(id)
 }
 
-// CheckOrigin accepts all origins. Access control is handled by HMAC token
-// authentication on the HTTP upgrade request. Browsers cannot set the
-// Authorization header on WebSocket handshakes, so CSRF via cross-origin
-// WS is not exploitable when authentication is enabled.
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+func newUpgrader(authEnabled bool) websocket.Upgrader {
+	return websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			if authEnabled {
+				return true
+			}
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true
+			}
+			host := r.Host
+			if host == "" {
+				host = r.Header.Get("Host")
+			}
+			// Strip scheme from origin to compare with Host
+			trimmed := origin
+			trimmed = strings.TrimPrefix(trimmed, "https://")
+			trimmed = strings.TrimPrefix(trimmed, "http://")
+			return trimmed == host
+		},
+	}
 }
 
-func AttachHandler(socketPath string) http.HandlerFunc {
+func AttachHandler(socketPath string, authEnabled bool) http.HandlerFunc {
+	up := newUpgrader(authEnabled)
 	return func(w http.ResponseWriter, r *http.Request) {
 		containerID := r.URL.Query().Get("id")
 		if containerID == "" {
@@ -38,7 +55,7 @@ func AttachHandler(socketPath string) http.HandlerFunc {
 			return
 		}
 
-		ws, err := upgrader.Upgrade(w, r, nil)
+		ws, err := up.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
@@ -67,7 +84,8 @@ func AttachHandler(socketPath string) http.HandlerFunc {
 	}
 }
 
-func ExecHandler(socketPath string) http.HandlerFunc {
+func ExecHandler(socketPath string, authEnabled bool) http.HandlerFunc {
+	up := newUpgrader(authEnabled)
 	return func(w http.ResponseWriter, r *http.Request) {
 		execID := r.URL.Query().Get("id")
 		if execID == "" {
@@ -79,7 +97,7 @@ func ExecHandler(socketPath string) http.HandlerFunc {
 			return
 		}
 
-		ws, err := upgrader.Upgrade(w, r, nil)
+		ws, err := up.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}

@@ -1,14 +1,15 @@
 # Base images use version tags (not digests) for readability.
 # Dependabot monitors for updates via .github/dependabot.yml.
 FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS builder
-ARG TARGETOS TARGETARCH
+ARG TARGETOS TARGETARCH TARGETVARIANT
 ARG VERSION=dev
 RUN apk add --no-cache git ca-certificates
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+RUN export GOARM="${TARGETVARIANT#v}" && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOARM=${GOARM} \
     go build -ldflags="-s -w -X main.version=${VERSION}" -o /eightly-agent ./cmd/agent
 
 FROM alpine:3.21

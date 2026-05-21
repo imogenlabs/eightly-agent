@@ -4,6 +4,8 @@
 
 If you discover a security vulnerability in Eight.ly Agent, please report it responsibly.
 
+**Preferred:** [GitHub Security Advisories](https://github.com/smashingtags/eightly-agent/security/advisories/new) (private, trackable, integrated with GitHub)
+
 **Email:** security@imogenlabs.ai
 
 Please include:
@@ -13,6 +15,20 @@ Please include:
 - Suggested fix (if any)
 
 We will acknowledge receipt within 48 hours and provide an initial assessment within 5 business days.
+
+## Safe Harbor
+
+We will not pursue legal action against researchers who report vulnerabilities in good faith.
+
+## Credit
+
+We credit reporters in release notes unless they prefer anonymity.
+
+## Scope
+
+**In scope:** the agent binary, its protocol, and its configuration.
+
+**Out of scope:** the EOS server, Docker daemon bugs, third-party dependencies.
 
 ## Supported Versions
 

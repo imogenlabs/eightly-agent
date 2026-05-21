@@ -219,6 +219,68 @@ func Register(serverURL, enrollToken string, info AgentInfo, tlsCfg *tls.Config)
 	}, nil
 }
 
+type reRegisterPayload struct {
+	AgentInfo
+	AgentID string `json:"agent_id"`
+}
+
+func ReRegister(state *State, info AgentInfo, tlsCfg *tls.Config) (*State, error) {
+	payload := reRegisterPayload{
+		AgentInfo: info,
+		AgentID:   state.AgentID,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: tlsCfg,
+		},
+	}
+
+	req, err := http.NewRequest("POST", state.ServerURL+"/api/agents/register", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+state.Token)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("re-register failed: %d %s", resp.StatusCode, string(raw))
+	}
+
+	var result struct {
+		Success bool `json:"success"`
+		Data    struct {
+			AgentID string `json:"agent_id"`
+			Token   string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("re-register: bad response: %w", err)
+	}
+	if !result.Success {
+		return nil, fmt.Errorf("re-register: server returned success=false")
+	}
+
+	return &State{
+		AgentID:      result.Data.AgentID,
+		Token:        result.Data.Token,
+		ServerURL:    state.ServerURL,
+		RegisteredAt: time.Now().UTC().Format(time.RFC3339),
+	}, nil
+}
+
 func StartHeartbeat(ctx context.Context, state *State, statePath, socketPath, version, advertiseIP string, tlsCfg *tls.Config, log zerolog.Logger) {
 	interval := heartbeatInterval
 	maxInterval := heartbeatMaxInterval
@@ -245,7 +307,7 @@ func StartHeartbeat(ctx context.Context, state *State, statePath, socketPath, ve
 			if failures >= heartbeatMaxFailures {
 				log.Warn().Msg("re-registering after repeated heartbeat failures")
 				info := DetectInfo(socketPath, "", version, advertiseIP)
-				newState, regErr := Register(state.ServerURL, "", info, tlsCfg)
+				newState, regErr := ReRegister(state, info, tlsCfg)
 				if regErr != nil {
 					log.Error().Err(regErr).Msg("re-registration failed")
 					continue

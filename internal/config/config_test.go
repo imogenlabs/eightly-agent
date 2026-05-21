@@ -1,15 +1,236 @@
 package config
 
 import (
+	"flag"
 	"os"
 	"testing"
 )
 
+// helper: create a fresh FlagSet and parse args via ParseArgs.
+func parseTestArgs(t *testing.T, args []string, version string) *Config {
+	t.Helper()
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	c, err := ParseArgs(fs, args, version)
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	return c
+}
+
+// helper: clear all env vars that ParseArgs reads.
+func clearEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"AGENT_PORT", "EIGHTLY_AGENT_SECRET", "EIGHTLY_SERVER_URL",
+		"EIGHTLY_ENROLL_TOKEN", "EIGHTLY_STATE_PATH", "DATA_PATH",
+		"LOG_LEVEL", "DOCKER_SOCKET", "EIGHTLY_SERVER_CA",
+		"EIGHTLY_ADVERTISE_IP", "EIGHTLY_TLS_SANS",
+		"EIGHTLY_INSECURE_NO_AUTH", "EIGHTLY_INSECURE_SERVER_TLS",
+	} {
+		os.Unsetenv(key)
+	}
+}
+
+func TestParseArgsFlagParsing(t *testing.T) {
+	clearEnv(t)
+	c := parseTestArgs(t, []string{"--port", "8080", "--secret", "mysecret"}, "v1.0.0")
+
+	if c.Port != "8080" {
+		t.Errorf("Port: expected 8080, got %q", c.Port)
+	}
+	if c.Secret != "mysecret" {
+		t.Errorf("Secret: expected mysecret, got %q", c.Secret)
+	}
+	if c.Version != "v1.0.0" {
+		t.Errorf("Version: expected v1.0.0, got %q", c.Version)
+	}
+}
+
+func TestParseArgsEnvPrecedence(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AGENT_PORT", "3000")
+
+	c := parseTestArgs(t, []string{"--port", "8080"}, "v1.0.0")
+
+	if c.Port != "3000" {
+		t.Errorf("Port: env should win over flag; expected 3000, got %q", c.Port)
+	}
+}
+
+func TestParseArgsDefaults(t *testing.T) {
+	clearEnv(t)
+	c := parseTestArgs(t, nil, "v0.0.0")
+
+	if c.Addr != "0.0.0.0" {
+		t.Errorf("Addr: expected 0.0.0.0, got %q", c.Addr)
+	}
+	if c.Port != "9001" {
+		t.Errorf("Port: expected 9001, got %q", c.Port)
+	}
+	if c.LogLevel != "info" {
+		t.Errorf("LogLevel: expected info, got %q", c.LogLevel)
+	}
+	if c.StatePath != DefaultStatePath {
+		t.Errorf("StatePath: expected %q, got %q", DefaultStatePath, c.StatePath)
+	}
+	if c.DataPath != DefaultDataPath {
+		t.Errorf("DataPath: expected %q, got %q", DefaultDataPath, c.DataPath)
+	}
+	if c.SocketPath != DefaultSocketPath {
+		t.Errorf("SocketPath: expected %q, got %q", DefaultSocketPath, c.SocketPath)
+	}
+	if c.Secret != "" {
+		t.Errorf("Secret: expected empty, got %q", c.Secret)
+	}
+	if c.InsecureNoAuth {
+		t.Error("InsecureNoAuth: expected false by default")
+	}
+	if c.InsecureServerTLS {
+		t.Error("InsecureServerTLS: expected false by default")
+	}
+	if c.ShowVersion {
+		t.Error("ShowVersion: expected false by default")
+	}
+}
+
+func TestParseArgsVersionFlag(t *testing.T) {
+	clearEnv(t)
+	c := parseTestArgs(t, []string{"--version"}, "v2.0.0")
+
+	if !c.ShowVersion {
+		t.Fatal("ShowVersion: expected true when --version is passed")
+	}
+}
+
+func TestParseArgsAllFlags(t *testing.T) {
+	clearEnv(t)
+	c := parseTestArgs(t, []string{
+		"--addr", "127.0.0.1",
+		"--port", "7777",
+		"--secret", "s3cret",
+		"--server-url", "https://eos.local",
+		"--enroll-token", "tok-abc",
+		"--state-path", "/tmp/state.json",
+		"--data", "/tmp/data",
+		"--log-level", "debug",
+		"--socket", "/tmp/docker.sock",
+		"--server-ca", "/etc/ssl/ca.pem",
+		"--advertise-ip", "10.0.0.5",
+		"--tls-san", "node1.local,node2.local",
+		"--insecure-no-auth",
+		"--insecure-server-tls",
+	}, "v3.0.0")
+
+	checks := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"Addr", c.Addr, "127.0.0.1"},
+		{"Port", c.Port, "7777"},
+		{"Secret", c.Secret, "s3cret"},
+		{"ServerURL", c.ServerURL, "https://eos.local"},
+		{"EnrollToken", c.EnrollToken, "tok-abc"},
+		{"StatePath", c.StatePath, "/tmp/state.json"},
+		{"DataPath", c.DataPath, "/tmp/data"},
+		{"LogLevel", c.LogLevel, "debug"},
+		{"SocketPath", c.SocketPath, "/tmp/docker.sock"},
+		{"ServerCA", c.ServerCA, "/etc/ssl/ca.pem"},
+		{"AdvertiseIP", c.AdvertiseIP, "10.0.0.5"},
+		{"TLSSANs", c.TLSSANs, "node1.local,node2.local"},
+	}
+	for _, tc := range checks {
+		if tc.got != tc.want {
+			t.Errorf("%s: expected %q, got %q", tc.name, tc.want, tc.got)
+		}
+	}
+	if !c.InsecureNoAuth {
+		t.Error("InsecureNoAuth: expected true")
+	}
+	if !c.InsecureServerTLS {
+		t.Error("InsecureServerTLS: expected true")
+	}
+}
+
+func TestParseArgsEnvOverridesMultiple(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AGENT_PORT", "8080")
+	t.Setenv("EIGHTLY_AGENT_SECRET", "env-secret")
+	t.Setenv("EIGHTLY_SERVER_URL", "https://env.eos")
+	t.Setenv("EIGHTLY_ENROLL_TOKEN", "env-tok")
+	t.Setenv("EIGHTLY_STATE_PATH", "/env/state.json")
+	t.Setenv("DATA_PATH", "/env/data")
+	t.Setenv("LOG_LEVEL", "debug")
+	t.Setenv("DOCKER_SOCKET", "/env/docker.sock")
+	t.Setenv("EIGHTLY_SERVER_CA", "/env/ca.pem")
+	t.Setenv("EIGHTLY_ADVERTISE_IP", "10.0.0.50")
+	t.Setenv("EIGHTLY_TLS_SANS", "a.local,b.local")
+
+	c := parseTestArgs(t, nil, "v1.0.0")
+
+	checks := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"Port", c.Port, "8080"},
+		{"Secret", c.Secret, "env-secret"},
+		{"ServerURL", c.ServerURL, "https://env.eos"},
+		{"EnrollToken", c.EnrollToken, "env-tok"},
+		{"StatePath", c.StatePath, "/env/state.json"},
+		{"DataPath", c.DataPath, "/env/data"},
+		{"LogLevel", c.LogLevel, "debug"},
+		{"SocketPath", c.SocketPath, "/env/docker.sock"},
+		{"ServerCA", c.ServerCA, "/env/ca.pem"},
+		{"AdvertiseIP", c.AdvertiseIP, "10.0.0.50"},
+		{"TLSSANs", c.TLSSANs, "a.local,b.local"},
+	}
+	for _, tc := range checks {
+		if tc.got != tc.want {
+			t.Errorf("%s: expected %q, got %q", tc.name, tc.want, tc.got)
+		}
+	}
+}
+
+func TestParseArgsBoolEnvOverrides(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("EIGHTLY_INSECURE_NO_AUTH", "true")
+	t.Setenv("EIGHTLY_INSECURE_SERVER_TLS", "1")
+
+	c := parseTestArgs(t, nil, "v1.0.0")
+
+	if !c.InsecureNoAuth {
+		t.Error("InsecureNoAuth: expected true with env=true")
+	}
+	if !c.InsecureServerTLS {
+		t.Error("InsecureServerTLS: expected true with env=1")
+	}
+}
+
+func TestParseArgsBoolEnvFalse(t *testing.T) {
+	clearEnv(t)
+	// Set flag to true via args, then override to false via env
+	t.Setenv("EIGHTLY_INSECURE_NO_AUTH", "false")
+
+	c := parseTestArgs(t, []string{"--insecure-no-auth"}, "v1.0.0")
+
+	if c.InsecureNoAuth {
+		t.Error("InsecureNoAuth: env=false should override flag to false")
+	}
+}
+
+func TestParseArgsInvalidFlag(t *testing.T) {
+	clearEnv(t)
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	_, err := ParseArgs(fs, []string{"--bogus"}, "v1.0.0")
+	if err == nil {
+		t.Fatal("expected error for unknown flag --bogus")
+	}
+}
+
 func TestEnvOverride(t *testing.T) {
 	target := "original"
-	os.Setenv("TEST_OVERRIDE_KEY", "replaced")
-	defer os.Unsetenv("TEST_OVERRIDE_KEY")
-
+	t.Setenv("TEST_OVERRIDE_KEY", "replaced")
 	envOverride(&target, "TEST_OVERRIDE_KEY")
 	if target != "replaced" {
 		t.Fatalf("expected 'replaced', got %q", target)
@@ -19,7 +240,6 @@ func TestEnvOverride(t *testing.T) {
 func TestEnvOverrideNoOp(t *testing.T) {
 	target := "original"
 	os.Unsetenv("TEST_MISSING_KEY")
-
 	envOverride(&target, "TEST_MISSING_KEY")
 	if target != "original" {
 		t.Fatalf("expected 'original' (unchanged), got %q", target)
@@ -28,236 +248,66 @@ func TestEnvOverrideNoOp(t *testing.T) {
 
 func TestEnvOverrideEmptyValue(t *testing.T) {
 	target := "original"
-	os.Setenv("TEST_EMPTY_KEY", "")
-	defer os.Unsetenv("TEST_EMPTY_KEY")
-
+	t.Setenv("TEST_EMPTY_KEY", "")
 	envOverride(&target, "TEST_EMPTY_KEY")
 	if target != "original" {
 		t.Fatalf("expected 'original' (empty env should not override), got %q", target)
 	}
 }
 
-func TestDefaultValues(t *testing.T) {
-	// Clean env vars that could interfere
-	envs := []string{
-		"AGENT_PORT", "EIGHTLY_AGENT_SECRET", "EIGHTLY_SERVER_URL",
-		"EIGHTLY_ENROLL_TOKEN", "EIGHTLY_STATE_PATH", "DATA_PATH",
-		"LOG_LEVEL", "DOCKER_SOCKET",
-	}
-	for _, e := range envs {
-		os.Unsetenv(e)
-	}
-
-	c := &Config{Version: "v1.0.0"}
-
-	// Verify the default constants
-	if DefaultSocketPath != "/var/run/docker.sock" {
-		t.Fatalf("expected default socket /var/run/docker.sock, got %q", DefaultSocketPath)
-	}
-	if DefaultDataPath != "/data" {
-		t.Fatalf("expected default data path /data, got %q", DefaultDataPath)
-	}
-	if DefaultStatePath != "/data/eightly-agent.json" {
-		t.Fatalf("expected default state path /data/eightly-agent.json, got %q", DefaultStatePath)
-	}
-	if c.Version != "v1.0.0" {
-		t.Fatalf("expected version v1.0.0, got %q", c.Version)
-	}
-}
-
-func TestEnvOverridesApply(t *testing.T) {
-	c := &Config{
-		Port:        "9001",
-		Secret:      "",
-		ServerURL:   "",
-		EnrollToken: "",
-		StatePath:   DefaultStatePath,
-		DataPath:    DefaultDataPath,
-		LogLevel:    "info",
-		SocketPath:  DefaultSocketPath,
-	}
-
-	os.Setenv("AGENT_PORT", "8080")
-	os.Setenv("EIGHTLY_AGENT_SECRET", "my-secret")
-	os.Setenv("EIGHTLY_SERVER_URL", "https://eos.local")
-	os.Setenv("EIGHTLY_ENROLL_TOKEN", "tok-123")
-	os.Setenv("EIGHTLY_STATE_PATH", "/tmp/state.json")
-	os.Setenv("DATA_PATH", "/tmp/data")
-	os.Setenv("LOG_LEVEL", "debug")
-	os.Setenv("DOCKER_SOCKET", "/tmp/docker.sock")
-	defer func() {
-		for _, e := range []string{
-			"AGENT_PORT", "EIGHTLY_AGENT_SECRET", "EIGHTLY_SERVER_URL",
-			"EIGHTLY_ENROLL_TOKEN", "EIGHTLY_STATE_PATH", "DATA_PATH",
-			"LOG_LEVEL", "DOCKER_SOCKET",
-		} {
-			os.Unsetenv(e)
-		}
-	}()
-
-	// Apply the same envOverride calls that Parse would
-	envOverride(&c.Port, "AGENT_PORT")
-	envOverride(&c.Secret, "EIGHTLY_AGENT_SECRET")
-	envOverride(&c.ServerURL, "EIGHTLY_SERVER_URL")
-	envOverride(&c.EnrollToken, "EIGHTLY_ENROLL_TOKEN")
-	envOverride(&c.StatePath, "EIGHTLY_STATE_PATH")
-	envOverride(&c.DataPath, "DATA_PATH")
-	envOverride(&c.LogLevel, "LOG_LEVEL")
-	envOverride(&c.SocketPath, "DOCKER_SOCKET")
-
-	checks := []struct {
-		name string
-		got  string
-		want string
+func TestEnvOverrideBoolValues(t *testing.T) {
+	tests := []struct {
+		env  string
+		want bool
 	}{
-		{"Port", c.Port, "8080"},
-		{"Secret", c.Secret, "my-secret"},
-		{"ServerURL", c.ServerURL, "https://eos.local"},
-		{"EnrollToken", c.EnrollToken, "tok-123"},
-		{"StatePath", c.StatePath, "/tmp/state.json"},
-		{"DataPath", c.DataPath, "/tmp/data"},
-		{"LogLevel", c.LogLevel, "debug"},
-		{"SocketPath", c.SocketPath, "/tmp/docker.sock"},
+		{"true", true},
+		{"TRUE", true},
+		{"1", true},
+		{"yes", true},
+		{"on", true},
+		{"false", false},
+		{"0", false},
+		{"no", false},
+		{"off", false},
 	}
-	for _, tc := range checks {
-		if tc.got != tc.want {
-			t.Errorf("%s: expected %q, got %q", tc.name, tc.want, tc.got)
-		}
-	}
-}
-
-func TestVersionPassthrough(t *testing.T) {
-	c := &Config{Version: "v2.3.1-beta4"}
-	if c.Version != "v2.3.1-beta4" {
-		t.Fatalf("expected version v2.3.1-beta4, got %q", c.Version)
-	}
-}
-
-func TestInsecureNoAuthEnvVar(t *testing.T) {
-	c := &Config{}
-
-	os.Setenv("EIGHTLY_INSECURE_NO_AUTH", "true")
-	defer os.Unsetenv("EIGHTLY_INSECURE_NO_AUTH")
-
-	if os.Getenv("EIGHTLY_INSECURE_NO_AUTH") == "true" || os.Getenv("EIGHTLY_INSECURE_NO_AUTH") == "1" {
-		c.InsecureNoAuth = true
-	}
-
-	if !c.InsecureNoAuth {
-		t.Fatal("expected InsecureNoAuth to be true when EIGHTLY_INSECURE_NO_AUTH=true")
+	for _, tc := range tests {
+		t.Run(tc.env, func(t *testing.T) {
+			val := !tc.want // start opposite
+			t.Setenv("TEST_BOOL", tc.env)
+			envOverrideBool(&val, "TEST_BOOL")
+			if val != tc.want {
+				t.Errorf("envOverrideBool(%q): expected %v, got %v", tc.env, tc.want, val)
+			}
+		})
 	}
 }
 
-func TestInsecureNoAuthDefaultFalse(t *testing.T) {
-	c := &Config{}
-	os.Unsetenv("EIGHTLY_INSECURE_NO_AUTH")
-
-	if os.Getenv("EIGHTLY_INSECURE_NO_AUTH") == "true" || os.Getenv("EIGHTLY_INSECURE_NO_AUTH") == "1" {
-		c.InsecureNoAuth = true
-	}
-
-	if c.InsecureNoAuth {
-		t.Fatal("expected InsecureNoAuth to be false by default")
+func TestEnvOverrideBoolEmpty(t *testing.T) {
+	val := true
+	os.Unsetenv("TEST_BOOL_EMPTY")
+	envOverrideBool(&val, "TEST_BOOL_EMPTY")
+	if !val {
+		t.Error("envOverrideBool should not change value when env is unset")
 	}
 }
 
-func TestAdvertiseIPEnvOverride(t *testing.T) {
-	c := &Config{AdvertiseIP: ""}
-	os.Setenv("EIGHTLY_ADVERTISE_IP", "10.0.0.50")
-	defer os.Unsetenv("EIGHTLY_ADVERTISE_IP")
-
-	envOverride(&c.AdvertiseIP, "EIGHTLY_ADVERTISE_IP")
-	if c.AdvertiseIP != "10.0.0.50" {
-		t.Fatalf("expected AdvertiseIP 10.0.0.50, got %q", c.AdvertiseIP)
+func TestValidateRequiresSecret(t *testing.T) {
+	c := &Config{Secret: "", InsecureNoAuth: false}
+	if err := c.Validate(); err == nil {
+		t.Fatal("expected error when secret is empty and insecure-no-auth is false")
 	}
 }
 
-func TestTLSSANsEnvOverride(t *testing.T) {
-	c := &Config{TLSSANs: ""}
-	os.Setenv("EIGHTLY_TLS_SANS", "node1.local,node2.local")
-	defer os.Unsetenv("EIGHTLY_TLS_SANS")
-
-	envOverride(&c.TLSSANs, "EIGHTLY_TLS_SANS")
-	if c.TLSSANs != "node1.local,node2.local" {
-		t.Fatalf("expected TLSSANs node1.local,node2.local, got %q", c.TLSSANs)
+func TestValidateAcceptsInsecureNoAuth(t *testing.T) {
+	c := &Config{Secret: "", InsecureNoAuth: true}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("expected no error with insecure-no-auth, got: %v", err)
 	}
 }
 
-func TestServerCAEnvOverride(t *testing.T) {
-	c := &Config{ServerCA: ""}
-	os.Setenv("EIGHTLY_SERVER_CA", "/etc/ssl/custom-ca.pem")
-	defer os.Unsetenv("EIGHTLY_SERVER_CA")
-
-	envOverride(&c.ServerCA, "EIGHTLY_SERVER_CA")
-	if c.ServerCA != "/etc/ssl/custom-ca.pem" {
-		t.Fatalf("expected ServerCA /etc/ssl/custom-ca.pem, got %q", c.ServerCA)
-	}
-}
-
-func TestInsecureServerTLSEnvVar(t *testing.T) {
-	c := &Config{}
-	os.Setenv("EIGHTLY_INSECURE_SERVER_TLS", "true")
-	defer os.Unsetenv("EIGHTLY_INSECURE_SERVER_TLS")
-
-	if os.Getenv("EIGHTLY_INSECURE_SERVER_TLS") == "true" || os.Getenv("EIGHTLY_INSECURE_SERVER_TLS") == "1" {
-		c.InsecureServerTLS = true
-	}
-
-	if !c.InsecureServerTLS {
-		t.Fatal("expected InsecureServerTLS to be true when EIGHTLY_INSECURE_SERVER_TLS=true")
-	}
-}
-
-func TestInsecureServerTLSEnvVarNumeric(t *testing.T) {
-	c := &Config{}
-	os.Setenv("EIGHTLY_INSECURE_SERVER_TLS", "1")
-	defer os.Unsetenv("EIGHTLY_INSECURE_SERVER_TLS")
-
-	if os.Getenv("EIGHTLY_INSECURE_SERVER_TLS") == "true" || os.Getenv("EIGHTLY_INSECURE_SERVER_TLS") == "1" {
-		c.InsecureServerTLS = true
-	}
-
-	if !c.InsecureServerTLS {
-		t.Fatal("expected InsecureServerTLS to be true when EIGHTLY_INSECURE_SERVER_TLS=1")
-	}
-}
-
-func TestInsecureServerTLSDefaultFalse(t *testing.T) {
-	c := &Config{}
-	os.Unsetenv("EIGHTLY_INSECURE_SERVER_TLS")
-
-	if os.Getenv("EIGHTLY_INSECURE_SERVER_TLS") == "true" || os.Getenv("EIGHTLY_INSECURE_SERVER_TLS") == "1" {
-		c.InsecureServerTLS = true
-	}
-
-	if c.InsecureServerTLS {
-		t.Fatal("expected InsecureServerTLS to be false by default")
-	}
-}
-
-func TestPartialEnvOverride(t *testing.T) {
-	c := &Config{
-		Port:       "9001",
-		LogLevel:   "info",
-		SocketPath: DefaultSocketPath,
-	}
-
-	os.Setenv("AGENT_PORT", "7777")
-	defer os.Unsetenv("AGENT_PORT")
-	os.Unsetenv("LOG_LEVEL")
-	os.Unsetenv("DOCKER_SOCKET")
-
-	envOverride(&c.Port, "AGENT_PORT")
-	envOverride(&c.LogLevel, "LOG_LEVEL")
-	envOverride(&c.SocketPath, "DOCKER_SOCKET")
-
-	if c.Port != "7777" {
-		t.Fatalf("expected port 7777, got %q", c.Port)
-	}
-	if c.LogLevel != "info" {
-		t.Fatalf("expected log-level info (unchanged), got %q", c.LogLevel)
-	}
-	if c.SocketPath != DefaultSocketPath {
-		t.Fatalf("expected socket path %q (unchanged), got %q", DefaultSocketPath, c.SocketPath)
+func TestValidateAcceptsSecret(t *testing.T) {
+	c := &Config{Secret: "something", InsecureNoAuth: false}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("expected no error with secret set, got: %v", err)
 	}
 }
