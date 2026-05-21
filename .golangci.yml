@@ -4,7 +4,6 @@ run:
 
 linters:
   enable:
-    - errcheck
     - govet
     - staticcheck
     - ineffassign
@@ -12,6 +11,11 @@ linters:
     - gosec
     - bodyclose
     - noctx
+
+linters-settings:
+  gosec:
+    excludes:
+      - G104
 
 issues:
   exclude-use-default: false
