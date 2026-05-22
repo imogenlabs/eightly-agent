@@ -1,7 +1,7 @@
 # HANDOFF — Eight.ly Agent
 
-**Date:** 2026-05-21
-**Last commit:** `60b3917` (fix: reconcile LOC and test counts)
+**Date:** 2026-05-22
+**Last commit:** `e364764` (main, post-dependabot merges)
 **Tag:** `v1.0.0` on commit `6008b08`
 **Release:** https://github.com/smashingtags/eightly-agent/releases/tag/v1.0.0 (32 assets, all signed)
 **Repo visibility:** PRIVATE — waiting for coordinated public announcement
