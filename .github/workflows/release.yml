@@ -67,7 +67,7 @@ jobs:
             -o eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }} ./cmd/agent/
 
       - name: Upload artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }}
           path: eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}
@@ -124,13 +124,13 @@ jobs:
           nfpm package --config nfpm-resolved.yml --packager rpm --target eightly-agent-${{ steps.version.outputs.version }}.${{ matrix.goarch }}.rpm
 
       - name: Upload .deb
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: eightly-agent-deb-${{ matrix.goarch }}
           path: eightly-agent_${{ steps.version.outputs.version }}_${{ matrix.goarch }}.deb
 
       - name: Upload .rpm
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: eightly-agent-rpm-${{ matrix.goarch }}
           path: eightly-agent-${{ steps.version.outputs.version }}.${{ matrix.goarch }}.rpm
