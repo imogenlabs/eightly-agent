@@ -5,7 +5,7 @@ Thanks for your interest in contributing. This document covers the basics.
 ## Getting Started
 
 ```bash
-git clone https://github.com/smashingtags/eightly-agent.git
+git clone https://github.com/imogenlabs/eightly-agent.git
 cd eightly-agent
 go build ./cmd/agent/
 ```

@@ -28,4 +28,4 @@ ENTRYPOINT ["/app/eightly-agent"]
 LABEL org.opencontainers.image.title="Eight.ly Agent"
 LABEL org.opencontainers.image.description="Lightweight Docker management agent for Eight.ly OS"
 LABEL org.opencontainers.image.vendor="Imogen Labs"
-LABEL org.opencontainers.image.source="https://github.com/smashingtags/eightly-agent"
+LABEL org.opencontainers.image.source="https://github.com/imogenlabs/eightly-agent"

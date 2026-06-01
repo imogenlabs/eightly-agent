@@ -7,7 +7,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/smashingtags/eightly-agent/internal/config"
+	"github.com/imogenlabs/eightly-agent/internal/config"
 )
 
 func isWindowsService() bool {

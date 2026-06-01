@@ -13,8 +13,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/smashingtags/eightly-agent/internal/config"
-	"github.com/smashingtags/eightly-agent/internal/server"
+	"github.com/imogenlabs/eightly-agent/internal/config"
+	"github.com/imogenlabs/eightly-agent/internal/server"
 )
 
 var version = "dev"

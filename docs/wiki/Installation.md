@@ -28,7 +28,7 @@ Or start as a background service via `brew services start smashingtags/tap/eight
 ## Scoop (Windows)
 
 ```powershell
-scoop bucket add eightly https://github.com/smashingtags/scoop-bucket
+scoop bucket add eightly https://github.com/imogenlabs/scoop-bucket
 scoop install eightly-agent
 ```
 
@@ -58,7 +58,7 @@ The compose file contents for reference:
 ```yaml
 services:
   eightly-agent:
-    image: ghcr.io/smashingtags/eightly-agent:v1.0.0
+    image: ghcr.io/imogenlabs/eightly-agent:v1.0.0
     container_name: eightly-agent
     restart: unless-stopped
     ports:
@@ -95,7 +95,7 @@ docker run -d \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:7001" \
   -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
-  ghcr.io/smashingtags/eightly-agent:v1.0.0
+  ghcr.io/imogenlabs/eightly-agent:v1.0.0
 ```
 
 ### Docker Hub
@@ -122,11 +122,11 @@ docker run -d \
 
 ## Binary Download
 
-Pre-built binaries for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, and windows/amd64 are available on [GitHub Releases](https://github.com/smashingtags/eightly-agent/releases).
+Pre-built binaries for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, and windows/amd64 are available on [GitHub Releases](https://github.com/imogenlabs/eightly-agent/releases).
 
 ```bash
 # Download the latest release (amd64 example)
-curl -Lo eightly-agent https://github.com/smashingtags/eightly-agent/releases/latest/download/eightly-agent-linux-amd64
+curl -Lo eightly-agent https://github.com/imogenlabs/eightly-agent/releases/latest/download/eightly-agent-linux-amd64
 chmod +x eightly-agent
 
 # Create data directory
@@ -209,7 +209,7 @@ The service runs as `EightlyAgent` in the Windows Services panel. Default paths 
 Requires Go 1.23 or later.
 
 ```bash
-git clone https://github.com/smashingtags/eightly-agent.git
+git clone https://github.com/imogenlabs/eightly-agent.git
 cd eightly-agent
 
 # Build for the current platform

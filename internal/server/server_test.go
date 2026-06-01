@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smashingtags/eightly-agent/internal/config"
+	"github.com/imogenlabs/eightly-agent/internal/config"
 
-	_ "github.com/smashingtags/eightly-agent/internal/metrics" // register prometheus metrics
+	_ "github.com/imogenlabs/eightly-agent/internal/metrics" // register prometheus metrics
 )
 
 func freePort(t *testing.T) string {

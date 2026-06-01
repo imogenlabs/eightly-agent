@@ -16,15 +16,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog/log"
 
-	"github.com/smashingtags/eightly-agent/internal/auth"
-	"github.com/smashingtags/eightly-agent/internal/browse"
-	"github.com/smashingtags/eightly-agent/internal/config"
-	"github.com/smashingtags/eightly-agent/internal/hostinfo"
-	"github.com/smashingtags/eightly-agent/internal/metrics"
-	"github.com/smashingtags/eightly-agent/internal/proxy"
-	"github.com/smashingtags/eightly-agent/internal/register"
-	"github.com/smashingtags/eightly-agent/internal/tlsutil"
-	"github.com/smashingtags/eightly-agent/internal/websocket"
+	"github.com/imogenlabs/eightly-agent/internal/auth"
+	"github.com/imogenlabs/eightly-agent/internal/browse"
+	"github.com/imogenlabs/eightly-agent/internal/config"
+	"github.com/imogenlabs/eightly-agent/internal/hostinfo"
+	"github.com/imogenlabs/eightly-agent/internal/metrics"
+	"github.com/imogenlabs/eightly-agent/internal/proxy"
+	"github.com/imogenlabs/eightly-agent/internal/register"
+	"github.com/imogenlabs/eightly-agent/internal/tlsutil"
+	"github.com/imogenlabs/eightly-agent/internal/websocket"
 )
 
 // Run starts the agent's HTTPS server and blocks until ctx is cancelled or a fatal error occurs.

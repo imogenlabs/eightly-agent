@@ -5,11 +5,11 @@
 **Cross-platform Docker management daemon for [Eight.ly OS](https://eight.ly)**
 
 [![Go](https://img.shields.io/badge/Go-1.23-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
-[![Releases](https://img.shields.io/github/v/release/smashingtags/eightly-agent?style=flat-square&label=Release)](https://github.com/smashingtags/eightly-agent/releases)
+[![Releases](https://img.shields.io/github/v/release/smashingtags/eightly-agent?style=flat-square&label=Release)](https://github.com/imogenlabs/eightly-agent/releases)
 [![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?style=flat-square&logo=docker&logoColor=white)](https://hub.docker.com/r/smashingtags/eightly-agent)
-[![GHCR](https://img.shields.io/badge/GHCR-Latest-8957e5?style=flat-square&logo=github&logoColor=white)](https://github.com/smashingtags/eightly-agent/pkgs/container/eightly-agent)
+[![GHCR](https://img.shields.io/badge/GHCR-Latest-8957e5?style=flat-square&logo=github&logoColor=white)](https://github.com/imogenlabs/eightly-agent/pkgs/container/eightly-agent)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
-[![Homebrew](https://img.shields.io/badge/Homebrew-tap-FBB040?style=flat-square&logo=homebrew&logoColor=white)](https://github.com/smashingtags/homebrew-tap)
+[![Homebrew](https://img.shields.io/badge/Homebrew-tap-FBB040?style=flat-square&logo=homebrew&logoColor=white)](https://github.com/imogenlabs/homebrew-tap)
 
 Run on every Docker host. Manage them all from one dashboard.
 
@@ -69,7 +69,7 @@ docker run -d \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:7001" \
-  ghcr.io/smashingtags/eightly-agent:latest
+  ghcr.io/imogenlabs/eightly-agent:latest
 ```
 
 > Also on Docker Hub: `docker pull smashingtags/eightly-agent:latest`
@@ -93,13 +93,13 @@ brew install smashingtags/tap/eightly-agent
 ### Scoop (Windows)
 
 ```powershell
-scoop bucket add eightly https://github.com/smashingtags/scoop-eightly
+scoop bucket add eightly https://github.com/imogenlabs/scoop-eightly
 scoop install eightly-agent
 ```
 
 ### Debian / Ubuntu
 
-Download the `.deb` from [Releases](https://github.com/smashingtags/eightly-agent/releases):
+Download the `.deb` from [Releases](https://github.com/imogenlabs/eightly-agent/releases):
 
 ```bash
 sudo dpkg -i eightly-agent_*.deb
@@ -108,7 +108,7 @@ sudo systemctl enable --now eightly-agent
 
 ### RHEL / Fedora
 
-Download the `.rpm` from [Releases](https://github.com/smashingtags/eightly-agent/releases):
+Download the `.rpm` from [Releases](https://github.com/imogenlabs/eightly-agent/releases):
 
 ```bash
 sudo rpm -i eightly-agent-*.rpm
@@ -117,7 +117,7 @@ sudo systemctl enable --now eightly-agent
 
 ### Binary
 
-Download the binary for your platform from [Releases](https://github.com/smashingtags/eightly-agent/releases) (Linux amd64/arm64, macOS amd64/arm64, Windows amd64).
+Download the binary for your platform from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (Linux amd64/arm64, macOS amd64/arm64, Windows amd64).
 
 ```bash
 ./eightly-agent \
@@ -325,14 +325,14 @@ internal/websocket/websocket.go 125 LOC — WebSocket attach + exec handlers
 
 | Method | Platform | Command / Source |
 |:-------|:---------|:-----------------|
-| Docker (GHCR) | Linux, macOS | `docker pull ghcr.io/smashingtags/eightly-agent:latest` |
+| Docker (GHCR) | Linux, macOS | `docker pull ghcr.io/imogenlabs/eightly-agent:latest` |
 | Docker (Hub) | Linux, macOS | `docker pull smashingtags/eightly-agent:latest` |
 | Homebrew | macOS, Linux | `brew install smashingtags/tap/eightly-agent` |
-| Scoop | Windows | `scoop bucket add eightly https://github.com/smashingtags/scoop-eightly && scoop install eightly-agent` |
-| .deb package | Debian, Ubuntu | Download from [Releases](https://github.com/smashingtags/eightly-agent/releases) (amd64, arm64) |
-| .rpm package | RHEL, Fedora | Download from [Releases](https://github.com/smashingtags/eightly-agent/releases) (amd64, arm64) |
-| Windows service | Windows | Download `.exe` from [Releases](https://github.com/smashingtags/eightly-agent/releases), then `eightly-agent.exe install && eightly-agent.exe start` |
-| Binary | Linux, macOS, Windows | Download from [Releases](https://github.com/smashingtags/eightly-agent/releases) (5 platform builds) |
+| Scoop | Windows | `scoop bucket add eightly https://github.com/imogenlabs/scoop-eightly && scoop install eightly-agent` |
+| .deb package | Debian, Ubuntu | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (amd64, arm64) |
+| .rpm package | RHEL, Fedora | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (amd64, arm64) |
+| Windows service | Windows | Download `.exe` from [Releases](https://github.com/imogenlabs/eightly-agent/releases), then `eightly-agent.exe install && eightly-agent.exe start` |
+| Binary | Linux, macOS, Windows | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (5 platform builds) |
 
 ## Verifying Releases
 
@@ -344,7 +344,7 @@ All release binaries are signed with [Sigstore cosign](https://sigstore.dev) and
 cosign verify-blob \
   --certificate eightly-agent-linux-amd64.crt \
   --signature eightly-agent-linux-amd64.sig \
-  --certificate-identity-regexp 'https://github.com/smashingtags/eightly-agent' \
+  --certificate-identity-regexp 'https://github.com/imogenlabs/eightly-agent' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   eightly-agent-linux-amd64
 ```
@@ -353,9 +353,9 @@ cosign verify-blob \
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp 'https://github.com/smashingtags/eightly-agent' \
+  --certificate-identity-regexp 'https://github.com/imogenlabs/eightly-agent' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/smashingtags/eightly-agent:1.0.0
+  ghcr.io/imogenlabs/eightly-agent:1.0.0
 ```
 
 ### Verify SBOM

@@ -20,7 +20,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/smashingtags/eightly-agent/internal/metrics"
+	"github.com/imogenlabs/eightly-agent/internal/metrics"
 )
 
 const (

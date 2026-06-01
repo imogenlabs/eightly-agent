@@ -12,7 +12,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/smashingtags/eightly-agent/internal/metrics"
+	"github.com/imogenlabs/eightly-agent/internal/metrics"
 )
 
 var dockerIDRe = regexp.MustCompile(`^[a-zA-Z0-9]{12,64}$`)

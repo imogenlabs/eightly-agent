@@ -122,4 +122,4 @@ No frameworks, no ORM, no config libraries.
 
 - [Eight.ly OS](https://eight.ly)
 - [Docker Hub](https://hub.docker.com/r/smashingtags/eightly-agent)
-- [GitHub Container Registry](https://github.com/smashingtags/eightly-agent/pkgs/container/eightly-agent)
+- [GitHub Container Registry](https://github.com/imogenlabs/eightly-agent/pkgs/container/eightly-agent)

@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Prometheus `/metrics` endpoint behind `--metrics` flag with heartbeat, registration,
-  WebSocket, and Docker socket reachability gauges/counters (closes [#10](https://github.com/smashingtags/eightly-agent/issues/10))
+  WebSocket, and Docker socket reachability gauges/counters (closes [#10](https://github.com/imogenlabs/eightly-agent/issues/10))
 - `BuildServerTLSConfig` helper centralizes outbound TLS configuration (system trust
   store default, optional `--server-ca` override, `--insecure-server-tls` escape hatch)
 - `--insecure-server-tls` flag to skip server certificate verification
@@ -96,5 +96,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Non-root container execution
 - systemd sandboxing (ProtectSystem=strict, NoNewPrivileges)
 
-[1.0.0-rc1]: https://github.com/smashingtags/eightly-agent/releases/tag/v1.0.0-rc1
-[1.0.0-beta1]: https://github.com/smashingtags/eightly-agent/releases/tag/v1.0.0-beta1
+[1.0.0-rc1]: https://github.com/imogenlabs/eightly-agent/releases/tag/v1.0.0-rc1
+[1.0.0-beta1]: https://github.com/imogenlabs/eightly-agent/releases/tag/v1.0.0-beta1

@@ -2,7 +2,7 @@
 
 ## General upgrade process
 
-1. Download the new binary for your platform from [Releases](https://github.com/smashingtags/eightly-agent/releases)
+1. Download the new binary for your platform from [Releases](https://github.com/imogenlabs/eightly-agent/releases)
 2. Stop the agent (`systemctl stop eightly-agent` / `eightly-agent.exe stop` / `docker compose down`)
 3. Replace the binary
 4. Start the agent

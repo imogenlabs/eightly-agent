@@ -229,7 +229,7 @@ jobs:
             docker run -d \
               -v /var/run/docker.sock:/var/run/docker.sock \
               -p 9001:9001 \
-              ghcr.io/smashingtags/eightly-agent:${{ steps.version.outputs.version }}
+              ghcr.io/imogenlabs/eightly-agent:${{ steps.version.outputs.version }}
             ```
 
             Also available on Docker Hub:
@@ -241,47 +241,47 @@ jobs:
 
             **Linux (amd64):**
             ```bash
-            wget https://github.com/smashingtags/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-linux-amd64
+            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-linux-amd64
             chmod +x eightly-agent-linux-amd64
             sudo mv eightly-agent-linux-amd64 /usr/bin/eightly-agent
             ```
 
             **Linux (arm64):**
             ```bash
-            wget https://github.com/smashingtags/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-linux-arm64
+            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-linux-arm64
             chmod +x eightly-agent-linux-arm64
             sudo mv eightly-agent-linux-arm64 /usr/bin/eightly-agent
             ```
 
             **macOS (Apple Silicon):**
             ```bash
-            curl -Lo eightly-agent https://github.com/smashingtags/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-darwin-arm64
+            curl -Lo eightly-agent https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-darwin-arm64
             chmod +x eightly-agent
             sudo mv eightly-agent /usr/local/bin/eightly-agent
             ```
 
             **macOS (Intel):**
             ```bash
-            curl -Lo eightly-agent https://github.com/smashingtags/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-darwin-amd64
+            curl -Lo eightly-agent https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-darwin-amd64
             chmod +x eightly-agent
             sudo mv eightly-agent /usr/local/bin/eightly-agent
             ```
 
             **Windows (amd64):**
             ```powershell
-            Invoke-WebRequest -Uri https://github.com/smashingtags/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-windows-amd64.exe -OutFile eightly-agent.exe
+            Invoke-WebRequest -Uri https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-windows-amd64.exe -OutFile eightly-agent.exe
             ```
 
             ### Debian / Ubuntu (.deb)
             ```bash
-            wget https://github.com/smashingtags/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent_${{ steps.version.outputs.version }}_amd64.deb
+            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent_${{ steps.version.outputs.version }}_amd64.deb
             sudo dpkg -i eightly-agent_${{ steps.version.outputs.version }}_amd64.deb
             sudo systemctl enable --now eightly-agent
             ```
 
             ### RHEL / Fedora (.rpm)
             ```bash
-            wget https://github.com/smashingtags/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-${{ steps.version.outputs.version }}.amd64.rpm
+            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-${{ steps.version.outputs.version }}.amd64.rpm
             sudo rpm -i eightly-agent-${{ steps.version.outputs.version }}.amd64.rpm
             sudo systemctl enable --now eightly-agent
             ```
@@ -293,7 +293,7 @@ jobs:
 
             ### Scoop (Windows)
             ```powershell
-            scoop bucket add eightly https://github.com/smashingtags/scoop-eightly
+            scoop bucket add eightly https://github.com/imogenlabs/scoop-eightly
             scoop install eightly-agent
             ```
           draft: false

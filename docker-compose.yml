@@ -1,6 +1,6 @@
 services:
   eightly-agent:
-    image: ghcr.io/smashingtags/eightly-agent:latest
+    image: ghcr.io/imogenlabs/eightly-agent:latest
     container_name: eightly-agent
     restart: unless-stopped
     ports:
