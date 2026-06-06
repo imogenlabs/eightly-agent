@@ -2,3 +2,6 @@ build/
 agent
 eightly-agent
 *.exe
+# internal agent docs — never commit
+CLAUDE.md
+HANDOFF.md
