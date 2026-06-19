@@ -5,6 +5,8 @@ package config
 import (
 	"errors"
 	"flag"
+	"fmt"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -73,7 +75,10 @@ func ParseArgs(fs *flag.FlagSet, args []string, version string) (*Config, error)
 	envOverride(&c.AllowedOrigins, "EIGHTLY_ALLOWED_ORIGINS")
 	envOverrideBool(&c.MetricsEnabled, "EIGHTLY_METRICS_ENABLED")
 	envOverrideBool(&c.InsecureNoAuth, "EIGHTLY_INSECURE_NO_AUTH")
-	envOverrideBool(&c.InsecureServerTLS, "EIGHTLY_INSECURE_SERVER_TLS")
+	// InsecureServerTLS is intentionally flag-only: skipping server cert
+	// verification + TOFU pinning is dangerous enough that it must be a
+	// deliberate, operator-typed --insecure-server-tls, never silently enabled
+	// by an inherited/leaked environment variable.
 
 	return c, nil
 }
@@ -113,6 +118,15 @@ func envOverrideBool(target *bool, key string) {
 func (c *Config) Validate() error {
 	if c.Secret == "" && !c.InsecureNoAuth {
 		return errors.New("EIGHTLY_AGENT_SECRET is required; use --insecure-no-auth to explicitly disable authentication")
+	}
+	if c.ServerURL != "" && !c.InsecureServerTLS {
+		u, err := url.Parse(c.ServerURL)
+		if err != nil {
+			return fmt.Errorf("invalid --server-url %q: %w", c.ServerURL, err)
+		}
+		if u.Scheme != "https" {
+			return fmt.Errorf("--server-url must use https (got scheme %q); use --insecure-server-tls to allow an unverified/non-https server", u.Scheme)
+		}
 	}
 	return nil
 }

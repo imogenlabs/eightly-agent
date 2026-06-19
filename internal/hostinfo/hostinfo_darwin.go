@@ -78,7 +78,7 @@ func readDisks() []PhysicalDisk {
 }
 
 func diskSizeGB(name string) int64 {
-	out, err := exec.Command("diskutil", "info", name).Output()
+	out, err := exec.Command("diskutil", "info", name).Output() // #nosec G204 -- name from diskutil output, not request input
 	if err != nil {
 		log.Debug().Err(err).Str("disk", name).Msg("diskutil info failed (size)")
 		return 0
@@ -103,7 +103,7 @@ func diskSizeGB(name string) int64 {
 }
 
 func diskVendor(name string) string {
-	out, err := exec.Command("diskutil", "info", name).Output()
+	out, err := exec.Command("diskutil", "info", name).Output() // #nosec G204 -- name from diskutil output, not request input
 	if err != nil {
 		log.Debug().Err(err).Str("disk", name).Msg("diskutil info failed (vendor)")
 		return ""

@@ -35,6 +35,11 @@ type State struct {
 	Token        string `json:"token"`
 	ServerURL    string `json:"server_url"`
 	RegisteredAt string `json:"registered_at"`
+	// ServerPin is the TOFU-captured server leaf SPKI SHA-256 fingerprint
+	// ("sha256/<base64>"). Captured on first successful register and enforced on
+	// every subsequent register/re-register/heartbeat dial. Empty when the
+	// InsecureServerTLS escape hatch is in effect.
+	ServerPin string `json:"server_pin,omitempty"`
 }
 
 // AgentInfo describes the agent's host environment for registration.
@@ -49,7 +54,15 @@ type AgentInfo struct {
 }
 
 // LoadState reads the registration state from disk, returning nil if the file does not exist.
+//
+// The state file holds the agent's long-lived bearer token, so before reading it
+// we refuse to load when the file or its parent directory is owned by another
+// user or is more permissive than 0600 (file) / 0700 (dir). A loose-permission
+// state file is a credential-leak vector, so we fail closed rather than trust it.
 func LoadState(path string) (*State, error) {
+	if err := checkStatePerms(path); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(path) // #nosec G304 -- path comes from admin-configured --state-file flag, not user input
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -62,6 +75,41 @@ func LoadState(path string) (*State, error) {
 		return nil, err
 	}
 	return &s, nil
+}
+
+// checkStatePerms enforces that the state file (0600) and its parent dir (0700)
+// are not world/group accessible and are owned by the current uid. Missing file
+// is fine — that is the unregistered case. The ownership check is a no-op on
+// platforms that do not report a uid (e.g. Windows).
+func checkStatePerms(path string) error {
+	fi, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := assertPerm(path, fi, 0o600); err != nil {
+		return err
+	}
+	dir := filepath.Dir(path)
+	di, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	return assertPerm(dir, di, 0o700)
+}
+
+func assertPerm(name string, fi os.FileInfo, maxMode os.FileMode) error {
+	if permsEnforced {
+		if perm := fi.Mode().Perm(); perm&^maxMode != 0 {
+			return fmt.Errorf("refusing to load registration state: %s has mode %04o, broader than %04o", name, perm, maxMode)
+		}
+	}
+	if uid, ok := fileUID(fi); ok && uid != os.Getuid() {
+		return fmt.Errorf("refusing to load registration state: %s is owned by uid %d, not the agent uid %d", name, uid, os.Getuid())
+	}
+	return nil
 }
 
 func (s *State) Save(path string) error {
@@ -142,10 +190,32 @@ func detectDockerVersion(socketPath string) string {
 }
 
 // BuildServerTLSConfig creates a *tls.Config for connections to the EOS server.
-// If caPath is set, the CA cert is loaded into a custom RootCAs pool.
-// If insecure is true, InsecureSkipVerify is used (requires explicit opt-in).
-// Default: uses the system trust store with full certificate verification.
+//
+// Trust model (in precedence order):
+//   - insecure == true: the --insecure-server-tls escape hatch. Skip ALL
+//     verification, including pinning. Loud warning. Never use in production.
+//   - caPath set: verify the server chain against the supplied CA AND pin the
+//     server leaf SPKI (TOFU). Defense in depth — a compromised/mis-issued cert
+//     under the same CA still trips the pin.
+//   - default (no CA): pin-only TOFU. The system trust store cannot vouch for a
+//     self-signed appliance server, so chain verification is disabled and trust
+//     rests entirely on the first-seen leaf SPKI fingerprint, persisted in the
+//     registration state and enforced on every later dial.
+//
+// The returned config carries a pinHolder (via the package pin registry) that
+// Register captures into and StartHeartbeat seeds from the persisted pin.
 func BuildServerTLSConfig(caPath string, insecure bool, log zerolog.Logger) (*tls.Config, error) {
+	if insecure {
+		log.Warn().Msg("--insecure-server-tls set: skipping server cert verification AND TOFU pinning — DO NOT USE IN PRODUCTION")
+		return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, nil // #nosec G402 -- explicit opt-in via --insecure-server-tls
+	}
+
+	holder := &pinHolder{}
+	cfg := &tls.Config{
+		MinVersion:       tls.VersionTLS12,
+		VerifyConnection: verifyPinned(holder),
+	}
+
 	if caPath != "" {
 		caCert, err := os.ReadFile(caPath) // #nosec G304 -- path comes from admin-configured --server-ca flag, not user input
 		if err != nil {
@@ -155,14 +225,17 @@ func BuildServerTLSConfig(caPath string, insecure bool, log zerolog.Logger) (*tl
 		if !pool.AppendCertsFromPEM(caCert) {
 			return nil, fmt.Errorf("server CA cert %q contains no valid PEM certificates", caPath)
 		}
-		return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
+		// RootCAs set => Go performs full chain verification; VerifyConnection
+		// then additionally enforces the leaf pin.
+		cfg.RootCAs = pool
+	} else {
+		// Pin-only TOFU: disable chain verification so a self-signed server
+		// leaf is reachable; the pin (not a CA) is the trust anchor.
+		cfg.InsecureSkipVerify = true // #nosec G402 -- trust is enforced by the TOFU leaf-SPKI pin in VerifyConnection
 	}
-	if insecure {
-		log.Warn().Msg("--insecure-server-tls set: skipping server cert verification — DO NOT USE IN PRODUCTION")
-		return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, nil // #nosec G402 -- explicit opt-in via --insecure-server-tls
-	}
-	// Default: use system trust store, full verification
-	return &tls.Config{MinVersion: tls.VersionTLS12}, nil
+
+	pinRegistry.Store(cfg, holder)
+	return cfg, nil
 }
 
 type registerPayload struct {
@@ -206,8 +279,7 @@ func Register(serverURL, enrollToken string, info AgentInfo, tlsCfg *tls.Config)
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		metrics.RegistrationAttempts.WithLabelValues("rejected").Inc()
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("register failed: %d %s", resp.StatusCode, string(raw))
+		return nil, fmt.Errorf("register failed: status %d", resp.StatusCode)
 	}
 
 	var result struct {
@@ -232,6 +304,9 @@ func Register(serverURL, enrollToken string, info AgentInfo, tlsCfg *tls.Config)
 		Token:        result.Data.Token,
 		ServerURL:    serverURL,
 		RegisteredAt: time.Now().UTC().Format(time.RFC3339),
+		// TOFU: the leaf SPKI observed during this (first) successful handshake
+		// is now the pin. Persisting it lets every later dial enforce it.
+		ServerPin: currentPin(tlsCfg),
 	}, nil
 }
 
@@ -241,6 +316,13 @@ type reRegisterPayload struct {
 }
 
 // ReRegister re-enrolls an already-registered agent after repeated heartbeat failures.
+//
+// It reuses the same pinned tlsCfg as the original registration, so the TOFU
+// server-cert pin is enforced here too — re-registration never weakens the
+// transport trust. The agent re-authenticates with its existing bearer token;
+// rotating or expiring that token is a server-side responsibility (the agent
+// holds a long-lived token and has no protocol affordance to rotate it
+// unilaterally). Residual token-lifecycle hardening is tracked server-side.
 func ReRegister(state *State, info AgentInfo, tlsCfg *tls.Config) (*State, error) {
 	payload := reRegisterPayload{
 		AgentInfo: info,
@@ -274,8 +356,7 @@ func ReRegister(state *State, info AgentInfo, tlsCfg *tls.Config) (*State, error
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		metrics.RegistrationAttempts.WithLabelValues("rejected").Inc()
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("re-register failed: %d %s", resp.StatusCode, string(raw))
+		return nil, fmt.Errorf("re-register failed: status %d", resp.StatusCode)
 	}
 
 	var result struct {
@@ -295,16 +376,29 @@ func ReRegister(state *State, info AgentInfo, tlsCfg *tls.Config) (*State, error
 	}
 
 	metrics.RegistrationAttempts.WithLabelValues("success").Inc()
+	pin := currentPin(tlsCfg)
+	if pin == "" {
+		// Carry the previously-persisted pin forward if the config holder was
+		// empty (e.g. a code path that didn't seed it).
+		pin = state.ServerPin
+	}
 	return &State{
 		AgentID:      result.Data.AgentID,
 		Token:        result.Data.Token,
 		ServerURL:    state.ServerURL,
 		RegisteredAt: time.Now().UTC().Format(time.RFC3339),
+		ServerPin:    pin,
 	}, nil
 }
 
 // StartHeartbeat sends periodic heartbeats to the EOS server, re-registering on repeated failures.
 func StartHeartbeat(ctx context.Context, state *State, statePath, socketPath, version, advertiseIP string, tlsCfg *tls.Config, log zerolog.Logger) {
+	// Seed the TOFU pin from persisted state so that, across a process restart,
+	// the very first heartbeat/re-register dial enforces the saved pin instead
+	// of blindly re-capturing whatever cert is presented. server.go builds the
+	// tls.Config before loading state, so this is where the two meet.
+	seedPin(tlsCfg, state.ServerPin)
+
 	interval := heartbeatInterval
 	maxInterval := heartbeatMaxInterval
 	failures := 0

@@ -68,7 +68,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	}
 
 	mux := http.NewServeMux()
-	authed := auth.Middleware(cfg.Secret)
+	authed := auth.Middleware(cfg.Secret, cfg.InsecureNoAuth)
 	authEnabled := cfg.Secret != ""
 
 	var allowedOrigins []string

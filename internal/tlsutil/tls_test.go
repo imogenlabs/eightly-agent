@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -256,5 +257,55 @@ func TestKeyFilePermissions(t *testing.T) {
 	perm := info.Mode().Perm()
 	if perm != 0600 {
 		t.Fatalf("expected key permissions 0600, got %04o", perm)
+	}
+}
+
+// TestCertBasicConstraintsValid covers fix #7: the generated leaf must carry an
+// explicit, valid BasicConstraints extension marking it as a non-CA.
+func TestCertBasicConstraintsValid(t *testing.T) {
+	dir := t.TempDir()
+	certPath, _, err := EnsureCert(dir)
+	if err != nil {
+		t.Fatalf("EnsureCert failed: %v", err)
+	}
+	certData, _ := os.ReadFile(certPath)
+	block, _ := pem.Decode(certData)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("parse cert: %v", err)
+	}
+	if !cert.BasicConstraintsValid {
+		t.Error("expected BasicConstraintsValid=true on generated cert")
+	}
+	if cert.IsCA {
+		t.Error("generated leaf must not be a CA")
+	}
+}
+
+// TestEnsureCertReuseTightensLoosePerms covers fix #7: reusing an existing key
+// that is group/world readable must repair the mode back to 0600.
+func TestEnsureCertReuseTightensLoosePerms(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX perms not meaningful on Windows")
+	}
+	dir := t.TempDir()
+	_, keyPath, err := EnsureCert(dir)
+	if err != nil {
+		t.Fatalf("first EnsureCert: %v", err)
+	}
+	// Loosen the key, simulating a botched deploy or bad umask.
+	if err := os.Chmod(keyPath, 0o644); err != nil {
+		t.Fatalf("chmod loose: %v", err)
+	}
+	// Reuse path must tighten it back.
+	if _, _, err := EnsureCert(dir); err != nil {
+		t.Fatalf("reuse EnsureCert: %v", err)
+	}
+	info, err := os.Stat(keyPath)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("reuse path should tighten key to 0600, got %04o", perm)
 	}
 }

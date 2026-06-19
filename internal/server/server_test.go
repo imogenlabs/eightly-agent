@@ -386,11 +386,17 @@ func TestIntegration_AuthEndpoints(t *testing.T) {
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			t.Fatalf("GET /host: response is not valid JSON: %v", err)
 		}
-		if _, ok := result["pci_devices"]; !ok {
-			t.Error("GET /host: response missing pci_devices field")
+		// /host now returns only a minimal hardware summary — counts and totals.
+		// Full PCI/disk enumeration is intentionally not exposed (oversharing fix).
+		for _, want := range []string{"pci_count", "disk_count", "disk_total_gb"} {
+			if _, ok := result[want]; !ok {
+				t.Errorf("GET /host: response missing minimal field %q", want)
+			}
 		}
-		if _, ok := result["physical_disks"]; !ok {
-			t.Error("GET /host: response missing physical_disks field")
+		for _, leaked := range []string{"pci_devices", "physical_disks"} {
+			if _, ok := result[leaked]; ok {
+				t.Errorf("GET /host: response must not expose enumeration field %q", leaked)
+			}
 		}
 	})
 
