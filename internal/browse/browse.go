@@ -136,7 +136,8 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 		}
 		defer file.Close()
 
-		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil { // #nosec G301 -- volume data directories need 0755 for Docker container access
+		mkErr := os.MkdirAll(filepath.Dir(full), 0755) // #nosec G301 -- volume data directories need 0755 for Docker container access
+		if mkErr != nil {
 			audit(r, "put", full, "error")
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "write failed"})
 			return
@@ -151,7 +152,7 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 		}
 
 		// O_NOFOLLOW so a symlink planted at the final path component cannot redirect the write.
-		dst, err := os.OpenFile(full, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscallNoFollow, 0644) // #nosec G304 -- path validated against base directory; O_NOFOLLOW prevents symlink redirection
+		dst, err := os.OpenFile(full, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscallNoFollow, 0644) // #nosec G302 G304 -- path validated against base directory; O_NOFOLLOW prevents symlink redirection
 		if err != nil {
 			audit(r, "put", full, "error")
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "write failed"})
