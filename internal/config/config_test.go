@@ -4,6 +4,7 @@ import (
 	"flag"
 	"io"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -198,15 +199,32 @@ func TestParseArgsEnvOverridesMultiple(t *testing.T) {
 func TestParseArgsBoolEnvOverrides(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("EIGHTLY_INSECURE_NO_AUTH", "true")
-	t.Setenv("EIGHTLY_INSECURE_SERVER_TLS", "1")
 
 	c := parseTestArgs(t, nil, "v1.0.0")
 
 	if !c.InsecureNoAuth {
 		t.Error("InsecureNoAuth: expected true with env=true")
 	}
+}
+
+// InsecureServerTLS is flag-only — the env override was removed so a leaked
+// environment variable can never silently disable server cert verification.
+func TestInsecureServerTLS_NotSettableViaEnv(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("EIGHTLY_INSECURE_SERVER_TLS", "1")
+
+	c := parseTestArgs(t, nil, "v1.0.0")
+
+	if c.InsecureServerTLS {
+		t.Error("InsecureServerTLS must NOT be settable via EIGHTLY_INSECURE_SERVER_TLS env var")
+	}
+}
+
+func TestInsecureServerTLS_SettableViaFlag(t *testing.T) {
+	clearEnv(t)
+	c := parseTestArgs(t, []string{"--insecure-server-tls"}, "v1.0.0")
 	if !c.InsecureServerTLS {
-		t.Error("InsecureServerTLS: expected true with env=1")
+		t.Error("InsecureServerTLS should be true when --insecure-server-tls flag is passed")
 	}
 }
 
@@ -323,6 +341,47 @@ func TestValidateAcceptsSecret(t *testing.T) {
 	c := &Config{Secret: "something", InsecureNoAuth: false}
 	if err := c.Validate(); err != nil {
 		t.Fatalf("expected no error with secret set, got: %v", err)
+	}
+}
+
+func TestValidateAcceptsHTTPSServerURL(t *testing.T) {
+	c := &Config{Secret: "s", ServerURL: "https://eos.example:8443"}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("expected no error for https server-url, got: %v", err)
+	}
+}
+
+func TestValidateRejectsHTTPServerURL(t *testing.T) {
+	c := &Config{Secret: "s", ServerURL: "http://eos.example"}
+	err := c.Validate()
+	if err == nil {
+		t.Fatal("expected error for non-https server-url")
+	}
+	if !strings.Contains(err.Error(), "https") {
+		t.Errorf("error should mention https requirement, got: %v", err)
+	}
+}
+
+func TestValidateRejectsNonHTTPSchemes(t *testing.T) {
+	for _, u := range []string{"ftp://eos", "ws://eos", "eos.example", "://broken"} {
+		c := &Config{Secret: "s", ServerURL: u}
+		if err := c.Validate(); err == nil {
+			t.Errorf("expected error for non-https server-url %q", u)
+		}
+	}
+}
+
+func TestValidateAllowsHTTPWithInsecureServerTLS(t *testing.T) {
+	c := &Config{Secret: "s", ServerURL: "http://eos.example", InsecureServerTLS: true}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("http should be allowed when --insecure-server-tls is set, got: %v", err)
+	}
+}
+
+func TestValidateAllowsEmptyServerURL(t *testing.T) {
+	c := &Config{Secret: "s", ServerURL: ""}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("empty server-url should be allowed, got: %v", err)
 	}
 }
 

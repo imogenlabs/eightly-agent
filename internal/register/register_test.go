@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,6 +171,46 @@ func TestRegister_ServerErrorReturnsError(t *testing.T) {
 	}
 	if state != nil {
 		t.Error("state should be nil on error")
+	}
+}
+
+// TestRegister_ErrorDoesNotLeakBody covers fix #6: the server's response body
+// must not be embedded in the returned error (only status code + fixed message).
+func TestRegister_ErrorDoesNotLeakBody(t *testing.T) {
+	secret := "SUPER-SECRET-INTERNAL-STACK-TRACE"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(secret))
+	}))
+	defer srv.Close()
+
+	_, err := Register(srv.URL, "", AgentInfo{Hostname: "h"}, nil)
+	if err == nil {
+		t.Fatal("expected error for 500")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("error must not embed server response body, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("error should report the status code, got: %v", err)
+	}
+}
+
+func TestReRegister_ErrorDoesNotLeakBody(t *testing.T) {
+	secret := "DB-PASSWORD-IN-ERROR-BODY"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(secret))
+	}))
+	defer srv.Close()
+
+	st := &State{AgentID: "a", Token: "t", ServerURL: srv.URL}
+	_, err := ReRegister(st, AgentInfo{Hostname: "h"}, nil)
+	if err == nil {
+		t.Fatal("expected error for 403")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("error must not embed server response body, got: %v", err)
 	}
 }
 
@@ -330,6 +371,11 @@ func TestStateSave_WritesValidJSON(t *testing.T) {
 
 func TestLoadState_AfterSave_ReturnsSameData(t *testing.T) {
 	dir := t.TempDir()
+	// t.TempDir() is 0755; LoadState now refuses a state file in a group/world
+	// accessible directory, so tighten it to 0700 first.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
 	path := filepath.Join(dir, "state.json")
 
 	original := &State{
@@ -412,71 +458,23 @@ func TestBuildServerTLSConfig_InsecureTrue(t *testing.T) {
 	}
 }
 
-func TestBuildServerTLSConfig_DefaultUsesSystemTrustStore(t *testing.T) {
+func TestBuildServerTLSConfig_DefaultPinsViaTOFU(t *testing.T) {
 	log := zerolog.Nop()
 	cfg, err := BuildServerTLSConfig("", false, log)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.InsecureSkipVerify {
-		t.Error("default config must NOT set InsecureSkipVerify=true (fail-closed)")
+	// Pin-only TOFU: chain verification is off (a self-signed appliance server
+	// can't be vouched for by a CA), and a VerifyConnection callback enforces
+	// the leaf SPKI pin instead.
+	if !cfg.InsecureSkipVerify {
+		t.Error("default (no CA) config should disable chain verification and rely on the pin")
 	}
-	if cfg.RootCAs != nil {
-		t.Error("default config should use system trust store (nil RootCAs)")
+	if cfg.VerifyConnection == nil {
+		t.Error("default config must install a VerifyConnection callback for TOFU pinning")
 	}
 	if cfg.MinVersion != tls.VersionTLS12 {
 		t.Errorf("MinVersion: got %d, want tls.VersionTLS12 (%d)", cfg.MinVersion, tls.VersionTLS12)
-	}
-}
-
-func TestBuildServerTLSConfig_DefaultRejectsSelfSigned(t *testing.T) {
-	// Generate a self-signed leaf cert (not in system trust store)
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatalf("generate key: %v", err)
-	}
-	template := &x509.Certificate{
-		SerialNumber: big.NewInt(42),
-		Subject:      pkix.Name{CommonName: "self-signed-test"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     []string{"localhost"},
-	}
-	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
-	if err != nil {
-		t.Fatalf("create cert: %v", err)
-	}
-
-	// Build the default TLS config (fail-closed, system trust store)
-	log := zerolog.Nop()
-	cfg, err := BuildServerTLSConfig("", false, log)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Try to verify the self-signed cert against the default config's trust store
-	selfSignedCert, err := x509.ParseCertificate(certDER)
-	if err != nil {
-		t.Fatalf("parse cert: %v", err)
-	}
-
-	roots := cfg.RootCAs
-	if roots == nil {
-		// nil means system trust store — load it explicitly for the verification check
-		roots, err = x509.SystemCertPool()
-		if err != nil {
-			t.Skipf("cannot load system cert pool: %v", err)
-		}
-	}
-
-	_, verifyErr := selfSignedCert.Verify(x509.VerifyOptions{
-		Roots:     roots,
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	})
-	if verifyErr == nil {
-		t.Fatal("self-signed cert should NOT verify against system trust store — fail-closed regression")
 	}
 }
 
