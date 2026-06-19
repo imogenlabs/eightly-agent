@@ -415,6 +415,230 @@ func TestPutRejectsOversizeUpload(t *testing.T) {
 	}
 }
 
+// TestSymlinkEscapeWriteRejected is the sabotage-proven test: a symlink that
+// lives INSIDE the volume but points to a directory OUTSIDE it must not allow
+// put/delete/rename to operate on the outside target. If the containment
+// recheck is reverted (e.g. only applied when the final target already exists),
+// these write paths escape and the assertions below fail.
+func TestSymlinkEscapeWriteRejected(t *testing.T) {
+	dataPath, volID := setupVolume(t)
+	dataDir := filepath.Join(dataPath, "volumes", volID, "_data")
+
+	// A directory outside the volume holding a victim file.
+	outsideDir := filepath.Join(dataPath, "outside")
+	if err := os.MkdirAll(outsideDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	victim := filepath.Join(outsideDir, "victim.txt")
+	if err := os.WriteFile(victim, []byte("original"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Symlink inside the volume pointing outside.
+	symlink := filepath.Join(dataDir, "escape")
+	if err := os.Symlink(outsideDir, symlink); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+
+	srv := httptest.NewServer(Handler(dataPath))
+	defer srv.Close()
+
+	// PUT through the symlink: must NOT create/overwrite a file outside.
+	t.Run("put", func(t *testing.T) {
+		var buf bytes.Buffer
+		writer := multipart.NewWriter(&buf)
+		part, _ := writer.CreateFormFile("file", "x")
+		part.Write([]byte("pwned"))
+		writer.Close()
+
+		req, _ := http.NewRequest("POST", srv.URL+"/browse/put?volumeID="+volID+"&path=escape/victim.txt", &buf) //nolint:noctx
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusCreated {
+			t.Errorf("put through symlink should be rejected, got 201")
+		}
+		got, _ := os.ReadFile(victim)
+		if string(got) != "original" {
+			t.Errorf("victim file was overwritten through symlink: %q", string(got))
+		}
+	})
+
+	// PUT a brand-new (non-existent) file outside via the symlink. This is the
+	// exact case the bug skipped: target does not yet exist.
+	t.Run("put_new_file", func(t *testing.T) {
+		var buf bytes.Buffer
+		writer := multipart.NewWriter(&buf)
+		part, _ := writer.CreateFormFile("file", "x")
+		part.Write([]byte("pwned"))
+		writer.Close()
+
+		req, _ := http.NewRequest("POST", srv.URL+"/browse/put?volumeID="+volID+"&path=escape/newfile.txt", &buf) //nolint:noctx
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusCreated {
+			t.Errorf("put of new file through symlink should be rejected, got 201")
+		}
+		if _, err := os.Stat(filepath.Join(outsideDir, "newfile.txt")); err == nil {
+			t.Errorf("new file was created outside the volume through symlink")
+		}
+	})
+
+	// DELETE through the symlink: must NOT remove the outside file.
+	t.Run("delete", func(t *testing.T) {
+		req, _ := http.NewRequest("DELETE", srv.URL+"/browse/delete?volumeID="+volID+"&path=escape/victim.txt", nil) //nolint:noctx
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusNoContent {
+			t.Errorf("delete through symlink should be rejected, got 204")
+		}
+		if _, err := os.Stat(victim); err != nil {
+			t.Errorf("victim file was deleted through symlink: %v", err)
+		}
+	})
+
+	// RENAME with a destination that resolves outside via the symlink dir.
+	t.Run("rename_dest_escape", func(t *testing.T) {
+		// Create a real file inside the volume to rename.
+		os.WriteFile(filepath.Join(dataDir, "movable.txt"), []byte("data"), 0644)
+		body, _ := json.Marshal(map[string]string{"path": "escape/victim.txt", "newName": "renamed.txt"})
+		req, _ := http.NewRequest("PUT", srv.URL+"/browse/rename?volumeID="+volID, bytes.NewReader(body)) //nolint:noctx
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			t.Errorf("rename through symlink should be rejected, got 200")
+		}
+		if _, err := os.Stat(filepath.Join(outsideDir, "renamed.txt")); err == nil {
+			t.Errorf("file was created outside the volume via rename through symlink")
+		}
+	})
+}
+
+func TestReadOnlyRejectsMutations(t *testing.T) {
+	dataPath, volID := setupVolume(t)
+	dataDir := filepath.Join(dataPath, "volumes", volID, "_data")
+	os.WriteFile(filepath.Join(dataDir, "f.txt"), []byte("x"), 0644)
+
+	srv := httptest.NewServer(Handler(dataPath, ReadOnly(true)))
+	defer srv.Close()
+
+	// put
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, _ := writer.CreateFormFile("file", "u.txt")
+	part.Write([]byte("data"))
+	writer.Close()
+	req, _ := http.NewRequest("POST", srv.URL+"/browse/put?volumeID="+volID+"&path=u.txt", &buf) //nolint:noctx
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("read-only put should be 403, got %d", resp.StatusCode)
+	}
+
+	// delete
+	req, _ = http.NewRequest("DELETE", srv.URL+"/browse/delete?volumeID="+volID+"&path=f.txt", nil) //nolint:noctx
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("read-only delete should be 403, got %d", resp.StatusCode)
+	}
+
+	// rename
+	body, _ := json.Marshal(map[string]string{"path": "f.txt", "newName": "g.txt"})
+	req, _ = http.NewRequest("PUT", srv.URL+"/browse/rename?volumeID="+volID, bytes.NewReader(body)) //nolint:noctx
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("read-only rename should be 403, got %d", resp.StatusCode)
+	}
+
+	// Read paths still work in read-only mode.
+	resp, err = http.Get(srv.URL + "/browse/ls?volumeID=" + volID + "&path=") //nolint:noctx
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("read-only ls should be 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestGetRefusesDotfile(t *testing.T) {
+	dataPath, volID := setupVolume(t)
+	dataDir := filepath.Join(dataPath, "volumes", volID, "_data")
+	os.WriteFile(filepath.Join(dataDir, ".secret"), []byte("hidden"), 0644)
+
+	srv := httptest.NewServer(Handler(dataPath))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/browse/get?volumeID=" + volID + "&path=.secret") //nolint:noctx
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("get of dotfile should be 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestLsSkipsDotfiles(t *testing.T) {
+	dataPath, volID := setupVolume(t)
+	dataDir := filepath.Join(dataPath, "volumes", volID, "_data")
+	os.WriteFile(filepath.Join(dataDir, "visible.txt"), []byte("x"), 0644)
+	os.WriteFile(filepath.Join(dataDir, ".hidden"), []byte("y"), 0644)
+
+	srv := httptest.NewServer(Handler(dataPath))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=" + volID + "&path=") //nolint:noctx
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	var entries []fileEntry
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name == ".hidden" {
+			t.Errorf("ls should skip dotfiles, but listed %q", e.Name)
+		}
+	}
+	if len(entries) != 1 {
+		t.Errorf("expected 1 visible entry, got %d", len(entries))
+	}
+}
+
 func TestPutRejectsDirectoryTarget(t *testing.T) {
 	dataPath, volID := setupVolume(t)
 	dataDir := filepath.Join(dataPath, "volumes", volID, "_data")
