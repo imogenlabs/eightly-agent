@@ -29,7 +29,7 @@ func clearEnv(t *testing.T) {
 		"EIGHTLY_ADVERTISE_IP", "EIGHTLY_TLS_SANS",
 		"EIGHTLY_ALLOWED_ORIGINS",
 		"EIGHTLY_INSECURE_NO_AUTH", "EIGHTLY_INSECURE_SERVER_TLS",
-		"EIGHTLY_METRICS_ENABLED",
+		"EIGHTLY_METRICS_ENABLED", "EIGHTLY_BROWSE_READ_ONLY",
 	} {
 		os.Unsetenv(key)
 	}
@@ -248,6 +248,31 @@ func TestParseArgsMetricsEnabledEnv(t *testing.T) {
 
 	if !c.MetricsEnabled {
 		t.Error("MetricsEnabled: expected true with env=true")
+	}
+}
+
+func TestParseArgsBrowseReadOnlyDefaultsOff(t *testing.T) {
+	clearEnv(t)
+	c := parseTestArgs(t, nil, "v1.0.0")
+	if c.BrowseReadOnly {
+		t.Error("BrowseReadOnly: expected false by default")
+	}
+}
+
+func TestParseArgsBrowseReadOnlyFlag(t *testing.T) {
+	clearEnv(t)
+	c := parseTestArgs(t, []string{"--browse-read-only"}, "v1.0.0")
+	if !c.BrowseReadOnly {
+		t.Error("BrowseReadOnly: expected true with --browse-read-only")
+	}
+}
+
+func TestParseArgsBrowseReadOnlyEnv(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("EIGHTLY_BROWSE_READ_ONLY", "true")
+	c := parseTestArgs(t, nil, "v1.0.0")
+	if !c.BrowseReadOnly {
+		t.Error("BrowseReadOnly: expected true with env=true")
 	}
 }
 

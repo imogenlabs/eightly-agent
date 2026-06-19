@@ -127,6 +127,18 @@ type createBody struct {
 			Type   string `json:"Type"`
 			Source string `json:"Source"`
 		} `json:"Mounts"`
+		// SecurityOpt entries can disable seccomp/apparmor confinement or SELinux labels.
+		SecurityOpt []string `json:"SecurityOpt"`
+		// Devices maps raw host devices into the container (host disk/root access).
+		Devices []struct {
+			PathOnHost string `json:"PathOnHost"`
+		} `json:"Devices"`
+		// Sysctls set kernel params; only the Docker-namespaced set is container-safe.
+		Sysctls map[string]string `json:"Sysctls"`
+		// CgroupParent placing a container under an arbitrary cgroup enables escape/abuse.
+		CgroupParent string `json:"CgroupParent"`
+		// Tmpfs mounts a tmpfs at a target path; sensitive targets shadow host-critical dirs.
+		Tmpfs map[string]string `json:"Tmpfs"`
 	} `json:"HostConfig"`
 }
 
@@ -157,10 +169,72 @@ var sensitivePaths = []string{
 	"/run/docker.sock",
 }
 
+// sensitiveTmpfsTargets are container paths a tmpfs mount must not shadow: a
+// tmpfs over "/proc"/"/sys" hides the real (read-only-masked) kernel views, and
+// "/"/"/etc" let an attacker stage a writable surface over critical mount points.
+var sensitiveTmpfsTargets = []string{"/", "/proc", "/sys", "/etc"}
+
+// safeKernelSysctls are the kernel/fs sysctls Docker namespaces by default. Per
+// the Docker docs only `net.*` plus this IPC/mqueue set are permitted without
+// host scope; anything else (general `kernel.*`, `vm.*`, …) affects the host.
+var safeKernelSysctls = map[string]struct{}{
+	"kernel.shmmax":          {},
+	"kernel.shmmni":          {},
+	"kernel.shmall":          {},
+	"kernel.shm_rmid_forced": {},
+	"kernel.msgmax":          {},
+	"kernel.msgmnb":          {},
+	"kernel.msgmni":          {},
+	"kernel.sem":             {},
+}
+
+// disablesConfinement reports whether a SecurityOpt entry turns off a runtime
+// sandbox (seccomp/apparmor unconfined) or SELinux labelling. Docker accepts
+// both `=` and `:` separators; we tolerate whitespace and case.
+func disablesConfinement(opt string) bool {
+	// Normalize the separator to '=' so we only match once, then lower-case.
+	norm := strings.ToLower(strings.TrimSpace(opt))
+	norm = strings.ReplaceAll(norm, ":", "=")
+	// Collapse spaces around the separator and tokens.
+	parts := strings.SplitN(norm, "=", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	key := strings.TrimSpace(parts[0])
+	val := strings.TrimSpace(parts[1])
+	switch key {
+	case "seccomp", "apparmor":
+		return val == "unconfined"
+	case "label":
+		return val == "disable"
+	}
+	return false
+}
+
+// isSafeSysctl reports whether a sysctl key is in Docker's default-namespaced
+// set: any `net.*`, the `fs.mqueue.*` family, or the explicit kernel IPC list.
+// Everything else (general `kernel.*`, `vm.*`, etc.) reaches the host.
+func isSafeSysctl(key string) bool {
+	k := strings.ToLower(strings.TrimSpace(key))
+	if strings.HasPrefix(k, "net.") {
+		return true
+	}
+	if strings.HasPrefix(k, "fs.mqueue.") {
+		return true
+	}
+	_, ok := safeKernelSysctls[k]
+	return ok
+}
+
 // inspectCreateBody returns a non-empty reason string if the create body
 // requests a host-escape capability, or "" if the body is safe. A body that
 // fails to parse as JSON is allowed through (the daemon will reject malformed
 // input itself); we only act on fields we can positively identify as dangerous.
+//
+// This is a deny-list: it blocks the documented container-escape vectors but
+// cannot be exhaustive. An allow-list (or an upstream socket-proxy that only
+// passes vetted requests) is the stronger long-term model and is tracked as the
+// EA-34 follow-up.
 func inspectCreateBody(body []byte) string {
 	if len(body) == 0 {
 		return ""
@@ -216,7 +290,51 @@ func inspectCreateBody(body []byte) string {
 			return "sensitive host bind mount rejected: " + m.Source
 		}
 	}
+	for _, opt := range hc.SecurityOpt {
+		if disablesConfinement(opt) {
+			return "confinement-disabling SecurityOpt rejected: " + opt
+		}
+	}
+	for _, d := range hc.Devices {
+		if strings.TrimSpace(d.PathOnHost) != "" {
+			return "host device passthrough rejected: " + d.PathOnHost
+		}
+	}
+	for key := range hc.Sysctls {
+		if !isSafeSysctl(key) {
+			return "non-namespaced sysctl rejected: " + key
+		}
+	}
+	if strings.TrimSpace(hc.CgroupParent) != "" {
+		return "CgroupParent rejected: " + hc.CgroupParent
+	}
+	for target := range hc.Tmpfs {
+		if isSensitiveTmpfsTarget(target) {
+			return "tmpfs over sensitive path rejected: " + target
+		}
+	}
 	return ""
+}
+
+// isSensitiveTmpfsTarget reports whether a tmpfs mount target is, or lives
+// under, a host-critical path we refuse to let a container shadow.
+func isSensitiveTmpfsTarget(p string) bool {
+	clean := cleanPath(p)
+	if clean == "" {
+		return false
+	}
+	for _, s := range sensitiveTmpfsTargets {
+		if clean == s {
+			return true
+		}
+		if s == "/" {
+			continue // "/" only matches the exact root, handled above.
+		}
+		if strings.HasPrefix(clean, s+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // isHostNamespace reports whether a namespace mode shares the host namespace

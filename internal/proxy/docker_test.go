@@ -184,3 +184,138 @@ func TestInspectCreateBody_MalformedJSONAllowed(t *testing.T) {
 		t.Fatalf("expected malformed body to pass inspection, got reason %q", reason)
 	}
 }
+
+// --- EA-34: extended deny-list vectors (SecurityOpt/Devices/Sysctls/CgroupParent/Tmpfs) ---
+
+func TestProxy_SecurityOpt_Rejected(t *testing.T) {
+	// Each entry disables a runtime sandbox; tolerate '=' and ':' separators,
+	// whitespace, and case.
+	cases := map[string]string{
+		"seccomp unconfined":      `{"HostConfig":{"SecurityOpt":["seccomp=unconfined"]}}`,
+		"apparmor unconfined":     `{"HostConfig":{"SecurityOpt":["apparmor=unconfined"]}}`,
+		"label disable =":         `{"HostConfig":{"SecurityOpt":["label=disable"]}}`,
+		"label disable :":         `{"HostConfig":{"SecurityOpt":["label:disable"]}}`,
+		"seccomp colon sep":       `{"HostConfig":{"SecurityOpt":["seccomp:unconfined"]}}`,
+		"mixed case + whitespace": `{"HostConfig":{"SecurityOpt":[" Seccomp = Unconfined "]}}`,
+	}
+	for name, body := range cases {
+		rr, sink := postCreate(t, body)
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("%s: expected 403, got %d", name, rr.Code)
+		}
+		if sink.reached {
+			t.Errorf("%s: confinement-disabling SecurityOpt reached the daemon", name)
+		}
+	}
+}
+
+func TestProxy_SecurityOpt_SafeProfilePassesThrough(t *testing.T) {
+	// A custom seccomp profile / no-new-privileges is NOT a confinement bypass.
+	cases := map[string]string{
+		"custom seccomp profile": `{"HostConfig":{"SecurityOpt":["seccomp=/path/to/profile.json"]}}`,
+		"no-new-privileges":      `{"HostConfig":{"SecurityOpt":["no-new-privileges"]}}`,
+		"label user":            `{"HostConfig":{"SecurityOpt":["label=user:USER"]}}`,
+	}
+	for name, body := range cases {
+		rr, sink := postCreate(t, body)
+		if rr.Code != http.StatusOK {
+			t.Errorf("%s: expected 200, got %d", name, rr.Code)
+		}
+		if !sink.reached {
+			t.Errorf("%s: safe SecurityOpt was not forwarded", name)
+		}
+	}
+}
+
+func TestProxy_Devices_Rejected(t *testing.T) {
+	rr, sink := postCreate(t, `{"HostConfig":{"Devices":[{"PathOnHost":"/dev/sda","PathInContainer":"/dev/sda"}]}}`)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for host device passthrough, got %d", rr.Code)
+	}
+	if sink.reached {
+		t.Fatal("host device passthrough reached the daemon")
+	}
+}
+
+func TestProxy_EmptyDevices_PassesThrough(t *testing.T) {
+	// An empty Devices array must not block a normal create.
+	rr, sink := postCreate(t, `{"Image":"nginx","HostConfig":{"Devices":[]}}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for empty Devices, got %d", rr.Code)
+	}
+	if !sink.reached {
+		t.Fatal("create with empty Devices was not forwarded")
+	}
+}
+
+func TestProxy_Sysctls_Rejected(t *testing.T) {
+	cases := map[string]string{
+		"general kernel": `{"HostConfig":{"Sysctls":{"kernel.core_pattern":"|/tmp/x"}}}`,
+		"vm":             `{"HostConfig":{"Sysctls":{"vm.overcommit_memory":"1"}}}`,
+	}
+	for name, body := range cases {
+		rr, sink := postCreate(t, body)
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("%s: expected 403, got %d", name, rr.Code)
+		}
+		if sink.reached {
+			t.Errorf("%s: non-namespaced sysctl reached the daemon", name)
+		}
+	}
+}
+
+func TestProxy_SafeSysctls_PassThrough(t *testing.T) {
+	cases := map[string]string{
+		"net":      `{"HostConfig":{"Sysctls":{"net.ipv4.ip_forward":"1"}}}`,
+		"kernel shm": `{"HostConfig":{"Sysctls":{"kernel.shmmax":"65536"}}}`,
+		"fs mqueue":  `{"HostConfig":{"Sysctls":{"fs.mqueue.msg_max":"10"}}}`,
+	}
+	for name, body := range cases {
+		rr, sink := postCreate(t, body)
+		if rr.Code != http.StatusOK {
+			t.Errorf("%s: expected 200, got %d", name, rr.Code)
+		}
+		if !sink.reached {
+			t.Errorf("%s: safe sysctl was not forwarded", name)
+		}
+	}
+}
+
+func TestProxy_CgroupParent_Rejected(t *testing.T) {
+	rr, sink := postCreate(t, `{"HostConfig":{"CgroupParent":"/evil"}}`)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for CgroupParent, got %d", rr.Code)
+	}
+	if sink.reached {
+		t.Fatal("CgroupParent create reached the daemon")
+	}
+}
+
+func TestProxy_Tmpfs_Rejected(t *testing.T) {
+	cases := map[string]string{
+		"root":  `{"HostConfig":{"Tmpfs":{"/":"rw"}}}`,
+		"proc":  `{"HostConfig":{"Tmpfs":{"/proc":"rw"}}}`,
+		"sys":   `{"HostConfig":{"Tmpfs":{"/sys/fs/cgroup":"rw"}}}`,
+		"etc":   `{"HostConfig":{"Tmpfs":{"/etc":"rw"}}}`,
+	}
+	for name, body := range cases {
+		rr, sink := postCreate(t, body)
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("%s: expected 403, got %d", name, rr.Code)
+		}
+		if sink.reached {
+			t.Errorf("%s: sensitive tmpfs reached the daemon", name)
+		}
+	}
+}
+
+func TestProxy_SafeTmpfs_PassesThrough(t *testing.T) {
+	// A tmpfs at an app path (the normal /tmp/ramdisk case) must pass.
+	rr, sink := postCreate(t, `{"HostConfig":{"Tmpfs":{"/app/cache":"rw,size=64m"}}}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for safe tmpfs, got %d", rr.Code)
+	}
+	if !sink.reached {
+		t.Fatal("safe tmpfs create was not forwarded")
+	}
+}
