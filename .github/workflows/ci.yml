@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.23'
+          go-version: '1.26.4'
       - name: Check go.mod tidy
         run: |
           go mod tidy
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.23'
+          go-version: '1.26.4'
       - name: Run tests
         run: go test ./... -count=1 -race -timeout 60s -coverprofile=coverage.out -covermode=atomic
       - name: Upload coverage
@@ -73,7 +73,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.23'
+          go-version: '1.26.4'
       - name: Run tests with race detector
         run: go test ./... -race -count=1 -timeout 120s
 
@@ -107,7 +107,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.23'
+          go-version: '1.26.4'
       - name: Build binary
         env:
           GOARM: ${{ matrix.goarm || '' }}

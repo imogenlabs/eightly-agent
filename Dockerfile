@@ -1,6 +1,6 @@
-# Base images use version tags (not digests) for readability.
-# Dependabot monitors for updates via .github/dependabot.yml.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
+# Base images are pinned by digest (supply-chain integrity); the tag is kept as a
+# human-readable comment. Dependabot monitors for updates via .github/dependabot.yml.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:3ad57304ad93bbec8548a0437ad9e06a455660655d9af011d58b993f6f615648 AS builder
 ARG TARGETOS TARGETARCH TARGETVARIANT
 ARG VERSION=dev
 RUN apk add --no-cache git ca-certificates
@@ -12,7 +12,7 @@ RUN export GOARM="${TARGETVARIANT#v}" && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOARM=${GOARM} \
     go build -ldflags="-s -w -X main.version=${VERSION}" -o /eightly-agent ./cmd/agent
 
-FROM alpine:3.23
+FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
 RUN apk add --no-cache ca-certificates tzdata && \
     addgroup -g 999 docker && \
     adduser -S -u 1000 -G docker eightly-agent && \

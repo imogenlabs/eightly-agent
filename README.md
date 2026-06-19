@@ -4,7 +4,7 @@
 
 **Cross-platform Docker management daemon for [Eight.ly OS](https://eight.ly)**
 
-[![Go](https://img.shields.io/badge/Go-1.23-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
 [![Releases](https://img.shields.io/github/v/release/smashingtags/eightly-agent?style=flat-square&label=Release)](https://github.com/smashingtags/eightly-agent/releases)
 [![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?style=flat-square&logo=docker&logoColor=white)](https://hub.docker.com/r/smashingtags/eightly-agent)
 [![GHCR](https://img.shields.io/badge/GHCR-Latest-8957e5?style=flat-square&logo=github&logoColor=white)](https://github.com/smashingtags/eightly-agent/pkgs/container/eightly-agent)
@@ -65,7 +65,7 @@ Switch between local and remote hosts from the environment dropdown. Every conta
 
 ```bash
 docker run -d \
-  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:7001" \
