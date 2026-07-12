@@ -25,7 +25,7 @@ Run on every Docker host. Manage them all from one dashboard.
 
 Eight.ly Agent is a single Go binary that turns any Docker host into a managed node for Eight.ly OS. Deploy the agent on Linux, macOS, or Windows, point EOS at it, and get full container management, WebSocket console, file browsing, and system monitoring — all over authenticated TLS.
 
-**~2,050 lines of Go. Four dependencies. Zero config files.**
+**~3,150 lines of Go. Four dependencies. Zero config files.**
 
 ### Key Capabilities
 
@@ -35,8 +35,8 @@ Eight.ly Agent is a single Go binary that turns any Docker host into a managed n
 | :tv: | **WebSocket Console** | Interactive container attach and exec via WebSocket |
 | :open_file_folder: | **File Browser** | List, upload, download, delete, and rename files in Docker volumes |
 | :bar_chart: | **Host Info** | Reports PCI devices, physical disks, and system metadata |
-| :satellite: | **Registration** | Auto-registers with Eight.ly OS and sends 30-second heartbeats |
-| :closed_lock_with_key: | **Auto-TLS** | Generates self-signed certificates if none are provided |
+| :satellite: | **Registration** | Enrolls with Eight.ly OS using a one-time enrollment token and sends 30-second heartbeats |
+| :closed_lock_with_key: | **Auto-TLS** | Serves a self-signed cert; pins the EOS server cert on first use (TOFU) |
 
 ---
 
@@ -68,9 +68,12 @@ docker run -d \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
-  -e EIGHTLY_SERVER_URL="https://your-eos-server:7001" \
+  -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
+  -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
   ghcr.io/smashingtags/eightly-agent:latest
 ```
+
+> `EIGHTLY_SERVER_URL` is your Eight.ly OS dashboard URL — the agent register/heartbeat endpoints live on the same host and port EOS serves the UI from (default `8080`). Eight.ly OS generates a ready-to-paste `docker run` command with a one-time enrollment token under **Environments → Add host**.
 
 > Also on Docker Hub: `docker pull smashingtags/eightly-agent:latest`
 
@@ -122,7 +125,7 @@ Download the binary for your platform from [Releases](https://github.com/smashin
 ```bash
 ./eightly-agent \
   --secret "your-shared-secret" \
-  --server-url "https://your-eos-server:7001" \
+  --server-url "https://your-eos-server:8080" \
   --enroll-token "your-enrollment-token"
 ```
 
@@ -134,15 +137,23 @@ Every flag has an equivalent environment variable. Env vars take precedence.
 
 | Flag | Env Var | Default | Description |
 |:-----|:--------|:--------|:------------|
+| `--addr` | — | `0.0.0.0` | Listen address |
 | `--port` | `AGENT_PORT` | `9001` | Listen port |
 | `--secret` | `EIGHTLY_AGENT_SECRET` | — | HMAC shared secret for token validation |
-| `--server-url` | `EIGHTLY_SERVER_URL` | — | EOS server URL for registration |
+| `--server-url` | `EIGHTLY_SERVER_URL` | — | EOS server URL for registration (must be `https` unless `--insecure-server-tls`) |
 | `--enroll-token` | `EIGHTLY_ENROLL_TOKEN` | — | One-time enrollment token |
 | `--state-path` | `EIGHTLY_STATE_PATH` | `/data/eightly-agent.json` | Registration state file |
 | `--data` | `DATA_PATH` | `/data` | Data directory (TLS certs, state) |
 | `--socket` | `DOCKER_SOCKET` | `/var/run/docker.sock` | Docker socket path |
 | `--log-level` | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
 | `--metrics` | `EIGHTLY_METRICS_ENABLED` | `false` | Enable Prometheus `/metrics` endpoint |
+| `--server-ca` | `EIGHTLY_SERVER_CA` | — | CA cert path to verify the EOS server chain (in addition to TOFU leaf pin) |
+| `--advertise-ip` | `EIGHTLY_ADVERTISE_IP` | — | IP to advertise instead of auto-detecting |
+| `--tls-san` | `EIGHTLY_TLS_SANS` | — | Comma-separated extra SANs for the self-signed cert |
+| `--allowed-origins` | `EIGHTLY_ALLOWED_ORIGINS` | — | Comma-separated WebSocket origin allowlist (empty = same-origin) |
+| `--browse-read-only` | `EIGHTLY_BROWSE_READ_ONLY` | `false` | Serve the file browser read-only (reject upload/delete/rename) |
+| `--insecure-no-auth` | `EIGHTLY_INSECURE_NO_AUTH` | `false` | Disable authentication (NOT for production) |
+| `--insecure-server-tls` | — | `false` | Skip EOS server TLS verification + TOFU pinning (flag-only, NOT for production) |
 
 ---
 
@@ -192,7 +203,7 @@ sudo systemctl edit eightly-agent
 ```ini
 [Service]
 Environment=EIGHTLY_AGENT_SECRET=your-shared-secret
-Environment=EIGHTLY_SERVER_URL=https://your-eos-server:7001
+Environment=EIGHTLY_SERVER_URL=https://your-eos-server:8080
 ```
 
 The service restarts automatically on failure (5-second delay) and starts after `docker.service`.
@@ -201,13 +212,14 @@ The service restarts automatically on failure (5-second delay) and starts after 
 
 ## API Reference
 
-All endpoints except `/ping` require a valid Bearer token (HMAC-signed).
+All endpoints require a valid Bearer token (HMAC-signed) **except** the unauthenticated probes `/ping`, `/healthz`, `/readyz`, and `/version`.
 
 | Method | Path | Description |
 |:-------|:-----|:------------|
-| `GET` | `/ping` | Health check — returns `200 OK` |
-| `GET` | `/healthz` | Liveness probe — always returns `200 {"status":"ok"}` |
-| `GET` | `/readyz` | Readiness probe — returns `200` if Docker socket is reachable, `503` otherwise |
+| `GET` | `/ping` | Health check — returns `200 OK` (unauthenticated) |
+| `GET` | `/healthz` | Liveness probe — always returns `200 {"status":"ok"}` (unauthenticated) |
+| `GET` | `/readyz` | Readiness probe — returns `200` if Docker socket is reachable, `503` otherwise (unauthenticated) |
+| `GET` | `/version` | Agent version + API version — returns `{"version":...,"api_version":"2"}` (unauthenticated) |
 | `GET` | `/metrics` | Prometheus metrics (requires `--metrics` flag and auth) |
 | `GET` | `/host` | PCI devices and physical disk info |
 | `GET` | `/browse/ls` | List directory contents in a volume |
@@ -274,27 +286,29 @@ flowchart TB
 
 ```
 cmd/agent/
-  main.go                       67 LOC — entry point, subcommands, signal handling
-  service_windows.go           257 LOC — Windows service (install/uninstall/start/stop/status)
-  service_other.go              30 LOC — no-op stubs for non-Windows platforms
-internal/auth/jwt.go            65 LOC — HMAC shared-secret token validation middleware
-internal/browse/browse.go      143 LOC — file browser (ls, get, put, delete, rename)
+  main.go                       71 LOC — entry point, subcommands, signal handling
+  service_windows.go           260 LOC — Windows service (install/uninstall/start/stop/status)
+  service_other.go              32 LOC — no-op stubs for non-Windows platforms
+internal/auth/jwt.go           127 LOC — HMAC shared-secret token validation middleware
+internal/browse/browse.go      372 LOC — file browser (ls, get, put, delete, rename)
 internal/config/
-  config.go                     51 LOC — CLI flags + env var parsing
-  defaults_windows.go            9 LOC — Windows default paths (named pipes, ProgramData)
-  defaults_other.go              9 LOC — Linux/macOS default paths (unix socket, /data)
+  config.go                    135 LOC — CLI flags + env var parsing
+  defaults_windows.go           11 LOC — Windows default paths (named pipes, ProgramData)
+  defaults_other.go             11 LOC — Linux/macOS default paths (unix socket, /data)
 internal/hostinfo/
-  hostinfo.go                   35 LOC — handler + shared types
-  hostinfo_linux.go             56 LOC — PCI + disk detection (Linux)
-  hostinfo_darwin.go           118 LOC — system_profiler parsing (macOS)
-  hostinfo_windows.go           85 LOC — WMI queries (Windows)
-internal/proxy/docker.go        50 LOC — reverse proxy to Docker socket
-internal/register/register.go  268 LOC — EOS registration + 30s heartbeat loop
-internal/server/server.go      108 LOC — HTTP mux, TLS, graceful shutdown
-internal/tlsutil/tls.go         75 LOC — self-signed cert generation
-internal/websocket/websocket.go 125 LOC — WebSocket attach + exec handlers
+  hostinfo.go                   67 LOC — handler + shared types
+  hostinfo_linux.go             62 LOC — PCI + disk detection (Linux, sysfs)
+  hostinfo_darwin.go           130 LOC — system_profiler parsing (macOS)
+  hostinfo_windows.go           91 LOC — PowerShell Get-PnpDevice / Get-PhysicalDisk (Windows)
+internal/metrics/metrics.go     45 LOC — Prometheus counters/gauges
+internal/proxy/docker.go       406 LOC — reverse proxy to Docker socket
+internal/register/register.go  475 LOC — EOS registration + 30s heartbeat loop
+internal/register/pin.go       106 LOC — TOFU server-cert leaf-SPKI pinning
+internal/server/server.go      206 LOC — HTTP mux, TLS, graceful shutdown
+internal/tlsutil/tls.go        118 LOC — self-signed cert generation
+internal/websocket/websocket.go 369 LOC — WebSocket attach + exec handlers
                                ─────
-                             ~2,050 LOC total
+                             ~3,150 LOC total
 ```
 
 </details>
@@ -387,7 +401,7 @@ Eight.ly Agent mediates access to the Docker daemon. Understanding the trust mod
 
 **Network exposure:**
 - Bind the agent to a private interface or VPN -- never expose port 9001 to the public internet.
-- The agent verifies the EOS server's TLS certificate by default (system trust store). Use `--server-ca` to pin a custom CA. **Breaking change (v1.x):** previous versions defaulted to `InsecureSkipVerify=true`; if you relied on that behavior, add `--insecure-server-tls` explicitly.
+- The agent pins the EOS server's TLS certificate on first use (TOFU). The leaf SPKI fingerprint observed during the first successful registration is persisted in the agent state file and enforced on every later heartbeat and re-registration — a self-signed appliance server is trusted without a CA, but a swapped cert trips the pin. Pass `--server-ca` to *additionally* verify the server chain against a custom CA (the leaf pin still applies). `--insecure-server-tls` disables both verification and pinning — never use it in production.
 - Place the agent behind a firewall that restricts access to your EOS server's IP.
 
 For vulnerability reporting, see [SECURITY.md](SECURITY.md).
