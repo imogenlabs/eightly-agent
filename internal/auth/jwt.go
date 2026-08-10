@@ -34,7 +34,15 @@ type Claims struct {
 //     (no secret, no explicit opt-out). Rather than silently serving the Docker
 //     socket — i.e. host root — unauthenticated, we FAIL CLOSED and reject every
 //     request with 503. "No auth" must always be a deliberate choice.
-func Middleware(secret string, insecureNoAuth bool) func(http.Handler) http.Handler {
+//
+// agentID reports this agent's own registered ID and is called on every request,
+// because an agent learns its ID only once registration succeeds — which can be
+// long after the middleware is built. "" means "identity not known yet", which
+// keeps the pre-EA-35 behaviour instead of locking the agent out of itself.
+func Middleware(secret string, insecureNoAuth bool, agentID func() string) func(http.Handler) http.Handler {
+	if agentID == nil {
+		agentID = func() string { return "" }
+	}
 	return func(next http.Handler) http.Handler {
 		// Explicit, operator-acknowledged no-auth mode.
 		if secret == "" && insecureNoAuth {
@@ -88,6 +96,22 @@ func Middleware(secret string, insecureNoAuth bool) func(http.Handler) http.Hand
 
 			if claims.Exp > 0 && time.Now().Unix() > claims.Exp {
 				logSecurityEvent(r, "auth.unauthorized", "expired token")
+				unauthorized(w)
+				return
+			}
+
+			// A token is only good for the agent it names (EA-35). Every agent in
+			// a fleet verifies with the same shared server secret, so without this
+			// check any agent's token — including an enrollment token, which is
+			// pasted into install commands — opened every other agent's API, and
+			// this API fronts the Docker socket.
+			//
+			// The identity is read per request, not captured at startup: an agent
+			// that has not registered yet has none. An unknown identity keeps the
+			// old behaviour rather than locking the agent out of its own API; only
+			// a positive mismatch is refused.
+			if id := agentID(); id != "" && claims.Sub != id {
+				logSecurityEvent(r, "auth.unauthorized", "token issued for a different agent")
 				unauthorized(w)
 				return
 			}

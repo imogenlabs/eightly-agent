@@ -31,7 +31,7 @@ func TestValidToken(t *testing.T) {
 	secret := "test-secret-key"
 	token := makeToken(Claims{Sub: "admin", Iss: "eightly-server", Type: "api", Iat: 1700000000}, secret)
 
-	mw := Middleware(secret, false)(okHandler)
+	mw := Middleware(secret, false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
@@ -47,7 +47,7 @@ func TestValidToken(t *testing.T) {
 }
 
 func TestMissingAuthorizationHeader(t *testing.T) {
-	mw := Middleware("some-secret", false)(okHandler)
+	mw := Middleware("some-secret", false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	rr := httptest.NewRecorder()
@@ -59,7 +59,7 @@ func TestMissingAuthorizationHeader(t *testing.T) {
 }
 
 func TestMissingBearerPrefix(t *testing.T) {
-	mw := Middleware("some-secret", false)(okHandler)
+	mw := Middleware("some-secret", false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Token abc.def")
 
@@ -72,7 +72,7 @@ func TestMissingBearerPrefix(t *testing.T) {
 }
 
 func TestMalformedTokenNoDot(t *testing.T) {
-	mw := Middleware("some-secret", false)(okHandler)
+	mw := Middleware("some-secret", false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer nodothere")
 
@@ -87,7 +87,7 @@ func TestMalformedTokenNoDot(t *testing.T) {
 func TestInvalidSignature(t *testing.T) {
 	token := makeToken(Claims{Sub: "admin", Iss: "eightly-server", Type: "api", Iat: 1700000000}, "correct-secret")
 
-	mw := Middleware("wrong-secret", false)(okHandler)
+	mw := Middleware("wrong-secret", false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
@@ -106,7 +106,7 @@ func TestInvalidPayloadNotJSON(t *testing.T) {
 	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 	token := payload + "." + sig
 
-	mw := Middleware("secret", false)(okHandler)
+	mw := Middleware("secret", false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
@@ -122,7 +122,7 @@ func TestWrongIssuer(t *testing.T) {
 	secret := "secret"
 	token := makeToken(Claims{Sub: "admin", Iss: "wrong-issuer", Type: "api", Iat: 1700000000}, secret)
 
-	mw := Middleware(secret, false)(okHandler)
+	mw := Middleware(secret, false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
@@ -137,7 +137,7 @@ func TestWrongIssuer(t *testing.T) {
 // TestEmptySecretWithExplicitInsecureDisablesAuth: empty secret is only a
 // no-auth pass-through when the operator EXPLICITLY opts in via insecureNoAuth.
 func TestEmptySecretWithExplicitInsecureDisablesAuth(t *testing.T) {
-	mw := Middleware("", true)(okHandler)
+	mw := Middleware("", true, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	// No Authorization header at all
 
@@ -168,7 +168,7 @@ func TestEmptySecretWithoutOptInFailsClosed(t *testing.T) {
 		w.Write([]byte("LEAKED")) // would only run if auth failed open
 	})
 
-	mw := Middleware("", false)(guard)
+	mw := Middleware("", false, nil)(guard)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	rr := httptest.NewRecorder()
@@ -190,7 +190,7 @@ func TestEmptySecretWithoutOptInFailsClosed(t *testing.T) {
 // so nothing can authenticate.
 func TestEmptySecretWithoutOptInRejectsEvenWithToken(t *testing.T) {
 	token := makeToken(Claims{Sub: "admin", Iss: "eightly-server", Type: "api", Iat: 1700000000}, "whatever")
-	mw := Middleware("", false)(okHandler)
+	mw := Middleware("", false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
@@ -211,7 +211,7 @@ func TestMiddlewareCallsNextHandler(t *testing.T) {
 	})
 
 	token := makeToken(Claims{Sub: "user", Iss: "eightly-server", Type: "api", Iat: 1700000000}, secret)
-	mw := Middleware(secret, false)(handler)
+	mw := Middleware(secret, false, nil)(handler)
 
 	req := httptest.NewRequest(http.MethodPost, "/action", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -228,7 +228,7 @@ func TestMiddlewareCallsNextHandler(t *testing.T) {
 }
 
 func TestUnauthorizedResponseBody(t *testing.T) {
-	mw := Middleware("secret", false)(okHandler)
+	mw := Middleware("secret", false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	rr := httptest.NewRecorder()
@@ -249,7 +249,7 @@ func TestCorruptedSignatureBase64(t *testing.T) {
 	encoded := base64.RawURLEncoding.EncodeToString(payload)
 	token := encoded + ".!!!invalid-base64!!!"
 
-	mw := Middleware("secret", false)(okHandler)
+	mw := Middleware("secret", false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
@@ -272,7 +272,7 @@ func TestExpiredToken(t *testing.T) {
 	}
 	token := makeToken(expired, secret)
 
-	mw := Middleware(secret, false)(okHandler)
+	mw := Middleware(secret, false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
@@ -295,7 +295,7 @@ func TestTokenWithoutExpStillWorks(t *testing.T) {
 	}
 	token := makeToken(noExp, secret)
 
-	mw := Middleware(secret, false)(okHandler)
+	mw := Middleware(secret, false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 

@@ -68,7 +68,14 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	}
 
 	mux := http.NewServeMux()
-	authed := auth.Middleware(cfg.Secret, cfg.InsecureNoAuth)
+	// The registration state pointer can still be nil here and gains an ID later,
+	// so the ID is read at request time (EA-35).
+	authed := auth.Middleware(cfg.Secret, cfg.InsecureNoAuth, func() string {
+		if state == nil {
+			return ""
+		}
+		return state.AgentID
+	})
 	authEnabled := cfg.Secret != ""
 
 	var allowedOrigins []string
