@@ -212,7 +212,7 @@ func TestBridge_ReadLimitClosesOnOversizedFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen unix: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	// Fake Docker: accept, read the request, reply 101, then drain.
 	go func() {
@@ -235,7 +235,10 @@ func TestBridge_ReadLimitClosesOnOversizedFrame(t *testing.T) {
 	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
 	hdr := http.Header{}
 	hdr.Set("Origin", srv.URL) // same-origin so the upgrade passes
-	conn, _, derr := dialer.Dial(wsURL, hdr)
+	conn, resp, derr := dialer.Dial(wsURL, hdr)
+	if resp != nil {
+		defer func() { _ = resp.Body.Close() }()
+	}
 	if derr != nil {
 		t.Fatalf("ws dial: %v", derr)
 	}

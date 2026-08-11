@@ -28,7 +28,7 @@ func freePort(t *testing.T) string {
 		t.Fatalf("failed to find free port: %v", err)
 	}
 	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
+	_ = l.Close()
 	return fmt.Sprintf("%d", port)
 }
 

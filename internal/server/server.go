@@ -91,7 +91,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) // #nosec G104 -- HTTP response write
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) // #nosec G104 -- response already committed
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -99,17 +99,17 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		if err != nil {
 			metrics.DockerSocketReachable.Set(0)
 			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]string{"status": "not ready", "error": "docker socket unreachable"}) // #nosec G104 -- HTTP response write
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "not ready", "error": "docker socket unreachable"}) // #nosec G104 -- response already committed
 			return
 		}
 		conn.Close() // #nosec G104 -- probe connection, close is best-effort
 		metrics.DockerSocketReachable.Set(1)
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ready"}) // #nosec G104 -- HTTP response write
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"}) // #nosec G104 -- response already committed
 	})
 	mux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{ // #nosec G104 -- HTTP response write
+		_ = json.NewEncoder(w).Encode(map[string]string{ // #nosec G104 -- response already committed
 			"version":     cfg.Version,
 			"api_version": "2",
 		})
