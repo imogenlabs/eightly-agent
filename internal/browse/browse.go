@@ -368,5 +368,5 @@ func actorFromRequest(r *http.Request) string {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v) // #nosec G104 -- HTTP response write
+	_ = json.NewEncoder(w).Encode(v) // #nosec G104 -- response already committed; nothing to report to
 }
