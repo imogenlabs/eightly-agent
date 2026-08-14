@@ -5,13 +5,16 @@
 **Cross-platform Docker management daemon for [Eight.ly OS](https://eight.ly)**
 
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
-[![Releases](https://img.shields.io/github/v/release/smashingtags/eightly-agent?style=flat-square&label=Release)](https://github.com/smashingtags/eightly-agent/releases)
 [![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?style=flat-square&logo=docker&logoColor=white)](https://hub.docker.com/r/smashingtags/eightly-agent)
-[![GHCR](https://img.shields.io/badge/GHCR-Latest-8957e5?style=flat-square&logo=github&logoColor=white)](https://github.com/smashingtags/eightly-agent/pkgs/container/eightly-agent)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
-[![Homebrew](https://img.shields.io/badge/Homebrew-tap-FBB040?style=flat-square&logo=homebrew&logoColor=white)](https://github.com/smashingtags/homebrew-tap)
 
 Run on every Docker host. Manage them all from one dashboard.
+
+> **Repository status:** this repo (and its GHCR package) is **private** right now, so GitHub
+> Releases, GHCR, Homebrew, and Scoop are not reachable publicly yet — those links will 404/403
+> until the repo is made public. The only install path that works today is the Docker Hub image
+> below, and it's a few months stale. See [Quick Start](#quick-start) for the current state of
+> each method.
 
 <br />
 
@@ -61,7 +64,7 @@ Switch between local and remote hosts from the environment dropdown. Every conta
 
 ## Quick Start
 
-### Docker (recommended)
+### Docker Hub (the only method that works publicly today)
 
 ```bash
 docker run -d \
@@ -70,12 +73,14 @@ docker run -d \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
   -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
-  ghcr.io/smashingtags/eightly-agent:latest
+  smashingtags/eightly-agent:latest
 ```
 
 > `EIGHTLY_SERVER_URL` is your Eight.ly OS dashboard URL — the agent register/heartbeat endpoints live on the same host and port EOS serves the UI from (default `8080`). Eight.ly OS generates a ready-to-paste `docker run` command with a one-time enrollment token under **Environments → Add host**.
 
-> Also on Docker Hub: `docker pull smashingtags/eightly-agent:latest`
+> This image was last published 2026-05-21 — it predates the repo going private and may not reflect
+> the current codebase. Verify `docker pull smashingtags/eightly-agent:latest` succeeds before relying
+> on it; it is served from Docker Hub, not GHCR.
 
 ### Docker Compose
 
@@ -87,47 +92,18 @@ docker compose up -d
 
 A `docker-compose.yml` and `.env.example` are included in the repo.
 
-### Homebrew (macOS / Linux)
+### GHCR, Homebrew, Scoop, .deb/.rpm, and standalone binaries — not available yet
 
-```bash
-brew install smashingtags/tap/eightly-agent
-```
+These all depend on this repo's GitHub Releases and container registry package, both of which
+require the repo to be **public**. It's private today, so:
 
-### Scoop (Windows)
+- `ghcr.io/smashingtags/eightly-agent` — 403, no anonymous pull
+- `brew install imogenlabs/tap/eightly-agent` and the `imogenlabs/scoop-eightly` bucket — the
+  tap/bucket repos themselves are public, but their formula/manifest download from this repo's
+  GitHub Releases, which 404s while the repo is private
+- `.deb` / `.rpm` / standalone binary downloads from [Releases](https://github.com/imogenlabs/eightly-agent/releases) — 404, private repo
 
-```powershell
-scoop bucket add eightly https://github.com/smashingtags/scoop-eightly
-scoop install eightly-agent
-```
-
-### Debian / Ubuntu
-
-Download the `.deb` from [Releases](https://github.com/smashingtags/eightly-agent/releases):
-
-```bash
-sudo dpkg -i eightly-agent_*.deb
-sudo systemctl enable --now eightly-agent
-```
-
-### RHEL / Fedora
-
-Download the `.rpm` from [Releases](https://github.com/smashingtags/eightly-agent/releases):
-
-```bash
-sudo rpm -i eightly-agent-*.rpm
-sudo systemctl enable --now eightly-agent
-```
-
-### Binary
-
-Download the binary for your platform from [Releases](https://github.com/smashingtags/eightly-agent/releases) (Linux amd64/arm64, macOS amd64/arm64, Windows amd64).
-
-```bash
-./eightly-agent \
-  --secret "your-shared-secret" \
-  --server-url "https://your-eos-server:8080" \
-  --enroll-token "your-enrollment-token"
-```
+Once the repo is public these will work as documented in the [Install Methods](#install-methods) table below. Until then, use the Docker Hub image above, or build from source (see [CONTRIBUTING.md](CONTRIBUTING.md) — note that cloning also requires repo access while it's private).
 
 ---
 
@@ -337,20 +313,23 @@ internal/websocket/websocket.go 369 LOC — WebSocket attach + exec handlers
 
 ### Install Methods
 
+> ⚠️ Every row below except Docker (Hub) requires this repo or its GHCR package to be public.
+> Both are private today — see the [Quick Start](#quick-start) notes above before using these.
+
 | Method | Platform | Command / Source |
 |:-------|:---------|:-----------------|
-| Docker (GHCR) | Linux, macOS | `docker pull ghcr.io/smashingtags/eightly-agent:latest` |
-| Docker (Hub) | Linux, macOS | `docker pull smashingtags/eightly-agent:latest` |
-| Homebrew | macOS, Linux | `brew install smashingtags/tap/eightly-agent` |
-| Scoop | Windows | `scoop bucket add eightly https://github.com/smashingtags/scoop-eightly && scoop install eightly-agent` |
-| .deb package | Debian, Ubuntu | Download from [Releases](https://github.com/smashingtags/eightly-agent/releases) (amd64, arm64) |
-| .rpm package | RHEL, Fedora | Download from [Releases](https://github.com/smashingtags/eightly-agent/releases) (amd64, arm64) |
-| Windows service | Windows | Download `.exe` from [Releases](https://github.com/smashingtags/eightly-agent/releases), then `eightly-agent.exe install && eightly-agent.exe start` |
-| Binary | Linux, macOS, Windows | Download from [Releases](https://github.com/smashingtags/eightly-agent/releases) (5 platform builds) |
+| Docker (Hub) | Linux, macOS | `docker pull smashingtags/eightly-agent:latest` (works today; stale since 2026-05-21) |
+| Docker (GHCR) | Linux, macOS | `docker pull ghcr.io/smashingtags/eightly-agent:latest` — not reachable while the package is private |
+| Homebrew | macOS, Linux | `brew install imogenlabs/tap/eightly-agent` — formula exists but its release asset 404s while the repo is private |
+| Scoop | Windows | `scoop bucket add eightly https://github.com/imogenlabs/scoop-eightly && scoop install eightly-agent` — manifest exists but its release asset 404s while the repo is private |
+| .deb package | Debian, Ubuntu | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (amd64, arm64) — not reachable while the repo is private |
+| .rpm package | RHEL, Fedora | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (amd64, arm64) — not reachable while the repo is private |
+| Windows service | Windows | Download `.exe` from [Releases](https://github.com/imogenlabs/eightly-agent/releases), then `eightly-agent.exe install && eightly-agent.exe start` — not reachable while the repo is private |
+| Binary | Linux, macOS, Windows | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (5 platform builds) — not reachable while the repo is private |
 
 ## Verifying Releases
 
-All release binaries are signed with [Sigstore cosign](https://sigstore.dev) and include SLSA build provenance.
+All release binaries are signed with [Sigstore cosign](https://sigstore.dev) and include SLSA build provenance. These commands apply once a release asset or image is actually reachable (see the private-repo notes above) — they verify the signature, not availability.
 
 ### Verify a binary
 

@@ -4,7 +4,7 @@
 
 If you discover a security vulnerability in Eight.ly Agent, please report it responsibly.
 
-**Preferred:** [GitHub Security Advisories](https://github.com/smashingtags/eightly-agent/security/advisories/new) (private, trackable, integrated with GitHub)
+**Preferred:** [GitHub Security Advisories](https://github.com/imogenlabs/eightly-agent/security/advisories/new) (private, trackable, integrated with GitHub — note this repo is private today, so filing an advisory requires collaborator access; use email otherwise)
 
 **Email:** security@imogenlabs.ai
 

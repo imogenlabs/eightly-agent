@@ -4,13 +4,15 @@ Thanks for your interest in contributing. This document covers the basics.
 
 ## Getting Started
 
+> This repo is currently private. `git clone` requires collaborator access until it's made public.
+
 ```bash
-git clone https://github.com/smashingtags/eightly-agent.git
+git clone https://github.com/imogenlabs/eightly-agent.git
 cd eightly-agent
 go build ./cmd/agent/
 ```
 
-Requirements: Go 1.23+, Docker (for integration testing), no CGO.
+Requirements: Go 1.26+ (see `go.mod`), Docker (for integration testing), no CGO.
 
 ## Running Tests
 

@@ -2,14 +2,18 @@
 
 ## General upgrade process
 
-1. Download the new binary for your platform from [Releases](https://github.com/smashingtags/eightly-agent/releases)
+> This repo is private today, so GitHub Releases and Homebrew are not publicly reachable — see the
+> README's [Quick Start](../README.md#quick-start) for the current install state. The steps below
+> apply once you have a binary in hand (collaborator download, or a future public release).
+
+1. Download the new binary for your platform from [Releases](https://github.com/imogenlabs/eightly-agent/releases)
 2. Stop the agent (`systemctl stop eightly-agent` / `eightly-agent.exe stop` / `docker compose down`)
 3. Replace the binary
 4. Start the agent
 5. Verify with `eightly-agent version` or `GET /version`
 
-For Docker: `docker compose pull && docker compose up -d`
-For Homebrew: `brew upgrade eightly-agent`
+For Docker: `docker compose pull && docker compose up -d` (image `smashingtags/eightly-agent`, the working Docker Hub tag today)
+For Homebrew: `brew upgrade eightly-agent` (once the tap's release asset is reachable — see README)
 
 ## Version history
 
