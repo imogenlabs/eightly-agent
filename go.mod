@@ -2,6 +2,8 @@ module github.com/smashingtags/eightly-agent
 
 go 1.26.4
 
+toolchain go1.26.6
+
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/prometheus/client_golang v1.23.2
