@@ -1,6 +1,9 @@
 services:
   eightly-agent:
-    image: ghcr.io/smashingtags/eightly-agent:latest
+    # ghcr.io/smashingtags/eightly-agent is unreachable while this repo/package is private (403).
+    # smashingtags/eightly-agent on Docker Hub is the only image that pulls publicly today,
+    # though it's stale (last published 2026-05-21) — see README.md Quick Start.
+    image: smashingtags/eightly-agent:latest
     container_name: eightly-agent
     restart: unless-stopped
     ports:
