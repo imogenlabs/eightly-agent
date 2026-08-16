@@ -15,7 +15,7 @@ OUT="compliance/evidence"
 mkdir -p "$OUT"
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 HEAD="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
-IMAGE="${EVIDENCE_IMAGE:-ghcr.io/smashingtags/eightly-agent:latest}"
+IMAGE="${EVIDENCE_IMAGE:-ghcr.io/imogenlabs/eightly-agent:latest}"
 CONTAINER="${EVIDENCE_CONTAINER:-eightly-agent}"
 UNIT="deploy/eightly-agent.service"
 

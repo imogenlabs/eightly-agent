@@ -11,7 +11,7 @@ The first step for any issue is to enable debug logging. This switches output fr
 docker run -d \
   -e LOG_LEVEL=debug \
   ... \
-  ghcr.io/smashingtags/eightly-agent:latest
+  ghcr.io/imogenlabs/eightly-agent:latest
 ```
 
 Or for a running container:
@@ -277,7 +277,7 @@ curl -kI https://localhost:9001/ping
 If the EOS dashboard expects a different API version, update the agent to match. Pull the latest image:
 
 ```bash
-docker pull ghcr.io/smashingtags/eightly-agent:latest
+docker pull ghcr.io/imogenlabs/eightly-agent:latest
 docker stop eightly-agent && docker rm eightly-agent
 # Re-run with the same configuration
 ```

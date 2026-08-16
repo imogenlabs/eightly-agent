@@ -12,7 +12,7 @@ permissions:
   attestations: write
 
 env:
-  GHCR_IMAGE: ghcr.io/smashingtags/eightly-agent
+  GHCR_IMAGE: ghcr.io/imogenlabs/eightly-agent
   DOCKERHUB_IMAGE: smashingtags/eightly-agent
 
 jobs:
@@ -95,7 +95,7 @@ jobs:
         continue-on-error: true
         uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # v1
         with:
-          subject-name: ghcr.io/smashingtags/eightly-agent
+          subject-name: ghcr.io/imogenlabs/eightly-agent
           subject-digest: ${{ steps.docker.outputs.digest }}
           push-to-registry: true
 

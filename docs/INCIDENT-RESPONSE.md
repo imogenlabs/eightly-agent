@@ -8,7 +8,7 @@ eradicate → recover → post-mortem**, with the concrete commands for this age
 
 Assumptions: systemd deployment (`eightly-agent.service`, runs as the
 `eightly-agent` user, binary at `/usr/bin/eightly-agent`). Containerized
-deployments (`ghcr.io/smashingtags/eightly-agent`, container name
+deployments (`ghcr.io/imogenlabs/eightly-agent`, container name
 `eightly-agent`) are noted inline where commands differ.
 
 Detection contract: [`pentest/expected-detections.yaml`](../pentest/expected-detections.yaml).

@@ -162,7 +162,7 @@ docker run -d \
   -p 9001:9001 \
   -e LOG_LEVEL=debug \
   -e EIGHTLY_INSECURE_NO_AUTH=true \
-  ghcr.io/smashingtags/eightly-agent:v1.0.0
+  ghcr.io/imogenlabs/eightly-agent:v1.0.0
 ```
 
 Authentication is disabled (`--insecure-no-auth`), registration is skipped (no server URL). All endpoints are open. Useful for testing the Docker proxy and file browser locally.
@@ -179,7 +179,7 @@ docker run -d \
   -e EIGHTLY_AGENT_SECRET="a-strong-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:7001" \
   -e EIGHTLY_ENROLL_TOKEN="token-from-eos-admin" \
-  ghcr.io/smashingtags/eightly-agent:v1.0.0
+  ghcr.io/imogenlabs/eightly-agent:v1.0.0
 ```
 
 Standard deployment for a single remote Docker host managed by EOS.
@@ -195,7 +195,7 @@ docker run -d --name eightly-agent --restart unless-stopped \
   -e EIGHTLY_AGENT_SECRET="fleet-secret" \
   -e EIGHTLY_SERVER_URL="https://eos.local:7001" \
   -e EIGHTLY_ENROLL_TOKEN="token-host-a" \
-  ghcr.io/smashingtags/eightly-agent:v1.0.0
+  ghcr.io/imogenlabs/eightly-agent:v1.0.0
 
 # Host B (192.168.1.51)
 docker run -d --name eightly-agent --restart unless-stopped \
@@ -203,7 +203,7 @@ docker run -d --name eightly-agent --restart unless-stopped \
   -e EIGHTLY_AGENT_SECRET="fleet-secret" \
   -e EIGHTLY_SERVER_URL="https://eos.local:7001" \
   -e EIGHTLY_ENROLL_TOKEN="token-host-b" \
-  ghcr.io/smashingtags/eightly-agent:v1.0.0
+  ghcr.io/imogenlabs/eightly-agent:v1.0.0
 ```
 
 All agents use the same shared secret so EOS can authenticate to any of them. Each gets its own enrollment token for initial registration. After enrollment, the token can be removed from the environment.
@@ -218,7 +218,7 @@ docker run -d --name eightly-agent --restart unless-stopped \
   -v agent-data:/data \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="your-secret" \
-  ghcr.io/smashingtags/eightly-agent:v1.0.0
+  ghcr.io/imogenlabs/eightly-agent:v1.0.0
 ```
 
 The agent checks for existing `cert.pem` and `key.pem` in the data directory before generating self-signed certs. See [[TLS]] for details.
