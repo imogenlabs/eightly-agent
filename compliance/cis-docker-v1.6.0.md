@@ -48,7 +48,7 @@ Docker Content Trust (Notary) is **not** used. Instead, `docker-publish.yml`
 **cosign-signs** every pushed image by digest (keyless, Sigstore OIDC) and emits
 SLSA build-provenance attestations. cosign provides equivalent — arguably
 stronger — cryptographic attestation. Verify with:
-`cosign verify --certificate-identity-regexp smashingtags --certificate-oidc-issuer https://token.actions.githubusercontent.com ghcr.io/smashingtags/eightly-agent`
+`cosign verify --certificate-identity-regexp imogenlabs --certificate-oidc-issuer https://token.actions.githubusercontent.com ghcr.io/imogenlabs/eightly-agent`
 
 ### 4.6 Ensure HEALTHCHECK instructions have been added — **Met**
 `Dockerfile` defines `HEALTHCHECK` against `https://localhost:9001/healthz`.

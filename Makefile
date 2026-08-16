@@ -1,7 +1,7 @@
 VERSION ?= 1.0.0
 BINARY = eightly-agent
 LDFLAGS = -ldflags "-s -w -X main.version=$(VERSION)"
-GHCR_IMAGE = ghcr.io/smashingtags/eightly-agent
+GHCR_IMAGE = ghcr.io/imogenlabs/eightly-agent
 DOCKERHUB_IMAGE = smashingtags/eightly-agent
 
 .PHONY: build test lint docker push clean

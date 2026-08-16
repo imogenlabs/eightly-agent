@@ -65,7 +65,7 @@ To use your own TLS certificates (e.g., from Let's Encrypt, an internal CA, or a
 ```yaml
 services:
   eightly-agent:
-    image: ghcr.io/smashingtags/eightly-agent:latest
+    image: ghcr.io/imogenlabs/eightly-agent:latest
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/eightly-agent/cert.pem:/data/cert.pem:ro

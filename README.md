@@ -97,7 +97,7 @@ A `docker-compose.yml` and `.env.example` are included in the repo.
 These all depend on this repo's GitHub Releases and container registry package, both of which
 require the repo to be **public**. It's private today, so:
 
-- `ghcr.io/smashingtags/eightly-agent` — 403, no anonymous pull
+- `ghcr.io/imogenlabs/eightly-agent` — 403, no anonymous pull
 - `brew install imogenlabs/tap/eightly-agent` and the `imogenlabs/scoop-eightly` bucket — the
   tap/bucket repos themselves are public, but their formula/manifest download from this repo's
   GitHub Releases, which 404s while the repo is private
@@ -319,7 +319,7 @@ internal/websocket/websocket.go 369 LOC — WebSocket attach + exec handlers
 | Method | Platform | Command / Source |
 |:-------|:---------|:-----------------|
 | Docker (Hub) | Linux, macOS | `docker pull smashingtags/eightly-agent:latest` (works today; stale since 2026-05-21) |
-| Docker (GHCR) | Linux, macOS | `docker pull ghcr.io/smashingtags/eightly-agent:latest` — not reachable while the package is private |
+| Docker (GHCR) | Linux, macOS | `docker pull ghcr.io/imogenlabs/eightly-agent:latest` — not reachable while the package is private |
 | Homebrew | macOS, Linux | `brew install imogenlabs/tap/eightly-agent` — formula exists but its release asset 404s while the repo is private |
 | Scoop | Windows | `scoop bucket add eightly https://github.com/imogenlabs/scoop-eightly && scoop install eightly-agent` — manifest exists but its release asset 404s while the repo is private |
 | .deb package | Debian, Ubuntu | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (amd64, arm64) — not reachable while the repo is private |
@@ -348,7 +348,7 @@ cosign verify-blob \
 cosign verify \
   --certificate-identity-regexp 'https://github.com/smashingtags/eightly-agent' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/smashingtags/eightly-agent:1.0.0
+  ghcr.io/imogenlabs/eightly-agent:1.0.0
 ```
 
 ### Verify SBOM

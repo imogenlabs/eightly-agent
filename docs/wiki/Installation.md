@@ -58,7 +58,7 @@ The compose file contents for reference:
 ```yaml
 services:
   eightly-agent:
-    image: ghcr.io/smashingtags/eightly-agent:v1.0.0
+    image: ghcr.io/imogenlabs/eightly-agent:v1.0.0
     container_name: eightly-agent
     restart: unless-stopped
     ports:
@@ -95,7 +95,7 @@ docker run -d \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:7001" \
   -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
-  ghcr.io/smashingtags/eightly-agent:v1.0.0
+  ghcr.io/imogenlabs/eightly-agent:v1.0.0
 ```
 
 ### Docker Hub
