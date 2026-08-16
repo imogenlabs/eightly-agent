@@ -14,9 +14,10 @@ RUN export GOARM="${TARGETVARIANT#v}" && \
 
 FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
 RUN apk add --no-cache ca-certificates tzdata && \
-    addgroup -g 999 docker && \
-    adduser -S -u 1000 -G docker eightly-agent && \
-    mkdir -p /data && chown eightly-agent:docker /data
+    if ! awk -F: '$3==999' /etc/group | grep -q .; then addgroup -g 999 docker; fi && \
+    DOCKER_GRP="$(awk -F: '$3==999{print $1; exit}' /etc/group)" && \
+    adduser -S -u 1000 -G "$DOCKER_GRP" eightly-agent && \
+    mkdir -p /data && chown "eightly-agent:$DOCKER_GRP" /data
 COPY --from=builder /eightly-agent /app/eightly-agent
 VOLUME /data
 EXPOSE 9001
