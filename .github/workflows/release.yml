@@ -46,6 +46,7 @@ jobs:
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
+          cache: false  # EOS-2461: persistent self-hosted runners keep the Go cache on disk
           go-version: '1.26.5'
 
       - name: Determine version
@@ -84,6 +85,7 @@ jobs:
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
+          cache: false  # EOS-2461: persistent self-hosted runners keep the Go cache on disk
           go-version: '1.26.5'
 
       - name: Install nfpm
