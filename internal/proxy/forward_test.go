@@ -12,8 +12,8 @@ import (
 )
 
 type seen struct {
-	method, path, rawQuery, host, body string
-	header                             http.Header
+	method, path, rawQuery, host, body, requestURI string
+	header                                         http.Header
 }
 
 // dockerBackend starts a fake Docker daemon on a Unix socket and records what
@@ -33,7 +33,7 @@ func dockerBackend(t *testing.T) (string, <-chan seen) {
 	got := make(chan seen, 1)
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
-		got <- seen{r.Method, r.URL.Path, r.URL.RawQuery, r.Host, string(b), r.Header.Clone()}
+		got <- seen{r.Method, r.URL.Path, r.URL.RawQuery, r.Host, string(b), r.RequestURI, r.Header.Clone()}
 		w.Header().Set("X-Backend", "yes")
 		w.WriteHeader(http.StatusTeapot)
 		_, _ = w.Write([]byte("from-daemon"))
@@ -135,5 +135,23 @@ func TestForward_XForwardedForStartsFromClientIP(t *testing.T) {
 	}
 	if s.header.Get("X-Forwarded-Host") != "" || s.header.Get("X-Forwarded-Proto") != "" {
 		t.Errorf("proxy invented X-Forwarded-Host/Proto: %v", s.header)
+	}
+}
+
+func TestForward_EncodedPath(t *testing.T) {
+	cases := []struct{ in, wantURI string }{
+		// Path untouched: the client's escaping goes out as sent.
+		{"/containers/a%2Fb/json?x=1", "/containers/a%2Fb/json?x=1"},
+		// Version prefix stripped: the old raw form no longer matches, so the
+		// decoded path is what reaches the daemon.
+		{"/v1.45/containers/a%2Fb/json?x=1", "/containers/a/b/json?x=1"},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			s, _ := forward(t, httptest.NewRequest(http.MethodGet, c.in, nil))
+			if s.requestURI != c.wantURI {
+				t.Errorf("request URI on the wire = %q, want %q", s.requestURI, c.wantURI)
+			}
+		})
 	}
 }

@@ -34,11 +34,28 @@ func NewDockerProxy(socketPath string) http.Handler {
 	}
 
 	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			req.URL.Scheme = "http"
-			req.URL.Host = "docker"
-			req.URL.Path = versionPrefix.ReplaceAllString(req.URL.Path, "")
-			req.URL.Path = rewriteDockerPath(req.URL.Path)
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			// Rewrite strips Forwarded and X-Forwarded-* from the outbound request
+			// and drops unparsable query parameters. The old Director passed the
+			// client's values through and appended the client IP to X-Forwarded-For,
+			// so restore exactly that.
+			for _, h := range []string{"Forwarded", "X-Forwarded-Host", "X-Forwarded-Proto"} {
+				if v, ok := pr.In.Header[h]; ok {
+					pr.Out.Header[h] = v
+				}
+			}
+			pr.Out.Header["X-Forwarded-For"] = pr.In.Header["X-Forwarded-For"]
+			if clientIP, _, err := net.SplitHostPort(pr.In.RemoteAddr); err == nil {
+				if prior := pr.Out.Header["X-Forwarded-For"]; len(prior) > 0 {
+					clientIP = strings.Join(prior, ", ") + ", " + clientIP
+				}
+				pr.Out.Header.Set("X-Forwarded-For", clientIP)
+			}
+
+			pr.Out.URL.Scheme = "http"
+			pr.Out.URL.Host = "docker"
+			pr.Out.URL.RawQuery = pr.In.URL.RawQuery
+			pr.Out.URL.Path = rewriteDockerPath(versionPrefix.ReplaceAllString(pr.In.URL.Path, ""))
 		},
 		Transport:     transport,
 		FlushInterval: 100 * time.Millisecond,
@@ -85,7 +102,7 @@ func denyDangerousCreates(next http.Handler) http.Handler {
 
 // isCreateEndpoint reports whether the request targets a container-create or
 // exec-create endpoint. The version prefix (/v1.45/...) is stripped before the
-// Director runs, but this filter executes BEFORE the Director, so we match the
+// proxy rewrites the request, but this filter executes BEFORE the proxy, so we match the
 // raw path and tolerate the optional version prefix.
 func isCreateEndpoint(r *http.Request) bool {
 	if r.Method != http.MethodPost {
