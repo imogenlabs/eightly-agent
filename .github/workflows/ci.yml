@@ -28,6 +28,10 @@ jobs:
         uses: dominikh/staticcheck-action@9716614d4101e79b4340dd97b10e54d68234e431 # v1
         with:
           version: "latest"
+          # EOS-2463: the action installs its own Go by default, so gosec below
+          # was built by one Go and read another's stdlib ("package context
+          # without types"). Use the Go set up above.
+          install-go: false
       - name: Govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
