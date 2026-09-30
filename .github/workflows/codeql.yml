@@ -22,10 +22,19 @@ jobs:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      # EOS-2462: set Go up from go.mod and build explicitly. autobuild used
+      # whatever Go the runner happened to have, so the scan passed or failed
+      # by which machine drew it.
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: false
       - uses: github/codeql-action/init@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3
         with:
           languages: go
-      - uses: github/codeql-action/autobuild@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3
+          build-mode: manual
+      - name: Build
+        run: go build ./...
       # EOS-2462: code scanning upload needs GitHub Advanced Security, which a
       # private repo on the free plan does not have ("Advanced Security must be
       # enabled"). Keep the results here and fail the job on any finding, so the
