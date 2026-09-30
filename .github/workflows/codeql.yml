@@ -8,7 +8,12 @@ on:
   schedule:
     - cron: '0 6 * * 1'
 
+# EOS-2462: a permissions block replaces the default scopes, so contents: read
+# must be named or checkout of this private repo is refused ("repository not
+# found") -- which is how this scan failed every week from August unseen.
 permissions:
+  contents: read
+  actions: read
   security-events: write
 
 jobs:
