@@ -64,6 +64,7 @@ func TestForward_PathQueryAndResponse(t *testing.T) {
 		{"/containers", "/containers/json", ""},
 		{"/v1.41/images", "/images/json", ""},
 		{"/volumes", "/volumes", ""},
+		{"/containers/json?a=1;b=2", "/containers/json", "a=1;b=2"},
 		{"/containers/abc/logs?stdout=1", "/containers/abc/logs", "stdout=1"},
 	}
 	for _, c := range cases {
