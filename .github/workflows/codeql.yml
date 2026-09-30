@@ -26,4 +26,30 @@ jobs:
         with:
           languages: go
       - uses: github/codeql-action/autobuild@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3
+      # EOS-2462: code scanning upload needs GitHub Advanced Security, which a
+      # private repo on the free plan does not have ("Advanced Security must be
+      # enabled"). Keep the results here and fail the job on any finding, so the
+      # scan is a real gate instead of a weekly red nobody reads.
       - uses: github/codeql-action/analyze@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3
+        with:
+          upload: never
+          output: codeql-results
+      - name: Fail on any CodeQL finding
+        run: |
+          python3 - <<'PY'
+          import glob, json, sys
+          files = glob.glob("codeql-results/*.sarif")
+          if not files:
+              print("CANNOT CHECK: CodeQL wrote no SARIF file"); sys.exit(2)
+          n = 0
+          for f in files:
+              for run in json.load(open(f)).get("runs", []):
+                  for r in run.get("results", []):
+                      n += 1
+                      loc = (r.get("locations") or [{}])[0].get("physicalLocation", {})
+                      path = loc.get("artifactLocation", {}).get("uri", "?")
+                      line = loc.get("region", {}).get("startLine", "?")
+                      print(f"{path}:{line}: {r.get('ruleId')}: {r.get('message', {}).get('text', '')}")
+          print(f"CodeQL findings: {n} in {len(files)} SARIF file(s)")
+          sys.exit(1 if n else 0)
+          PY
