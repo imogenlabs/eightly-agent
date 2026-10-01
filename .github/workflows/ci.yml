@@ -28,6 +28,10 @@ jobs:
         uses: dominikh/staticcheck-action@9716614d4101e79b4340dd97b10e54d68234e431 # v1
         with:
           version: "latest"
+          # EOS-2463: the action installs its own Go by default, so gosec below
+          # was built by one Go and read another's stdlib ("package context
+          # without types"). Use the Go set up above.
+          install-go: false
       - name: Govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
@@ -115,8 +119,14 @@ jobs:
           CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
             go build -ldflags="-s -w -X main.version=ci-${{ github.sha }}" \
             -o eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }} ./cmd/agent/
+      # EOS-2464: a convenience copy; release.yml builds and uploads its own.
+      # On a pull request the compile is the check, and a full org artifact
+      # quota must never fail it.
       - name: Upload artifact
+        if: github.event_name == 'push'
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }}
           path: eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}
+          retention-days: 7
