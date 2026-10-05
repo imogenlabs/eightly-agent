@@ -47,10 +47,12 @@ func Healthcheck(ctx context.Context, addr, port string) error {
 
 // healthcheckHost turns the listen address into one a client can dial: a
 // wildcard bind is reached on loopback, anything specific is used as given.
+// IPv6 brackets are dropped because net.JoinHostPort adds its own.
 func healthcheckHost(addr string) string {
-	switch strings.Trim(addr, "[]") {
+	host := strings.Trim(addr, "[]")
+	switch host {
 	case "", "0.0.0.0", "::":
 		return "127.0.0.1"
 	}
-	return addr
+	return host
 }
