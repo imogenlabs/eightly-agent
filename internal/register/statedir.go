@@ -78,7 +78,7 @@ func otherFiles(dir, statePath, dataPath string) ([]string, error) {
 		return nil, err
 	}
 	own := map[string]bool{filepath.Base(statePath): true, filepath.Base(statePath) + ".tmp": true}
-	if dataPath != "" && filepath.Clean(dataPath) == filepath.Clean(dir) {
+	if sameDir(dataPath, dir) {
 		own["cert.pem"], own["key.pem"] = true, true
 	}
 	var other []string
@@ -92,4 +92,21 @@ func otherFiles(dir, statePath, dataPath string) ([]string, error) {
 		other = append(other[:5], fmt.Sprintf("and %d more", len(other)-5))
 	}
 	return other, nil
+}
+
+// sameDir reports whether a and b are the same directory on disk, however they
+// are spelled (a symlink, a relative path). A path that cannot be read is not.
+func sameDir(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(ai, bi)
 }
