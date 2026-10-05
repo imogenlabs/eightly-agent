@@ -26,6 +26,9 @@ func main() {
 		case "version":
 			fmt.Println(version)
 			return
+		case "healthcheck":
+			healthcheckMain()
+			return
 		case "install", "uninstall", "start", "stop", "status":
 			handleServiceCommand(os.Args[1])
 			return

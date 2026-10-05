@@ -67,7 +67,7 @@ Switch between local and remote hosts from the environment dropdown. Every conta
 ### Docker Hub (the only method that works publicly today)
 
 ```bash
-docker run -d \
+docker run -d --init \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
@@ -75,6 +75,8 @@ docker run -d \
   -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
   smashingtags/eightly-agent:latest
 ```
+
+`--init` gives the container a process reaper. Images from this release on carry tini for the same job, and their health check is `eightly-agent healthcheck`. That is an in-process HTTPS GET of the agent's own `/healthz` that exits 0 or 1 and starts no child process. Do not override the health check with that command on an older image: before the subcommand existed, the agent ignored the extra word and would start a second agent.
 
 > `EIGHTLY_SERVER_URL` is your Eight.ly OS dashboard URL — the agent register/heartbeat endpoints live on the same host and port EOS serves the UI from (default `8080`). Eight.ly OS generates a ready-to-paste `docker run` command with a one-time enrollment token under **Environments → Add host**.
 

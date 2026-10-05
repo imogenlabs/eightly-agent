@@ -156,7 +156,7 @@ Override the auto-detected local IP that the agent sends to EOS during registrat
 Or with Docker:
 
 ```bash
-docker run -d \
+docker run -d --init \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v $(pwd)/data:/data \
   -p 9001:9001 \
@@ -170,7 +170,7 @@ Authentication is disabled (`--insecure-no-auth`), registration is skipped (no s
 ### Single Host
 
 ```bash
-docker run -d \
+docker run -d --init \
   --name eightly-agent \
   --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock \
@@ -190,7 +190,7 @@ Deploy the same image to each host with the same shared secret but unique enroll
 
 ```bash
 # Host A (192.168.1.50)
-docker run -d --name eightly-agent --restart unless-stopped \
+docker run -d --init --name eightly-agent --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock -v agent-data:/data -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="fleet-secret" \
   -e EIGHTLY_SERVER_URL="https://eos.local:7001" \
@@ -198,7 +198,7 @@ docker run -d --name eightly-agent --restart unless-stopped \
   ghcr.io/imogenlabs/eightly-agent:v1.0.0
 
 # Host B (192.168.1.51)
-docker run -d --name eightly-agent --restart unless-stopped \
+docker run -d --init --name eightly-agent --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock -v agent-data:/data -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="fleet-secret" \
   -e EIGHTLY_SERVER_URL="https://eos.local:7001" \
@@ -211,7 +211,7 @@ All agents use the same shared secret so EOS can authenticate to any of them. Ea
 ### Custom TLS Certificates
 
 ```bash
-docker run -d --name eightly-agent --restart unless-stopped \
+docker run -d --init --name eightly-agent --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /etc/eightly-agent/certs/cert.pem:/data/cert.pem:ro \
   -v /etc/eightly-agent/certs/key.pem:/data/key.pem:ro \

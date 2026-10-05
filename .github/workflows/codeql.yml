@@ -19,7 +19,10 @@ permissions:
 jobs:
   analyze:
     name: Analyze
-    runs-on: self-hosted
+    # The t320 runners (eightly-ci-*) have no `file` program, so CodeQL cannot
+    # find the Go binary there and extracts nothing ("could not process any
+    # code written in Go"). The code-quality runners have it.
+    runs-on: [self-hosted, code-quality]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       # EOS-2462: set Go up from go.mod and build explicitly. autobuild used
@@ -43,6 +46,12 @@ jobs:
         with:
           upload: never
           output: codeql-results
+          # The code-quality runners are 4 GB containers with no swap. Left to
+          # size itself, CodeQL asks for --ram=3891, the kernel kills it, and
+          # the runner goes down with it ("received a shutdown signal"). This
+          # repo's database is small; 2 GB is plenty and leaves room.
+          ram: 2048
+          threads: 2
       - name: Fail on any CodeQL finding
         run: |
           python3 - <<'PY'
