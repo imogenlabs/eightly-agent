@@ -43,6 +43,14 @@ if ! wait "$probe"; then
 fi
 kill "$watchdog" 2>/dev/null
 
+# Some runners answer `docker info` but cannot start any container (nested
+# Docker in an LXC: runc fails opening a sysctl before the image runs). That
+# says nothing about the image, so it is "cannot check", not a failure of it.
+if ! probe_err=$(docker run --rm --entrypoint /bin/true "$IMAGE" 2>&1); then
+	echo "CANNOT CHECK: this runner's Docker cannot start a container: $probe_err" >&2
+	exit 2
+fi
+
 # shellcheck disable=SC2329 # invoked by the trap below
 cleanup() {
 	docker rm -f "reap-control-$TAG" "reap-tini-$TAG" "reap-own-$TAG" "reap-init-$TAG" "reap-warn-$TAG" >/dev/null 2>&1 || true
