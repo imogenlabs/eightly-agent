@@ -32,7 +32,7 @@ func runHealthcheck(args []string, stderr io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), healthcheckTimeout)
 	defer cancel()
 	if err := server.Healthcheck(ctx, cfg.Addr, cfg.Port); err != nil {
-		fmt.Fprintln(stderr, "unhealthy:", err)
+		_, _ = fmt.Fprintln(stderr, "unhealthy:", err)
 		return 1
 	}
 	return 0
