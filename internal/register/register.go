@@ -399,53 +399,78 @@ func StartHeartbeat(ctx context.Context, state *State, statePath, socketPath, ve
 	// tls.Config before loading state, so this is where the two meet.
 	seedPin(tlsCfg, state.ServerPin)
 
-	interval := heartbeatInterval
-	maxInterval := heartbeatMaxInterval
-	failures := 0
-
+	h := newHeartbeater(state, statePath, socketPath, version, advertiseIP, tlsCfg, log)
 	for {
 		select {
 		case <-ctx.Done():
 			log.Info().Msg("heartbeat stopped")
 			return
-		case <-time.After(interval):
+		case <-time.After(h.interval):
 		}
-
-		err := sendHeartbeat(ctx, state, tlsCfg)
-		if err != nil {
-			failures++
-			metrics.HeartbeatsFailed.WithLabelValues("send_error").Inc()
-			log.Warn().Err(err).Int("failures", failures).Msg("heartbeat failed")
-
-			interval = interval * 2
-			if interval > maxInterval {
-				interval = maxInterval
-			}
-
-			if failures >= heartbeatMaxFailures {
-				log.Warn().Msg("re-registering after repeated heartbeat failures")
-				info := DetectInfo(socketPath, "", version, advertiseIP)
-				newState, regErr := ReRegister(state, info, tlsCfg)
-				if regErr != nil {
-					log.Error().Err(regErr).Msg("re-registration failed")
-					continue
-				}
-				*state = *newState
-				if saveErr := state.Save(statePath); saveErr != nil {
-					log.Error().Err(saveErr).Msg("failed to save new state")
-				}
-				failures = 0
-				interval = heartbeatInterval
-				log.Info().Str("agent_id", state.AgentID).Msg("re-registered")
-			}
-			continue
-		}
-
-		metrics.HeartbeatsSent.Inc()
-		failures = 0
-		interval = heartbeatInterval
-		log.Debug().Str("agent_id", state.AgentID).Msg("heartbeat ok")
+		h.step(ctx)
 	}
+}
+
+// heartbeater is one agent's heartbeat state between beats. StartHeartbeat
+// owns the timing; step is one beat, so a test can drive months of them.
+type heartbeater struct {
+	state                                       *State
+	statePath, socketPath, version, advertiseIP string
+	tlsCfg                                      *tls.Config
+	log                                         zerolog.Logger
+	interval                                    time.Duration
+	failures                                    int
+}
+
+func newHeartbeater(state *State, statePath, socketPath, version, advertiseIP string, tlsCfg *tls.Config, log zerolog.Logger) *heartbeater {
+	return &heartbeater{
+		state: state, statePath: statePath, socketPath: socketPath, version: version,
+		advertiseIP: advertiseIP, tlsCfg: tlsCfg, log: log, interval: heartbeatInterval,
+	}
+}
+
+func (h *heartbeater) step(ctx context.Context) {
+	err := sendHeartbeat(ctx, h.state, h.tlsCfg)
+	if err != nil {
+		h.failures++
+		metrics.HeartbeatsFailed.WithLabelValues("send_error").Inc()
+		h.log.Warn().Err(err).Int("failures", h.failures).Msg("heartbeat failed")
+
+		h.interval *= 2
+		if h.interval > heartbeatMaxInterval {
+			h.interval = heartbeatMaxInterval
+		}
+
+		if h.failures >= heartbeatMaxFailures {
+			h.log.Warn().Msg("re-registering after repeated heartbeat failures")
+			if h.reRegister() {
+				h.failures = 0
+				h.interval = heartbeatInterval
+				h.log.Info().Str("agent_id", h.state.AgentID).Msg("re-registered")
+			}
+		}
+		return
+	}
+
+	metrics.HeartbeatsSent.Inc()
+	h.failures = 0
+	h.interval = heartbeatInterval
+	h.log.Debug().Str("agent_id", h.state.AgentID).Msg("heartbeat ok")
+}
+
+// reRegister trades the current token for a new one and saves it.
+func (h *heartbeater) reRegister() bool {
+	info := DetectInfo(h.socketPath, "", h.version, h.advertiseIP)
+	newState, err := ReRegister(h.state, info, h.tlsCfg)
+	if err != nil {
+		h.log.Error().Err(err).Msg("re-registration failed")
+		return false
+	}
+	*h.state = *newState
+	if err := h.state.Save(h.statePath); err != nil {
+		h.log.Error().Err(err).Msg("failed to save new state")
+	}
+	return true
 }
 
 func sendHeartbeat(ctx context.Context, state *State, tlsCfg *tls.Config) error {
