@@ -12,13 +12,16 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/smashingtags/eightly-agent/internal/tlsutil"
 )
 
-func tlsTarget(t *testing.T, h http.HandlerFunc) (host, port string) {
+// tlsTarget starts a TLS listener and writes the certificate it presents where
+// the healthcheck will look for the agent's own.
+func tlsTarget(t *testing.T, h http.HandlerFunc) (host, port, certPath string) {
 	t.Helper()
 	srv := httptest.NewTLSServer(h)
 	t.Cleanup(srv.Close)
@@ -26,16 +29,38 @@ func tlsTarget(t *testing.T, h http.HandlerFunc) (host, port string) {
 	if err != nil {
 		t.Fatalf("split: %v", err)
 	}
-	return host, port
+	return host, port, writeCertPEM(t, t.TempDir(), srv.Certificate())
+}
+
+// agentTarget starts a listener serving a certificate made by the agent's own
+// tlsutil.EnsureCert in dir: self-signed and not a CA, unlike httptest's.
+func agentTarget(t *testing.T, dir string) (host, port, certPath string) {
+	t.Helper()
+	certPath, keyPath, err := tlsutil.EnsureCert(dir)
+	if err != nil {
+		t.Fatalf("EnsureCert: %v", err)
+	}
+	pair, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		t.Fatalf("load pair: %v", err)
+	}
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{pair}}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	host, port, _ = net.SplitHostPort(srv.Listener.Addr().String())
+	return host, port, certPath
 }
 
 func TestHealthcheck_HealthyListenerPasses(t *testing.T) {
 	var path string
-	host, port := tlsTarget(t, func(w http.ResponseWriter, r *http.Request) {
+	host, port, certPath := tlsTarget(t, func(w http.ResponseWriter, r *http.Request) {
 		path = r.URL.Path
 		w.WriteHeader(http.StatusOK)
 	})
-	if err := Healthcheck(context.Background(), host, port); err != nil {
+	if err := Healthcheck(context.Background(), host, port, certPath); err != nil {
 		t.Fatalf("healthy listener reported unhealthy: %v", err)
 	}
 	if path != "/healthz" {
@@ -44,10 +69,10 @@ func TestHealthcheck_HealthyListenerPasses(t *testing.T) {
 }
 
 func TestHealthcheck_ErrorStatusFails(t *testing.T) {
-	host, port := tlsTarget(t, func(w http.ResponseWriter, r *http.Request) {
+	host, port, certPath := tlsTarget(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	})
-	if err := Healthcheck(context.Background(), host, port); err == nil {
+	if err := Healthcheck(context.Background(), host, port, certPath); err == nil {
 		t.Fatal("a 503 was reported healthy")
 	}
 }
@@ -57,7 +82,7 @@ func TestHealthcheck_ErrorStatusFails(t *testing.T) {
 // this process, with nothing left behind.
 func TestHealthcheck_SilentListenerFailsWithinDeadline(t *testing.T) {
 	release := make(chan struct{})
-	host, port := tlsTarget(t, func(w http.ResponseWriter, r *http.Request) {
+	host, port, certPath := tlsTarget(t, func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-release:
 		case <-r.Context().Done():
@@ -68,7 +93,7 @@ func TestHealthcheck_SilentListenerFailsWithinDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	err := Healthcheck(ctx, host, port)
+	err := Healthcheck(ctx, host, port, certPath)
 	if err == nil {
 		t.Fatal("a listener that never answers was reported healthy")
 	}
@@ -84,7 +109,8 @@ func TestHealthcheck_NothingListeningFails(t *testing.T) {
 	}
 	host, port, _ := net.SplitHostPort(l.Addr().String())
 	_ = l.Close()
-	if err := Healthcheck(context.Background(), host, port); err == nil {
+	_, _, certPath := agentTarget(t, t.TempDir())
+	if err := Healthcheck(context.Background(), host, port, certPath); err == nil {
 		t.Fatal("a closed port was reported healthy")
 	}
 }
@@ -119,27 +145,67 @@ func writeCertPEM(t *testing.T, dir string, cert *x509.Certificate) string {
 // The probe must be talking to this agent, not to whatever answers the port:
 // a listener presenting any other certificate is unhealthy.
 func TestHealthcheck_RejectsAnotherCertificate(t *testing.T) {
-	ok := func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }
-	ours := httptest.NewTLSServer(http.HandlerFunc(ok))
-	t.Cleanup(ours.Close)
-	writeCertPEM(t, t.TempDir(), ours.Certificate())
+	_, _, ourCert := agentTarget(t, t.TempDir())
+	host, port, _ := agentTarget(t, t.TempDir())
 
-	other := httptest.NewUnstartedServer(http.HandlerFunc(ok))
-	otherDir := t.TempDir()
-	certPath, keyPath, err := tlsutil.EnsureCert(otherDir)
-	if err != nil {
-		t.Fatalf("EnsureCert: %v", err)
-	}
-	pair, err := tls.LoadX509KeyPair(certPath, keyPath)
-	if err != nil {
-		t.Fatalf("load pair: %v", err)
-	}
-	other.TLS = &tls.Config{Certificates: []tls.Certificate{pair}}
-	other.StartTLS()
-	t.Cleanup(other.Close)
-	host, port, _ := net.SplitHostPort(other.Listener.Addr().String())
-
-	if err := Healthcheck(context.Background(), host, port); err == nil {
+	if err := Healthcheck(context.Background(), host, port, ourCert); err == nil {
 		t.Fatal("a listener presenting a different certificate was reported healthy")
+	}
+}
+
+// The agent's real certificate (self-signed, not a CA) must verify against
+// itself, or the check would fail on every healthy agent.
+func TestHealthcheck_TrustsTheAgentsOwnCertificate(t *testing.T) {
+	for _, addr := range []string{"", "0.0.0.0", "127.0.0.1"} {
+		_, port, certPath := agentTarget(t, t.TempDir())
+		if err := Healthcheck(context.Background(), addr, port, certPath); err != nil {
+			t.Errorf("addr %q: the agent's own certificate was rejected: %v", addr, err)
+		}
+	}
+}
+
+// A certificate the probe cannot read is unhealthy, never a reason to stop
+// checking who answered.
+func TestHealthcheck_UnreadableCertificateFails(t *testing.T) {
+	host, port, _ := agentTarget(t, t.TempDir())
+	missing := filepath.Join(t.TempDir(), "cert.pem")
+	err := Healthcheck(context.Background(), host, port, missing)
+	if err == nil {
+		t.Fatal("a missing certificate file was reported healthy")
+	}
+	if !strings.Contains(err.Error(), missing) || !strings.Contains(err.Error(), "certificate") {
+		t.Errorf("error does not say which certificate it could not read: %v", err)
+	}
+
+	garbage := filepath.Join(t.TempDir(), "cert.pem")
+	if err := os.WriteFile(garbage, []byte("not a certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Healthcheck(context.Background(), host, port, garbage); err == nil {
+		t.Fatal("a certificate file holding no certificate was reported healthy")
+	}
+}
+
+// A specific --addr the certificate does not name (a reused or supplied cert)
+// is verified against a name the certificate does carry, not refused forever.
+func TestCertServerName_FallsBackToANameTheCertCarries(t *testing.T) {
+	certPath, _, err := tlsutil.EnsureCert(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(certPath)
+	block, _ := pem.Decode(data)
+	leaf, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for host, want := range map[string]string{"127.0.0.1": "127.0.0.1", "localhost": "localhost", "10.9.9.9": "localhost"} {
+		got, err := certServerName(leaf, host)
+		if err != nil || got != want {
+			t.Errorf("certServerName(%q) = %q, %v; want %q", host, got, err, want)
+		}
+	}
+	if _, err := certServerName(&x509.Certificate{}, "127.0.0.1"); err == nil {
+		t.Error("a certificate with no names was given a server name")
 	}
 }
