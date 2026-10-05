@@ -255,7 +255,8 @@ func TestPrepareStateDir_CertFilesOutsideTheDataFolderAreNotOurs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "cert.pem"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	if tightened, err := PrepareStateDir(statePath, filepath.Join(t.TempDir(), "elsewhere")); tightened || err == nil {
+	elsewhere := t.TempDir() // a real folder, so the comparison is actually made
+	if tightened, err := PrepareStateDir(statePath, elsewhere); tightened || err == nil {
 		t.Fatalf("got (%v, %v); a cert.pem outside the data folder is not the agent's", tightened, err)
 	}
 }
