@@ -5,6 +5,8 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +14,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -118,5 +121,126 @@ func TestLoadOrRegister_FirstStartEnrolls(t *testing.T) {
 	}
 	if state == nil || state.AgentID != "agent-new" {
 		t.Fatalf("first start did not take the new registration, got %+v", state)
+	}
+}
+
+func tokenExpiringAt(exp time.Time) string {
+	claims, _ := json.Marshal(map[string]int64{"iat": exp.Add(-30 * 24 * time.Hour).Unix(), "exp": exp.Unix()})
+	return base64.RawURLEncoding.EncodeToString(claims) + ".sig"
+}
+
+// EOS-2536. Re-enrolling an agent whose token lapsed means running the install
+// command again with a fresh enrollment token. If the saved state survived in
+// the volume, the agent used to load it and never look at the new token, so
+// re-enrolling could not work. A lapsed saved token plus an enrollment token
+// means enroll.
+func TestLoadOrRegister_ExpiredSavedTokenWithEnrollTokenEnrollsAgain(t *testing.T) {
+	srv, calls := registerCounter(t)
+	statePath := filepath.Join(t.TempDir(), "data", "eightly-agent.json")
+	lapsed := &register.State{AgentID: "agent-saved", Token: tokenExpiringAt(time.Now().Add(-24 * time.Hour)), ServerURL: srv.URL}
+	if err := lapsed.Save(statePath); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	cfg := &config.Config{ServerURL: srv.URL, EnrollToken: "eos_enroll_fresh", StatePath: statePath, SocketPath: "/nonexistent.sock", Port: "9001", Version: "test"}
+	tlsCfg, err := register.BuildServerTLSConfig("", true, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("tls: %v", err)
+	}
+
+	state := loadOrRegister(cfg, tlsCfg)
+
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("lapsed saved token + enrollment token made %d register calls, want 1", n)
+	}
+	if state == nil || state.Token != "new-token" {
+		t.Fatalf("did not take the new enrollment, got %+v", state)
+	}
+}
+
+// A saved token that is still valid is kept even when an enrollment token is
+// still in the environment: the install command leaves it there, and it is
+// spent.
+func TestLoadOrRegister_ValidSavedTokenIgnoresLeftoverEnrollToken(t *testing.T) {
+	srv, calls := registerCounter(t)
+	statePath := filepath.Join(t.TempDir(), "data", "eightly-agent.json")
+	live := &register.State{AgentID: "agent-saved", Token: tokenExpiringAt(time.Now().Add(20 * 24 * time.Hour)), ServerURL: srv.URL}
+	if err := live.Save(statePath); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	cfg := &config.Config{ServerURL: srv.URL, EnrollToken: "eos_enroll_spent", StatePath: statePath, SocketPath: "/nonexistent.sock", Port: "9001", Version: "test"}
+	tlsCfg, err := register.BuildServerTLSConfig("", true, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("tls: %v", err)
+	}
+
+	if state := loadOrRegister(cfg, tlsCfg); state == nil || state.AgentID != "agent-saved" || calls.Load() != 0 {
+		t.Fatalf("a valid saved registration was replaced (%d register calls)", calls.Load())
+	}
+}
+
+// EOS-2536, Codex P1. Re-enrolling a lapsed agent against the SAME server must
+// still hold the server to the pin saved at first enrollment. Before, the
+// expired state was dropped before anything seeded the pin, so in the default
+// pin-only mode re-enrollment trusted whatever certificate answered and sent
+// the fresh single-use enrollment token to it. A server whose key does not
+// match the saved pin is refused, and the token never leaves the agent.
+func TestLoadOrRegister_ReEnrollSameServerRefusesCertNotMatchingSavedPin(t *testing.T) {
+	srv, calls := registerCounter(t)
+	statePath := filepath.Join(t.TempDir(), "data", "eightly-agent.json")
+	lapsed := &register.State{
+		AgentID:   "agent-saved",
+		Token:     tokenExpiringAt(time.Now().Add(-24 * time.Hour)),
+		ServerURL: srv.URL,
+		// The pin of the server this agent first enrolled with. The server
+		// answering now presents a different key.
+		ServerPin: "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+	}
+	if err := lapsed.Save(statePath); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	cfg := &config.Config{ServerURL: srv.URL, EnrollToken: "eos_enroll_fresh", StatePath: statePath, SocketPath: "/nonexistent.sock", Port: "9001", Version: "test"}
+	tlsCfg, err := register.BuildServerTLSConfig("", false, zerolog.Nop()) // default: pin-only TOFU
+	if err != nil {
+		t.Fatalf("tls: %v", err)
+	}
+
+	state := loadOrRegister(cfg, tlsCfg)
+
+	if n := calls.Load(); n != 0 {
+		t.Fatalf("re-enrollment sent the enrollment token to a server whose key does not match the saved pin (%d register calls)", n)
+	}
+	if state != nil {
+		t.Fatalf("re-enrollment against a mismatched pin produced a registration: %+v", state)
+	}
+	onDisk, err := register.LoadState(statePath)
+	if err != nil || onDisk == nil || onDisk.ServerPin != lapsed.ServerPin {
+		t.Fatalf("the saved pin was not kept on disk: %+v, %v", onDisk, err)
+	}
+}
+
+// The other half: the same server, presenting the key it was pinned to, is
+// re-enrolled with, and the pin carries over into the new registration.
+func TestLoadOrRegister_ReEnrollSameServerMatchingSavedPinKeepsPin(t *testing.T) {
+	srv, calls := registerCounter(t)
+	sum := sha256.Sum256(srv.Certificate().RawSubjectPublicKeyInfo)
+	pin := "sha256/" + base64.StdEncoding.EncodeToString(sum[:])
+	statePath := filepath.Join(t.TempDir(), "data", "eightly-agent.json")
+	lapsed := &register.State{AgentID: "agent-saved", Token: tokenExpiringAt(time.Now().Add(-24 * time.Hour)), ServerURL: srv.URL, ServerPin: pin}
+	if err := lapsed.Save(statePath); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	cfg := &config.Config{ServerURL: srv.URL, EnrollToken: "eos_enroll_fresh", StatePath: statePath, SocketPath: "/nonexistent.sock", Port: "9001", Version: "test"}
+	tlsCfg, err := register.BuildServerTLSConfig("", false, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("tls: %v", err)
+	}
+
+	state := loadOrRegister(cfg, tlsCfg)
+
+	if n := calls.Load(); n != 1 || state == nil || state.Token != "new-token" {
+		t.Fatalf("re-enrollment with a matching pin did not go through (%d register calls, state %+v)", n, state)
+	}
+	if state.ServerPin != pin {
+		t.Fatalf("new registration pin %q, want the saved %q", state.ServerPin, pin)
 	}
 }
