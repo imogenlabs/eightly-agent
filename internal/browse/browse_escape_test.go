@@ -226,8 +226,9 @@ func TestEscapeDelete(t *testing.T) {
 			f := newEscapeFixture(t)
 			req, _ := http.NewRequest("DELETE", f.url("delete", p), nil) //nolint:noctx // test
 			code, _ := do(t, req)
-			if code == http.StatusNoContent {
-				t.Errorf("delete of the volume root %q answered 204", p)
+			// 400 names the refusal; os.Root also refuses it (with a 500).
+			if code != http.StatusBadRequest {
+				t.Errorf("delete of the volume root %q = %d, want 400", p, code)
 			}
 			f.assertOutsideUntouched(t)
 		})
@@ -260,8 +261,8 @@ func TestEscapeRename(t *testing.T) {
 		t.Run("root_"+p, func(t *testing.T) {
 			f := newEscapeFixture(t)
 			code, _ := do(t, renameRequest(t, f, p, "moved"))
-			if code == http.StatusOK {
-				t.Errorf("rename of the volume root %q answered 200", p)
+			if code != http.StatusBadRequest {
+				t.Errorf("rename of the volume root %q = %d, want 400", p, code)
 			}
 			if _, err := os.Stat(filepath.Join(filepath.Dir(f.dataDir), "moved")); err == nil {
 				t.Errorf("rename %q moved the volume root out of _data", p)
