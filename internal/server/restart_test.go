@@ -244,3 +244,41 @@ func TestLoadOrRegister_ReEnrollSameServerMatchingSavedPinKeepsPin(t *testing.T)
 		t.Fatalf("new registration pin %q, want the saved %q", state.ServerPin, pin)
 	}
 }
+
+// EOS-2544: in the image, /data is both --data and the state folder, so it
+// holds the agent's TLS key pair beside the state file. That is still wholly
+// the agent's folder, so a restart repairs it and resumes.
+func TestLoadOrRegister_VolumeWithTLSPairIsStillRepaired(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; ownership checks behave differently")
+	}
+	srv, calls := registerCounter(t)
+	dir := filepath.Join(t.TempDir(), "data")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	for _, name := range []string{"cert.pem", "key.pem"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	statePath := filepath.Join(dir, "eightly-agent.json")
+	saved := &register.State{AgentID: "agent-saved", Token: "saved-token", ServerURL: srv.URL}
+	if err := saved.Save(statePath); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	cfg := &config.Config{ServerURL: srv.URL, EnrollToken: "eos_enroll_spent", StatePath: statePath, DataPath: dir, SocketPath: "/nonexistent.sock", Port: "9001", Version: "test"}
+	tlsCfg, err := register.BuildServerTLSConfig("", true, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("tls: %v", err)
+	}
+
+	state := loadOrRegister(cfg, tlsCfg)
+
+	if calls.Load() != 0 || state == nil || state.AgentID != "agent-saved" {
+		t.Fatalf("the agent's own volume was not repaired: %d register calls, state %+v", calls.Load(), state)
+	}
+}
