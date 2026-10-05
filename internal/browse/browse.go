@@ -100,13 +100,8 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 			return
 		}
-		// The Root keeps any symlink inside the volume; a symlink at the final
-		// component is refused as well, as it always has been here.
-		if isSymlink(root, name) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-			return
-		}
-		f, err := root.OpenFile(name, os.O_RDONLY|syscallNoFollow, 0)
+		// A symlink at the final component is refused, as it always has been.
+		f, err := openNoFollow(root, name, os.O_RDONLY, 0)
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
@@ -156,12 +151,7 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 			return
 		}
 
-		if isSymlink(root, name) {
-			audit(r, "put", name, "rejected")
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "target is a symlink"})
-			return
-		}
-		dst, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscallNoFollow, 0644) // #nosec G302 -- files in a volume are world-readable like the rest of its data
+		dst, err := openNoFollow(root, name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644) // #nosec G302 -- files in a volume are world-readable like the rest of its data
 		if err != nil {
 			audit(r, "put", name, "error")
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "write failed"})
@@ -288,14 +278,6 @@ func volumeName(userPath string) (string, bool) {
 		return "", false
 	}
 	return filepath.FromSlash(name), true
-}
-
-// isSymlink reports whether the final component of name is a symlink. A
-// symlink swapped in after this check can only point inside the volume,
-// because the Root refuses to follow one that leads out.
-func isSymlink(root *os.Root, name string) bool {
-	info, err := root.Lstat(name)
-	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
 // rejectReadOnly responds 403 to a mutating request in read-only mode and audits it.
