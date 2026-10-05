@@ -152,3 +152,33 @@ func TestPrepareStateDir_DoesNotLoosenFileGuard(t *testing.T) {
 		t.Fatalf("a 0644 state file must still be refused, got %v", err)
 	}
 }
+
+// A missing state file has no credential to protect, so its directory is left
+// exactly as it is. A first run pointed at a file in a shared directory (for
+// example --state-path /home/agent/eightly-agent.json) must not take that
+// directory away from other users and services.
+func TestPrepareStateDir_MissingFileLeavesDirAlone(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; ownership checks behave differently")
+	}
+	dir := filepath.Join(t.TempDir(), "home")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	chmodDir = func(string, os.FileMode) error {
+		t.Error("chmod called on a directory holding no state file")
+		return nil
+	}
+	t.Cleanup(func() { chmodDir = os.Chmod })
+
+	tightened, err := PrepareStateDir(filepath.Join(dir, "eightly-agent.json"))
+	if err != nil || tightened {
+		t.Fatalf("PrepareStateDir with no state file = (%v, %v), want (false, nil)", tightened, err)
+	}
+	if perm := dirPerm(t, dir); perm != 0o755 {
+		t.Fatalf("directory changed to %04o with no state file in it", perm)
+	}
+}
