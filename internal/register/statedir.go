@@ -20,7 +20,7 @@ var chmodDir = os.Chmod
 // the agent discarded its saved identity and tried to enroll again with a
 // single-use token that was already spent. Tightening a directory the agent
 // owns closes the same exposure the guard exists for, so it is the fix, not a
-// bypass. When the directory belongs to someone else, or the chmod fails (a
+// bypass. It acts only once a state file exists. When the directory belongs to someone else, or the chmod fails (a
 // read-only mount), it returns an error saying so and changes nothing, and
 // LoadState goes on refusing exactly as before. The file check is untouched:
 // a state file broader than 0600 is still refused.
@@ -28,11 +28,16 @@ func PrepareStateDir(statePath string) (bool, error) {
 	if !permsEnforced {
 		return false, nil
 	}
+	// No saved state means no credential to protect, so the directory is left
+	// as it is: it may be shared (a home directory) and is not ours to narrow.
+	// A Docker volume is repaired on the next start, once the state is there.
+	if _, err := os.Stat(statePath); os.IsNotExist(err) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
 	dir := filepath.Dir(statePath)
 	fi, err := os.Stat(dir)
-	if os.IsNotExist(err) {
-		return false, nil // first start: State.Save creates it 0700
-	}
 	if err != nil {
 		return false, err
 	}

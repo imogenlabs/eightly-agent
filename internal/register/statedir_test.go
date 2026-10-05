@@ -75,7 +75,11 @@ func TestPrepareStateDir_LeavesTightDirAlone(t *testing.T) {
 	}
 	t.Cleanup(func() { chmodDir = os.Chmod })
 
-	tightened, err := PrepareStateDir(filepath.Join(dir, "eightly-agent.json"))
+	statePath := filepath.Join(dir, "eightly-agent.json")
+	if err := (&State{AgentID: "agent-1", Token: "tok"}).Save(statePath); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	tightened, err := PrepareStateDir(statePath)
 	if err != nil || tightened {
 		t.Fatalf("PrepareStateDir on a 0700 dir = (%v, %v), want (false, nil)", tightened, err)
 	}
@@ -128,8 +132,10 @@ func TestPrepareStateDir_ForeignOwnedDirIsNotTouched(t *testing.T) {
 	}
 	t.Cleanup(func() { chmodDir = os.Chmod })
 
-	// The root directory is root-owned and 0755 on every unix this runs on.
-	_, err := PrepareStateDir("/eightly-agent.json")
+	// /etc is root-owned and 0755 on every unix this runs on, and /etc/hosts
+	// exists, so this reaches the ownership check rather than the
+	// missing-file early return.
+	_, err := PrepareStateDir("/etc/hosts")
 	if err == nil || !strings.Contains(err.Error(), "owned by uid 0") {
 		t.Fatalf("expected a plain ownership refusal, got %v", err)
 	}
