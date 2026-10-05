@@ -421,6 +421,9 @@ type heartbeater struct {
 	interval                                    time.Duration
 	failures                                    int
 	toldExpired                                 bool
+	// unsaved is true while the in-memory state holds a renewed token that
+	// has not reached disk; every beat tries again until it does.
+	unsaved bool
 }
 
 func newHeartbeater(state *State, statePath, socketPath, version, advertiseIP string, tlsCfg *tls.Config, log zerolog.Logger) *heartbeater {
@@ -431,6 +434,9 @@ func newHeartbeater(state *State, statePath, socketPath, version, advertiseIP st
 }
 
 func (h *heartbeater) step(ctx context.Context) {
+	if h.unsaved {
+		h.save()
+	}
 	lt, known := readTokenLifetime(h.state.Token)
 	err := sendHeartbeat(ctx, h.state, h.tlsCfg)
 	if err != nil && known && lt.expired(clock()) {
@@ -492,10 +498,23 @@ func (h *heartbeater) reRegister() bool {
 		return false
 	}
 	*h.state = *newState
-	if err := h.state.Save(h.statePath); err != nil {
-		h.log.Error().Err(err).Msg("failed to save new state")
-	}
+	h.save()
 	return true
+}
+
+// save writes the state to disk. A failure leaves it pending for the next
+// beat: a renewed token that only lives in memory is lost on restart, and the
+// one on disk lapses.
+func (h *heartbeater) save() {
+	if err := h.state.Save(h.statePath); err != nil {
+		h.unsaved = true
+		h.log.Error().Err(err).Msg("failed to save new state; will retry on the next heartbeat")
+		return
+	}
+	if h.unsaved {
+		h.log.Info().Msg("saved the renewed agent token")
+	}
+	h.unsaved = false
 }
 
 func sendHeartbeat(ctx context.Context, state *State, tlsCfg *tls.Config) error {
