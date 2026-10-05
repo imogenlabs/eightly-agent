@@ -86,8 +86,8 @@ control=$(zombies "reap-control-$TAG")
 tini=$(zombies "reap-tini-$TAG")
 own=$(docker inspect --format '{{.State.Health.Status}}' "reap-own-$TAG")
 init=$(zombies "reap-init-$TAG")
-init_warn=$(docker logs "reap-init-$TAG" 2>&1 | grep -c 'WARN tini' || true)
-warn_control=$(docker logs "reap-warn-$TAG" 2>&1 | grep -c 'WARN tini' || true)
+init_warn=$(docker logs "reap-init-$TAG" 2>&1 | grep -c 'Tini is not running as PID 1' || true)
+warn_control=$(docker logs "reap-warn-$TAG" 2>&1 | grep -c 'Tini is not running as PID 1' || true)
 checks=$(docker inspect --format '{{len .State.Health.Log}}' "reap-tini-$TAG")
 
 echo "control (PID 1 = $pid1_control): $control zombies"
@@ -122,7 +122,7 @@ if [ "$warn_control" -eq 0 ]; then
 fi
 if [ "$init_warn" -ne 0 ]; then
 	echo "FAIL: under --init tini warned:" >&2
-	docker logs "reap-init-$TAG" 2>&1 | grep 'WARN tini' >&2
+	docker logs "reap-init-$TAG" 2>&1 | grep 'Tini is not running as PID 1' >&2
 	fail=1
 fi
 [ "$fail" -eq 0 ] && echo "PASS"
