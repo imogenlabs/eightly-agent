@@ -13,6 +13,10 @@
 #            and that is a failure too.
 #   tini     the image as built, same orphaning check. Must show 0 zombies.
 #   own      the image as built with its own HEALTHCHECK. Must reach healthy.
+#   init     the image under `docker run --init`, the way Eight.ly OS hands out
+#            the install command, same orphaning check. Must show 0 zombies and
+#            tini must not warn about not being PID 1. Its control runs tini
+#            without -s under --init and must warn, or the warning check is blind.
 #
 # The orphaning check is synthetic on purpose: the real check no longer starts a
 # child, so it could never orphan one. This proves the reaper, not the check.
@@ -41,7 +45,7 @@ kill "$watchdog" 2>/dev/null
 
 # shellcheck disable=SC2329 # invoked by the trap below
 cleanup() {
-	docker rm -f "reap-control-$TAG" "reap-tini-$TAG" "reap-own-$TAG" >/dev/null 2>&1 || true
+	docker rm -f "reap-control-$TAG" "reap-tini-$TAG" "reap-own-$TAG" "reap-init-$TAG" "reap-warn-$TAG" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
@@ -59,6 +63,9 @@ start_orphaning() { # name, extra docker run args...
 
 start_orphaning "reap-control-$TAG" --entrypoint /app/eightly-agent || exit 1
 start_orphaning "reap-tini-$TAG" || exit 1
+start_orphaning "reap-init-$TAG" --init || exit 1
+docker run -d --name "reap-warn-$TAG" --init -e EIGHTLY_AGENT_SECRET=ci-only-secret \
+	--entrypoint /sbin/tini "$IMAGE" -- /app/eightly-agent >/dev/null || exit 1
 docker run -d --name "reap-own-$TAG" -e EIGHTLY_AGENT_SECRET=ci-only-secret "$IMAGE" >/dev/null || exit 1
 
 echo "waiting ${WAIT}s for health checks to run"
@@ -70,11 +77,15 @@ pid1_tini=$(docker exec "reap-tini-$TAG" cat /proc/1/comm)
 control=$(zombies "reap-control-$TAG")
 tini=$(zombies "reap-tini-$TAG")
 own=$(docker inspect --format '{{.State.Health.Status}}' "reap-own-$TAG")
+init=$(zombies "reap-init-$TAG")
+init_warn=$(docker logs "reap-init-$TAG" 2>&1 | grep -c 'WARN tini' || true)
+warn_control=$(docker logs "reap-warn-$TAG" 2>&1 | grep -c 'WARN tini' || true)
 checks=$(docker inspect --format '{{len .State.Health.Log}}' "reap-tini-$TAG")
 
 echo "control (PID 1 = $pid1_control): $control zombies"
 echo "tini    (PID 1 = $pid1_tini): $tini zombies (health log holds $checks checks)"
 echo "own health check: $own"
+echo "--init  : $init zombies, $init_warn tini warnings (control without -s: $warn_control)"
 
 if [ "$control" -eq 0 ]; then
 	echo "FAIL: the control left no zombies, so this check cannot see the defect it guards" >&2
@@ -91,6 +102,19 @@ fi
 if [ "$own" != "healthy" ]; then
 	echo "FAIL: the image's own health check reports $own" >&2
 	docker inspect --format '{{json .State.Health}}' "reap-own-$TAG" >&2
+	fail=1
+fi
+if [ "$init" -ne 0 ]; then
+	echo "FAIL: under --init the image left $init zombies" >&2
+	fail=1
+fi
+if [ "$warn_control" -eq 0 ]; then
+	echo "FAIL: tini without -s under --init did not warn, so the warning check cannot see" >&2
+	fail=1
+fi
+if [ "$init_warn" -ne 0 ]; then
+	echo "FAIL: under --init tini warned:" >&2
+	docker logs "reap-init-$TAG" 2>&1 | grep 'WARN tini' >&2
 	fail=1
 fi
 [ "$fail" -eq 0 ] && echo "PASS"

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - A restarted agent kept losing its registration: its own guard refused the 0755 directory Docker gives a new volume, so it ignored the saved state and tried to enroll again with a spent single-use token (`register failed: status 403`). On start the agent now tightens a state directory it owns to 0700 and logs it; when it cannot, it says why and keeps refusing. The 0600 file check is unchanged (EOS-2534).
 - The image left a zombie process every 10 seconds once the agent's listener stopped answering: 115,420 on one host. The busybox `wget` health check forked an `ssl_client` helper, and each timed-out check orphaned it onto PID 1, the agent, which never reaps. The image now runs under `tini`, and the health check is a new `eightly-agent healthcheck` subcommand that does the HTTPS GET in-process. A CI job builds the image and proves both (EOS-2533).
+- The image left a zombie process every 10 seconds once the agent's listener stopped answering: 115,420 on one host. The busybox `wget` health check forked an `ssl_client` helper, and each timed-out check orphaned it onto PID 1, the agent, which never reaps. The image now runs under `tini -s` (it still reaps, and stays quiet, under `docker run --init`), and the health check is a new `eightly-agent healthcheck` subcommand that does the HTTPS GET in-process. A CI job builds the image and proves both (EOS-2533).
 
 ## [1.0.0] - 2026-05-21
 
