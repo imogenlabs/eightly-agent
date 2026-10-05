@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -164,5 +165,43 @@ func TestTokenLifetime_ReadsIssuedAndExpiry(t *testing.T) {
 	}
 	if TokenExpired("not-a-token", f.now) {
 		t.Error("a token whose life cannot be read was called expired; that is 'cannot tell', not 'expired'")
+	}
+}
+
+// Codex P2. A renewal whose save fails (a full or read-only disk) used to be
+// treated as done: the new token lived only in memory and nothing tried to
+// save it again, so a restart after the old token lapsed loaded a dead
+// credential. The renewed token stays pending and the next beat saves it.
+func TestHeartbeat_RetriesSavingARenewedTokenAfterTheSaveFailed(t *testing.T) {
+	f, state, h := startFakeEOS(t)
+	if err := state.Save(h.statePath); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	original := state.Token
+	// A directory where Save writes its temp file makes the save fail, the
+	// way a full or read-only disk does, without needing root.
+	blocker := h.statePath + ".tmp"
+	if err := os.Mkdir(blocker, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	f.advance(16 * 24 * time.Hour) // past half-life: this beat renews
+	h.step(context.Background())
+	if state.Token == original {
+		t.Fatal("the token was not renewed past half-life")
+	}
+	if onDisk, _ := LoadState(h.statePath); onDisk == nil || onDisk.Token != original {
+		t.Fatal("the save was meant to fail and did not; the test is not testing anything")
+	}
+
+	if err := os.Remove(blocker); err != nil { // the disk is writable again
+		t.Fatalf("remove: %v", err)
+	}
+	f.advance(24 * time.Hour)
+	h.step(context.Background())
+
+	onDisk, err := LoadState(h.statePath)
+	if err != nil || onDisk == nil || onDisk.Token != state.Token {
+		t.Fatalf("the renewed token was never saved after the disk recovered, so a restart loads the old one: %v", err)
 	}
 }
