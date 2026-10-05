@@ -8,7 +8,7 @@ The first step for any issue is to enable debug logging. This switches output fr
 
 **Docker**:
 ```bash
-docker run -d \
+docker run -d --init \
   -e LOG_LEVEL=debug \
   ... \
   ghcr.io/imogenlabs/eightly-agent:latest

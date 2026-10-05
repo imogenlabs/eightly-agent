@@ -6,6 +6,8 @@ services:
     image: smashingtags/eightly-agent:latest
     container_name: eightly-agent
     restart: unless-stopped
+    # A second reaper for images built before EOS-2533 put tini in the image.
+    init: true
     ports:
       - "9001:9001"
     volumes:
@@ -16,11 +18,9 @@ services:
       - EIGHTLY_SERVER_URL=${EIGHTLY_SERVER_URL:-}
       - EIGHTLY_ENROLL_TOKEN=${EIGHTLY_ENROLL_TOKEN:-}
       - LOG_LEVEL=${LOG_LEVEL:-info}
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "--no-check-certificate", "https://localhost:9001/ping"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+    # No healthcheck override: the image carries its own. An image built before
+    # EOS-2533 has no `healthcheck` subcommand and would start a second agent
+    # on every check if one were named here.
 
 volumes:
   agent-data:

@@ -84,6 +84,22 @@ jobs:
       - name: Run tests with race detector
         run: go test ./... -race -count=1 -timeout 120s
 
+  image-reaps:
+    # EOS-2533: the image ran with no init and a health check that orphaned a
+    # helper on every timeout; 115,420 zombies piled up on eightly-ms01. This
+    # builds the image and proves it reaps orphans and passes its own check.
+    name: Image reaps orphaned processes
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Build image
+        run: docker build --build-arg VERSION=ci-${{ github.sha }} -t eightly-agent-reap:${{ github.run_id }} .
+      - name: Check the image reaps orphans and passes its own health check
+        run: scripts/check-image-reaps.sh eightly-agent-reap:${{ github.run_id }}
+      - name: Remove the test image
+        if: always()
+        run: docker rmi -f eightly-agent-reap:${{ github.run_id }} || true
+
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: self-hosted

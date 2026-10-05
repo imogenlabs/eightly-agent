@@ -61,17 +61,13 @@ services:
     image: ghcr.io/imogenlabs/eightly-agent:v1.0.0
     container_name: eightly-agent
     restart: unless-stopped
+    init: true  # reaps orphaned processes; the image's own health check needs no override
     ports:
       - "9001:9001"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - agent-data:/data
     env_file: .env
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "https://localhost:9001/healthz", "--no-check-certificate"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
 
 volumes:
   agent-data:
@@ -86,7 +82,7 @@ The agent is published to both GitHub Container Registry and Docker Hub as a mul
 ### GHCR
 
 ```bash
-docker run -d \
+docker run -d --init \
   --name eightly-agent \
   --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock \
@@ -101,7 +97,7 @@ docker run -d \
 ### Docker Hub
 
 ```bash
-docker run -d \
+docker run -d --init \
   --name eightly-agent \
   --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock \
