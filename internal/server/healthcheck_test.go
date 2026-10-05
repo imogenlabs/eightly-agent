@@ -88,6 +88,8 @@ func TestHealthcheckHost_WildcardBindDialsLoopback(t *testing.T) {
 		"0.0.0.0":     "127.0.0.1",
 		"::":          "127.0.0.1",
 		"[::]":        "127.0.0.1",
+		"[::1]":       "::1",
+		"::1":         "::1",
 		"10.0.0.5":    "10.0.0.5",
 		"agent.local": "agent.local",
 	} {
