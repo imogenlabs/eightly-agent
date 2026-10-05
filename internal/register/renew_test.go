@@ -33,7 +33,7 @@ type fakeEOS struct {
 }
 
 func (f *fakeEOS) advance(d time.Duration) { f.mu.Lock(); f.now = f.now.Add(d); f.mu.Unlock() }
-func (f *fakeEOS) clock() time.Time       { f.mu.Lock(); defer f.mu.Unlock(); return f.now }
+func (f *fakeEOS) clock() time.Time        { f.mu.Lock(); defer f.mu.Unlock(); return f.now }
 
 func (f *fakeEOS) mint() string {
 	f.serial++
@@ -91,7 +91,7 @@ func startFakeEOS(t *testing.T) (*fakeEOS, *State, *heartbeater) {
 		t.Fatalf("tls: %v", err)
 	}
 	state := &State{AgentID: "agent-1", Token: f.mint(), ServerURL: srv.URL}
-	statePath := filepath.Join(t.TempDir(), "state.json")
+	statePath := filepath.Join(t.TempDir(), "data", "state.json") // Save creates it 0700
 	h := newHeartbeater(state, statePath, "/nonexistent.sock", "test", "10.0.0.9", tlsCfg, zerolog.Nop())
 	return f, state, h
 }

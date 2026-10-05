@@ -420,6 +420,7 @@ type heartbeater struct {
 	log                                         zerolog.Logger
 	interval                                    time.Duration
 	failures                                    int
+	toldExpired                                 bool
 }
 
 func newHeartbeater(state *State, statePath, socketPath, version, advertiseIP string, tlsCfg *tls.Config, log zerolog.Logger) *heartbeater {
@@ -430,7 +431,20 @@ func newHeartbeater(state *State, statePath, socketPath, version, advertiseIP st
 }
 
 func (h *heartbeater) step(ctx context.Context) {
+	lt, known := readTokenLifetime(h.state.Token)
 	err := sendHeartbeat(ctx, h.state, h.tlsCfg)
+	if err != nil && known && lt.expired(clock()) {
+		// EOS-2536: the server refuses an expired token on heartbeat AND on
+		// register, so re-registering with it can only ever be refused. Say
+		// once what fixes it and wait at the slowest pace; a beat still goes
+		// out in case this host's clock is the thing that is wrong.
+		if !h.toldExpired {
+			h.log.Error().Time("expired_at", lt.expires).Msg("agent token expired, so this agent must be re-enrolled: generate an install command on the Agents page and run it on this host")
+			h.toldExpired = true
+		}
+		h.interval = heartbeatMaxInterval
+		return
+	}
 	if err != nil {
 		h.failures++
 		metrics.HeartbeatsFailed.WithLabelValues("send_error").Inc()
@@ -455,7 +469,18 @@ func (h *heartbeater) step(ctx context.Context) {
 	metrics.HeartbeatsSent.Inc()
 	h.failures = 0
 	h.interval = heartbeatInterval
+	h.toldExpired = false
 	h.log.Debug().Str("agent_id", h.state.AgentID).Msg("heartbeat ok")
+
+	// EOS-2536: tokens live 30 days and the only renewal used to be the
+	// re-register after three failed beats, by which time the token had
+	// lapsed and the server refused it. Renew from half-life on, with the
+	// token still valid; a failure is retried on the next beat.
+	if known && lt.renewDue(clock()) && h.reRegister() {
+		if nl, ok := readTokenLifetime(h.state.Token); ok {
+			h.log.Info().Time("expires_at", nl.expires).Msg("renewed agent token")
+		}
+	}
 }
 
 // reRegister trades the current token for a new one and saves it.
