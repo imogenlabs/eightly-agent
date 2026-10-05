@@ -440,6 +440,7 @@ func (h *heartbeater) step(ctx context.Context) {
 	lt, known := readTokenLifetime(h.state.Token)
 	err := sendHeartbeat(ctx, h.state, h.tlsCfg)
 	if err != nil && known && lt.expired(clock()) {
+		metrics.HeartbeatsFailed.WithLabelValues("token_expired").Inc()
 		// EOS-2536: the server refuses an expired token on heartbeat AND on
 		// register, so re-registering with it can only ever be refused. Say
 		// once what fixes it and wait at the slowest pace; a beat still goes
