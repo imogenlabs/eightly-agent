@@ -529,3 +529,29 @@ func TestUnreadableVolumeIsForbidden(t *testing.T) {
 		t.Errorf("get from an unreadable volume = %d %s, want 403", code, body)
 	}
 }
+
+// openVerified must not create through a dangling symlink before refusing it.
+func TestOpenVerifiedDoesNotCreateThroughSymlink(t *testing.T) {
+	dir := t.TempDir()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if err := os.Symlink("made.txt", filepath.Join(dir, "dlink")); err != nil {
+		t.Fatal(err)
+	}
+	if f, err := openVerified(root, "dlink", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644); err == nil {
+		f.Close()
+		t.Error("openVerified opened a dangling symlink")
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "made.txt")); err == nil {
+		t.Error("openVerified created the symlink's target before refusing")
+	}
+	// A plain new file is still created.
+	f, err := openVerified(root, "new.txt", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		t.Fatalf("create new.txt: %v", err)
+	}
+	f.Close()
+}
