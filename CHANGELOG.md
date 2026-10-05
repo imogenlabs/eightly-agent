@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A restarted agent kept losing its registration: its own guard refused the 0755 directory Docker gives a new volume, so it ignored the saved state and tried to enroll again with a spent single-use token (`register failed: status 403`). On start the agent now tightens a state directory it owns to 0700 and logs it; when it cannot, it says why and keeps refusing. The 0600 file check is unchanged (EOS-2534).
+
 ## [1.0.0] - 2026-05-21
 
 ### Changed (BREAKING)

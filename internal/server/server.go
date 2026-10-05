@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -40,22 +41,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("failed to build server TLS config: %w", err)
 	}
 
-	state, err := register.LoadState(cfg.StatePath)
-	if err != nil {
-		log.Warn().Err(err).Msg("failed to load registration state")
-	}
-	if state == nil && cfg.ServerURL != "" {
-		info := register.DetectInfo(cfg.SocketPath, cfg.Port, cfg.Version, cfg.AdvertiseIP)
-		state, err = register.Register(cfg.ServerURL, cfg.EnrollToken, info, serverTLS)
-		if err != nil {
-			log.Warn().Err(err).Msg("registration failed, will retry via heartbeat")
-		} else {
-			if err := state.Save(cfg.StatePath); err != nil {
-				log.Error().Err(err).Msg("failed to save registration state")
-			}
-			log.Info().Msg("registered with server")
-		}
-	}
+	state := loadOrRegister(cfg, serverTLS)
 	if state != nil && cfg.ServerURL != "" {
 		go register.StartHeartbeat(ctx, state, cfg.StatePath, cfg.SocketPath, cfg.Version, cfg.AdvertiseIP, serverTLS, log.Logger)
 	}
@@ -176,6 +162,36 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// loadOrRegister resumes from the saved registration when there is one and
+// only enrolls when there is not. Enrolling again on every start is not a
+// harmless retry: the enrollment token is single-use, so a second register with
+// it is refused and the agent is left with no identity at all.
+func loadOrRegister(cfg *config.Config, serverTLS *tls.Config) *register.State {
+	if tightened, err := register.PrepareStateDir(cfg.StatePath); err != nil {
+		log.Warn().Err(err).Msg("registration state directory is too open and could not be tightened; saved state will be refused")
+	} else if tightened {
+		log.Info().Str("dir", filepath.Dir(cfg.StatePath)).Msg("tightened registration state directory to 0700")
+	}
+	state, err := register.LoadState(cfg.StatePath)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to load registration state")
+	}
+	if state != nil || cfg.ServerURL == "" {
+		return state
+	}
+	info := register.DetectInfo(cfg.SocketPath, cfg.Port, cfg.Version, cfg.AdvertiseIP)
+	state, err = register.Register(cfg.ServerURL, cfg.EnrollToken, info, serverTLS)
+	if err != nil {
+		log.Warn().Err(err).Msg("registration failed, will retry via heartbeat")
+		return nil
+	}
+	if err := state.Save(cfg.StatePath); err != nil {
+		log.Error().Err(err).Msg("failed to save registration state")
+	}
+	log.Info().Msg("registered with server")
+	return state
 }
 
 func detectCertSANs(cfg *config.Config) []string {
