@@ -4,11 +4,18 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/smashingtags/eightly-agent/internal/tlsutil"
 )
 
 func tlsTarget(t *testing.T, h http.HandlerFunc) (host, port string) {
@@ -96,5 +103,43 @@ func TestHealthcheckHost_WildcardBindDialsLoopback(t *testing.T) {
 		if got := healthcheckHost(in); got != want {
 			t.Errorf("healthcheckHost(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// writeCertPEM writes cert to dir/cert.pem, where the agent keeps its own.
+func writeCertPEM(t *testing.T, dir string, cert *x509.Certificate) string {
+	t.Helper()
+	path := filepath.Join(dir, "cert.pem")
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}), 0o600); err != nil {
+		t.Fatalf("write cert: %v", err)
+	}
+	return path
+}
+
+// The probe must be talking to this agent, not to whatever answers the port:
+// a listener presenting any other certificate is unhealthy.
+func TestHealthcheck_RejectsAnotherCertificate(t *testing.T) {
+	ok := func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }
+	ours := httptest.NewTLSServer(http.HandlerFunc(ok))
+	t.Cleanup(ours.Close)
+	writeCertPEM(t, t.TempDir(), ours.Certificate())
+
+	other := httptest.NewUnstartedServer(http.HandlerFunc(ok))
+	otherDir := t.TempDir()
+	certPath, keyPath, err := tlsutil.EnsureCert(otherDir)
+	if err != nil {
+		t.Fatalf("EnsureCert: %v", err)
+	}
+	pair, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		t.Fatalf("load pair: %v", err)
+	}
+	other.TLS = &tls.Config{Certificates: []tls.Certificate{pair}}
+	other.StartTLS()
+	t.Cleanup(other.Close)
+	host, port, _ := net.SplitHostPort(other.Listener.Addr().String())
+
+	if err := Healthcheck(context.Background(), host, port); err == nil {
+		t.Fatal("a listener presenting a different certificate was reported healthy")
 	}
 }
