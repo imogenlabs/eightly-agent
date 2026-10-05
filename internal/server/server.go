@@ -187,6 +187,11 @@ func loadOrRegister(cfg *config.Config, serverTLS *tls.Config) *register.State {
 			return state
 		}
 		log.Warn().Msg("saved agent token has expired; enrolling again with the configured enrollment token")
+		if sameServer(state.ServerURL, cfg.ServerURL) {
+			// The token lapsed, not the trust: the server must still present
+			// the key this agent pinned when it first enrolled.
+			register.SeedServerPin(serverTLS, state.ServerPin)
+		}
 		state = nil
 	}
 	if state != nil || cfg.ServerURL == "" {
@@ -203,6 +208,10 @@ func loadOrRegister(cfg *config.Config, serverTLS *tls.Config) *register.State {
 	}
 	log.Info().Msg("registered with server")
 	return state
+}
+
+func sameServer(a, b string) bool {
+	return a != "" && strings.TrimRight(a, "/") == strings.TrimRight(b, "/")
 }
 
 func detectCertSANs(cfg *config.Config) []string {
