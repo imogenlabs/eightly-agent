@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -168,6 +169,11 @@ func Run(ctx context.Context, cfg *config.Config) error {
 // harmless retry: the enrollment token is single-use, so a second register with
 // it is refused and the agent is left with no identity at all.
 func loadOrRegister(cfg *config.Config, serverTLS *tls.Config) *register.State {
+	if tightened, err := register.PrepareStateDir(cfg.StatePath); err != nil {
+		log.Warn().Err(err).Msg("registration state directory is too open and could not be tightened; saved state will be refused")
+	} else if tightened {
+		log.Info().Str("dir", filepath.Dir(cfg.StatePath)).Msg("tightened registration state directory to 0700")
+	}
 	state, err := register.LoadState(cfg.StatePath)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to load registration state")
