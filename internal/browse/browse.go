@@ -5,7 +5,9 @@ package browse
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path"
@@ -250,6 +252,11 @@ func openPath(w http.ResponseWriter, dataPath, volumeID, userPath string) (*os.R
 		return nil, "", false
 	}
 	root, err := os.OpenRoot(filepath.Join(dataPath, "volumes", volumeID, "_data"))
+	if errors.Is(err, fs.ErrPermission) {
+		// The Root needs read permission on _data, not only search.
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "volume is not readable by the agent"})
+		return nil, "", false
+	}
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "volume not found"})
 		return nil, "", false

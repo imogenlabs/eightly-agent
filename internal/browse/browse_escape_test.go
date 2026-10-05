@@ -445,3 +445,87 @@ func TestRaceSwapFinalComponentForSymlink(t *testing.T) {
 	}
 	finish()
 }
+
+// TestOpenVerifiedRace runs the final-component swap against openVerified,
+// the Windows no-follow open, which can be exercised here directly.
+func TestOpenVerifiedRace(t *testing.T) {
+	dir := t.TempDir()
+	const hidden = "hidden-secret"
+	write := func(n, s string) {
+		if err := os.WriteFile(filepath.Join(dir, n), []byte(s), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".secret", hidden)
+	write("plain-src", "plain")
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+
+	if err := os.Symlink(".secret", filepath.Join(dir, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	if f, err := openVerified(root, "alias", os.O_RDONLY, 0); err == nil {
+		f.Close()
+		t.Fatal("openVerified opened a final symlink")
+	}
+	if f, err := openVerified(root, "alias", os.O_WRONLY|os.O_TRUNC, 0); err == nil {
+		f.Close()
+		t.Fatal("openVerified opened a final symlink for writing")
+	}
+
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		target, tmp := filepath.Join(dir, "target"), filepath.Join(dir, "target-tmp")
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			_ = os.Remove(tmp)
+			_ = os.Link(filepath.Join(dir, "plain-src"), tmp)
+			_ = os.Rename(tmp, target)
+			_ = os.Remove(tmp)
+			_ = os.Symlink(".secret", tmp)
+			_ = os.Rename(tmp, target)
+		}
+	}()
+	defer func() { close(stop); <-done }()
+
+	deadline := time.Now().Add(time.Second)
+	for i := 0; time.Now().Before(deadline); i++ {
+		if f, err := openVerified(root, "target", os.O_RDONLY, 0); err == nil {
+			b, _ := io.ReadAll(f)
+			f.Close()
+			if string(b) == hidden {
+				t.Fatalf("read the hidden file through a swapped-in symlink on round %d", i)
+			}
+		}
+		if f, err := openVerified(root, "target", os.O_WRONLY|os.O_TRUNC, 0); err == nil {
+			f.Close()
+		}
+		if got, _ := os.ReadFile(filepath.Join(dir, ".secret")); string(got) != hidden {
+			t.Fatalf("truncated the hidden file through a swapped-in symlink on round %d", i)
+		}
+	}
+}
+
+// A volume the agent may search but not read answers 403, not a misleading 404.
+func TestUnreadableVolumeIsForbidden(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any directory")
+	}
+	f := newEscapeFixture(t)
+	if err := os.Chmod(f.dataDir, 0o311); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(f.dataDir, 0o755) })
+	req, _ := http.NewRequest("GET", f.url("get", "inside.txt"), nil) //nolint:noctx // test
+	if code, body := do(t, req); code != http.StatusForbidden {
+		t.Errorf("get from an unreadable volume = %d %s, want 403", code, body)
+	}
+}
