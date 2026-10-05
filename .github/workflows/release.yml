@@ -139,7 +139,9 @@ jobs:
 
   release:
     name: Create Release
-    runs-on: self-hosted
+    # EOS-2545: signs every artifact with cosign on the runner, so it needs a
+    # runner proven to reach Fulcio (see docker-publish.yml).
+    runs-on: [self-hosted, can-sign]
     needs: [build, package]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
