@@ -4,6 +4,7 @@ package browse
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 )
 
@@ -15,10 +16,17 @@ var errNotSameFile = errors.New("path changed while it was opened")
 // It is the no-follow open for platforms without O_NOFOLLOW (Windows): if a
 // symlink was swapped in for the open, the file reached through it is not
 // the file name now names, and the open is refused. O_TRUNC is applied only
-// after that check, so a refused open never truncates the file a link
-// pointed at.
+// after that check, and O_CREATE only with O_EXCL, so a refused open neither
+// truncates nor creates the file a link points at.
 func openVerified(root *os.Root, name string, flag int, perm os.FileMode) (*os.File, error) {
-	f, err := root.OpenFile(name, flag&^os.O_TRUNC, perm)
+	// Open an existing file first, creating nothing. Only if there is none is
+	// it created, with O_EXCL, which fails on any existing entry, a dangling
+	// symlink included, so nothing is ever created through a link.
+	base := flag &^ (os.O_TRUNC | os.O_CREATE | os.O_EXCL)
+	f, err := root.OpenFile(name, base, perm)
+	if errors.Is(err, fs.ErrNotExist) && flag&os.O_CREATE != 0 {
+		f, err = root.OpenFile(name, base|os.O_CREATE|os.O_EXCL, perm)
+	}
 	if err != nil {
 		return nil, err
 	}
