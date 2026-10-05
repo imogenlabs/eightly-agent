@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 )
 
 // chmodDir is os.Chmod, a variable so a test can make tightening fail the way
@@ -24,6 +26,11 @@ var chmodDir = os.Chmod
 // read-only mount), it returns an error saying so and changes nothing, and
 // LoadState goes on refusing exactly as before. The file check is untouched:
 // a state file broader than 0600 is still refused.
+//
+// EOS-2544: it also tightens only a folder that holds nothing but the agent's
+// own files (the state file and its .tmp, and the TLS key pair when the folder
+// is dataPath). A shared folder such as a home directory is left alone with
+// the reason, and the saved state stays refused.
 func PrepareStateDir(statePath, dataPath string) (bool, error) {
 	if !permsEnforced {
 		return false, nil
@@ -48,8 +55,41 @@ func PrepareStateDir(statePath, dataPath string) (bool, error) {
 	if uid, ok := fileUID(fi); ok && uid != os.Getuid() {
 		return false, fmt.Errorf("cannot tighten %s (mode %04o): it is owned by uid %d, not the agent uid %d; make it 0700 and owned by uid %d", dir, perm, uid, os.Getuid(), os.Getuid())
 	}
+	if other, err := otherFiles(dir, statePath, dataPath); err != nil {
+		return false, fmt.Errorf("cannot tighten %s (mode %04o): its contents could not be listed: %w", dir, perm, err)
+	} else if len(other) > 0 {
+		// EOS-2544: --state-path can point into a shared folder such as a home
+		// directory. Narrowing it would lock everything else there away from
+		// every other user, so only a folder that is wholly the agent's is.
+		return false, fmt.Errorf("not tightening %s (mode %04o): it also holds %s, which are not the agent's; point --state-path at a folder of its own", dir, perm, strings.Join(other, ", "))
+	}
 	if err := chmodDir(dir, 0o700); err != nil {
 		return false, fmt.Errorf("cannot tighten %s from mode %04o to 0700: %w", dir, perm, err)
 	}
 	return true, nil
+}
+
+// otherFiles lists what in dir is not the agent's own: the state file and its
+// .tmp, plus the TLS key pair when dir is also the agent's data folder. The
+// list is capped so a home directory makes a readable log line.
+func otherFiles(dir, statePath, dataPath string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	own := map[string]bool{filepath.Base(statePath): true, filepath.Base(statePath) + ".tmp": true}
+	if dataPath != "" && filepath.Clean(dataPath) == filepath.Clean(dir) {
+		own["cert.pem"], own["key.pem"] = true, true
+	}
+	var other []string
+	for _, e := range entries {
+		if !own[e.Name()] {
+			other = append(other, e.Name())
+		}
+	}
+	sort.Strings(other)
+	if len(other) > 5 {
+		other = append(other[:5], fmt.Sprintf("and %d more", len(other)-5))
+	}
+	return other, nil
 }
