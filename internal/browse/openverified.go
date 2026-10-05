@@ -10,7 +10,8 @@ import (
 var errNotSameFile = errors.New("path changed while it was opened")
 
 // openVerified opens name inside root and keeps the file only if, after the
-// open, name is still a non-symlink entry for the very file that was opened.
+// open, name (not followed) is an entry for the very file that was opened. A
+// symlink is never the same file as its target, so this refuses one too.
 // It is the no-follow open for platforms without O_NOFOLLOW (Windows): if a
 // symlink was swapped in for the open, the file reached through it is not
 // the file name now names, and the open is refused. O_TRUNC is applied only
@@ -27,7 +28,7 @@ func openVerified(root *os.Root, name string, flag int, perm os.FileMode) (*os.F
 		return nil, err
 	}
 	entry, err := root.Lstat(name)
-	if err != nil || entry.Mode()&os.ModeSymlink != 0 || !os.SameFile(opened, entry) {
+	if err != nil || !os.SameFile(opened, entry) {
 		_ = f.Close()
 		return nil, &os.PathError{Op: "open", Path: name, Err: errNotSameFile}
 	}
