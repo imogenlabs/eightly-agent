@@ -259,3 +259,26 @@ func TestPrepareStateDir_CertFilesOutsideTheDataFolderAreNotOurs(t *testing.T) {
 		t.Fatalf("got (%v, %v); a cert.pem outside the data folder is not the agent's", tightened, err)
 	}
 }
+
+// Codex on #35: --data and the state folder can name the same directory by
+// different spellings (a symlink, a relative path). The TLS pair is still the
+// agent's own, so the folder is still repaired.
+func TestPrepareStateDir_DataFolderNamedDifferentlyIsStillOurs(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; ownership checks behave differently")
+	}
+	dir, statePath := volumeDir(t)
+	for _, name := range []string{"cert.pem", "key.pem"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	link := filepath.Join(t.TempDir(), "data-link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	tightened, err := PrepareStateDir(statePath, link)
+	if err != nil || !tightened {
+		t.Fatalf("data folder given through a symlink = (%v, %v), want (true, nil)", tightened, err)
+	}
+}
