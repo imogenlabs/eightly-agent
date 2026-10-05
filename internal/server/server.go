@@ -178,6 +178,17 @@ func loadOrRegister(cfg *config.Config, serverTLS *tls.Config) *register.State {
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to load registration state")
 	}
+	if state != nil && register.TokenExpired(state.Token, time.Now()) {
+		// EOS-2536: a lapsed token can never be renewed. Re-enrolling is
+		// running the install command again with a fresh enrollment token, so
+		// when one is configured, use it instead of the dead saved state.
+		if cfg.EnrollToken == "" {
+			log.Error().Msg("saved agent token has expired, so this agent must be re-enrolled: generate an install command on the Agents page and run it on this host")
+			return state
+		}
+		log.Warn().Msg("saved agent token has expired; enrolling again with the configured enrollment token")
+		state = nil
+	}
 	if state != nil || cfg.ServerURL == "" {
 		return state
 	}
