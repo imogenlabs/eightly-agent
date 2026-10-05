@@ -16,7 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
+
+	"github.com/smashingtags/eightly-agent/internal/metrics"
 )
 
 const tokenTTL = 30 * 24 * time.Hour
@@ -203,5 +206,39 @@ func TestHeartbeat_RetriesSavingARenewedTokenAfterTheSaveFailed(t *testing.T) {
 	onDisk, err := LoadState(h.statePath)
 	if err != nil || onDisk == nil || onDisk.Token != state.Token {
 		t.Fatalf("the renewed token was never saved after the disk recovered, so a restart loads the old one: %v", err)
+	}
+}
+
+func heartbeatFailuresTotal(t *testing.T) float64 {
+	t.Helper()
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(metrics.HeartbeatsFailed)
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("gather: %v", err)
+	}
+	var total float64
+	for _, fam := range families {
+		for _, m := range fam.GetMetric() {
+			total += m.GetCounter().GetValue()
+		}
+	}
+	return total
+}
+
+// Codex P2. While a lapsed token is refused, every failed beat is a failed
+// beat: eightly_agent_heartbeats_failed_total has to move, or an alert on it
+// never sees an agent that is disconnected for good.
+func TestHeartbeat_ExpiredTokenFailuresAreCounted(t *testing.T) {
+	f, _, h := startFakeEOS(t)
+	f.advance(31 * 24 * time.Hour)
+	before := heartbeatFailuresTotal(t)
+
+	for i := 0; i < 5; i++ {
+		h.step(context.Background())
+	}
+
+	if got := heartbeatFailuresTotal(t) - before; got != 5 {
+		t.Fatalf("5 refused heartbeats with a lapsed token counted %v failures, want 5", got)
 	}
 }
