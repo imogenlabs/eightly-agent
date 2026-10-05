@@ -24,7 +24,7 @@ var chmodDir = os.Chmod
 // read-only mount), it returns an error saying so and changes nothing, and
 // LoadState goes on refusing exactly as before. The file check is untouched:
 // a state file broader than 0600 is still refused.
-func PrepareStateDir(statePath string) (bool, error) {
+func PrepareStateDir(statePath, dataPath string) (bool, error) {
 	if !permsEnforced {
 		return false, nil
 	}

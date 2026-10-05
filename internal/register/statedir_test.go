@@ -48,7 +48,7 @@ func TestPrepareStateDir_TightensOwnedVolumeDir(t *testing.T) {
 	}
 	dir, statePath := volumeDir(t)
 
-	tightened, err := PrepareStateDir(statePath)
+	tightened, err := PrepareStateDir(statePath, "")
 	if err != nil {
 		t.Fatalf("PrepareStateDir: %v", err)
 	}
@@ -79,14 +79,14 @@ func TestPrepareStateDir_LeavesTightDirAlone(t *testing.T) {
 	if err := (&State{AgentID: "agent-1", Token: "tok"}).Save(statePath); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	tightened, err := PrepareStateDir(statePath)
+	tightened, err := PrepareStateDir(statePath, "")
 	if err != nil || tightened {
 		t.Fatalf("PrepareStateDir on a 0700 dir = (%v, %v), want (false, nil)", tightened, err)
 	}
 }
 
 func TestPrepareStateDir_MissingDirIsFirstStart(t *testing.T) {
-	tightened, err := PrepareStateDir(filepath.Join(t.TempDir(), "absent", "eightly-agent.json"))
+	tightened, err := PrepareStateDir(filepath.Join(t.TempDir(), "absent", "eightly-agent.json"), "")
 	if err != nil || tightened {
 		t.Fatalf("PrepareStateDir on a missing dir = (%v, %v), want (false, nil)", tightened, err)
 	}
@@ -102,7 +102,7 @@ func TestPrepareStateDir_CannotTightenKeepsRefusal(t *testing.T) {
 	chmodDir = func(string, os.FileMode) error { return &os.PathError{Op: "chmod", Path: dir, Err: syscall.EROFS} }
 	t.Cleanup(func() { chmodDir = os.Chmod })
 
-	tightened, err := PrepareStateDir(statePath)
+	tightened, err := PrepareStateDir(statePath, "")
 	if err == nil {
 		t.Fatal("a failed chmod was reported as success")
 	}
@@ -135,7 +135,7 @@ func TestPrepareStateDir_ForeignOwnedDirIsNotTouched(t *testing.T) {
 	// /etc is root-owned and 0755 on every unix this runs on, and /etc/hosts
 	// exists, so this reaches the ownership check rather than the
 	// missing-file early return.
-	_, err := PrepareStateDir("/etc/hosts")
+	_, err := PrepareStateDir("/etc/hosts", "")
 	if err == nil || !strings.Contains(err.Error(), "owned by uid 0") {
 		t.Fatalf("expected a plain ownership refusal, got %v", err)
 	}
@@ -151,7 +151,7 @@ func TestPrepareStateDir_DoesNotLoosenFileGuard(t *testing.T) {
 	if err := os.Chmod(statePath, 0o644); err != nil {
 		t.Fatalf("chmod file: %v", err)
 	}
-	if _, err := PrepareStateDir(statePath); err != nil {
+	if _, err := PrepareStateDir(statePath, ""); err != nil {
 		t.Fatalf("PrepareStateDir: %v", err)
 	}
 	if _, err := LoadState(statePath); err == nil || !strings.Contains(err.Error(), "broader than 0600") {
@@ -180,11 +180,82 @@ func TestPrepareStateDir_MissingFileLeavesDirAlone(t *testing.T) {
 	}
 	t.Cleanup(func() { chmodDir = os.Chmod })
 
-	tightened, err := PrepareStateDir(filepath.Join(dir, "eightly-agent.json"))
+	tightened, err := PrepareStateDir(filepath.Join(dir, "eightly-agent.json"), "")
 	if err != nil || tightened {
 		t.Fatalf("PrepareStateDir with no state file = (%v, %v), want (false, nil)", tightened, err)
 	}
 	if perm := dirPerm(t, dir); perm != 0o755 {
 		t.Fatalf("directory changed to %04o with no state file in it", perm)
+	}
+}
+
+// EOS-2544. --state-path can point anywhere, for example into a home
+// directory. The first restart used to narrow that whole directory to 0700,
+// locking everything else in it away from every other user and process. Only
+// a directory holding nothing but the agent's own files is the agent's to
+// tighten; anything else is left alone, with the reason, and the saved state
+// stays refused.
+func TestPrepareStateDir_PopulatedFolderIsNotTightened(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; ownership checks behave differently")
+	}
+	dir, statePath := volumeDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("mine"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	chmodDir = func(string, os.FileMode) error {
+		t.Error("chmod called on a folder that holds other files")
+		return nil
+	}
+	t.Cleanup(func() { chmodDir = os.Chmod })
+
+	tightened, err := PrepareStateDir(statePath, "")
+	if tightened || err == nil {
+		t.Fatalf("PrepareStateDir on a populated folder = (%v, %v), want (false, a reason)", tightened, err)
+	}
+	if !strings.Contains(err.Error(), "notes.txt") {
+		t.Errorf("the reason does not name what else is there: %v", err)
+	}
+	if perm := dirPerm(t, dir); perm != 0o755 {
+		t.Errorf("folder changed to %04o", perm)
+	}
+	if _, err := LoadState(statePath); err == nil {
+		t.Fatal("the saved state must still be refused in a 0755 folder")
+	}
+}
+
+// The agent's data folder holds its TLS key pair beside the state file; those
+// are its own files too, so a Docker volume is still repaired.
+func TestPrepareStateDir_DataFolderWithOwnFilesIsTightened(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; ownership checks behave differently")
+	}
+	dir, statePath := volumeDir(t)
+	for _, name := range []string{"cert.pem", "key.pem", "eightly-agent.json.tmp"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	tightened, err := PrepareStateDir(statePath, dir)
+	if err != nil || !tightened {
+		t.Fatalf("PrepareStateDir on the agent's own data folder = (%v, %v), want (true, nil)", tightened, err)
+	}
+	if perm := dirPerm(t, dir); perm != 0o700 {
+		t.Errorf("folder left at %04o", perm)
+	}
+}
+
+// cert.pem and key.pem are only the agent's when the folder is its data
+// folder; in some other folder they are somebody else's.
+func TestPrepareStateDir_CertFilesOutsideTheDataFolderAreNotOurs(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; ownership checks behave differently")
+	}
+	dir, statePath := volumeDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "cert.pem"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if tightened, err := PrepareStateDir(statePath, filepath.Join(t.TempDir(), "elsewhere")); tightened || err == nil {
+		t.Fatalf("got (%v, %v); a cert.pem outside the data folder is not the agent's", tightened, err)
 	}
 }
