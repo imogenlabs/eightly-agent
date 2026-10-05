@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // escapeFixture is a volume with a victim directory beside it and several
@@ -345,7 +346,9 @@ func TestEscapeRaceSwapDirectoryForSymlink(t *testing.T) {
 	}()
 
 	h := f.srv.Config.Handler
-	for i := 0; i < 20000; i++ {
+	// Today's code fails within ~40 rounds; a second is hundreds of rounds.
+	deadline := time.Now().Add(time.Second)
+	for i := 0; time.Now().Before(deadline); i++ {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest("GET", "/browse/get?volumeID="+f.volID+"&path=flip/victim.txt", nil))
 		if strings.Contains(rec.Body.String(), victimContent) {
@@ -363,4 +366,23 @@ func TestEscapeRaceSwapDirectoryForSymlink(t *testing.T) {
 	}
 	close(stop)
 	<-done
+}
+
+// A symlink at the final component is refused for get and put even when it
+// points inside the volume (O_NOFOLLOW is honoured through the volume root).
+func TestFinalSymlinkInsideVolumeRefused(t *testing.T) {
+	f := newEscapeFixture(t)
+	if err := os.Symlink("inside.txt", filepath.Join(f.dataDir, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest("GET", f.url("get", "alias"), nil) //nolint:noctx // test
+	if code, body := do(t, req); code == http.StatusOK {
+		t.Errorf("get through a final symlink = 200 %q", body)
+	}
+	if code, _ := do(t, putRequest(t, f.url("put", "alias"))); code == http.StatusCreated {
+		t.Errorf("put through a final symlink = 201")
+	}
+	if got, _ := os.ReadFile(filepath.Join(f.dataDir, "inside.txt")); string(got) != "inside" {
+		t.Errorf("put wrote through the symlink: %q", got)
+	}
 }

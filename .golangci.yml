@@ -17,6 +17,7 @@ linters-settings:
     exclude-functions:
       - (io.Closer).Close
       - (*os.File).Close
+      - (*os.Root).Close
       - (net.Conn).Close
       - (*github.com/gorilla/websocket.Conn).Close
       - (*net/http.Response.Body).Close
