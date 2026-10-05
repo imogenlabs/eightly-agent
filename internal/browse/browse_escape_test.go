@@ -387,3 +387,61 @@ func TestFinalSymlinkInsideVolumeRefused(t *testing.T) {
 		t.Errorf("put wrote through the symlink: %q", got)
 	}
 }
+
+// TestRaceSwapFinalComponentForSymlink swaps the requested file for a symlink
+// to a hidden file in the same volume. A check before the open leaves a window
+// where get reads the hidden file and put overwrites it; the refusal has to be
+// part of the open itself.
+func TestRaceSwapFinalComponentForSymlink(t *testing.T) {
+	f := newEscapeFixture(t)
+	const hidden = "hidden-secret"
+	if err := os.WriteFile(filepath.Join(f.dataDir, ".secret"), []byte(hidden), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.dataDir, "plain-src"), []byte("plain"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(f.dataDir, "target")
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		tmp := filepath.Join(f.dataDir, "target-tmp")
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			_ = os.Remove(tmp)
+			_ = os.Link(filepath.Join(f.dataDir, "plain-src"), tmp)
+			_ = os.Rename(tmp, target)
+			_ = os.Remove(tmp)
+			_ = os.Symlink(".secret", tmp)
+			_ = os.Rename(tmp, target)
+		}
+	}()
+	finish := func() {
+		close(stop)
+		<-done
+	}
+
+	h := f.srv.Config.Handler
+	deadline := time.Now().Add(time.Second)
+	for i := 0; time.Now().Before(deadline); i++ {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", "/browse/get?volumeID="+f.volID+"&path=target", nil))
+		if strings.Contains(rec.Body.String(), hidden) {
+			finish()
+			t.Fatalf("get followed a swapped-in symlink to a hidden file on round %d", i)
+		}
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, putRequest(t, "/browse/put?volumeID="+f.volID+"&path=target"))
+		if got, _ := os.ReadFile(filepath.Join(f.dataDir, ".secret")); string(got) != hidden {
+			finish()
+			t.Fatalf("put wrote through a swapped-in symlink on round %d: %q", i, got)
+		}
+	}
+	finish()
+}
