@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Agents lost their connection a month after enrolling. The bearer token lives 30 days, and the only renewal was the re-register after three failed heartbeats, by which time the token had lapsed and the server refused it. The agent now renews from half-life on, while the token is still valid. Once a token has lapsed, it says once that the agent must be re-enrolled and stops sending the dead token to register. A lapsed saved token plus a configured enrollment token now enrolls again instead of reloading the dead state (EOS-2536).
 - A restarted agent kept losing its registration: its own guard refused the 0755 directory Docker gives a new volume, so it ignored the saved state and tried to enroll again with a spent single-use token (`register failed: status 403`). On start the agent now tightens a state directory it owns to 0700 and logs it; when it cannot, it says why and keeps refusing. The 0600 file check is unchanged (EOS-2534).
 
 ## [1.0.0] - 2026-05-21
