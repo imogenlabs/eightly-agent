@@ -93,7 +93,15 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Build image
-        run: docker build --build-arg VERSION=ci-${{ github.sha }} -t eightly-agent-reap:${{ github.run_id }} .
+        # The Dockerfile uses BuildKit's $BUILDPLATFORM, which the legacy
+        # builder cannot parse. A runner without buildx cannot build it at all,
+        # and that says nothing about the image.
+        run: |
+          if ! docker buildx version >/dev/null 2>&1; then
+            echo "CANNOT CHECK: this runner has no docker buildx" >&2
+            exit 2
+          fi
+          docker buildx build --load --build-arg VERSION=ci-${{ github.sha }} -t eightly-agent-reap:${{ github.run_id }} .
       - name: Check the image reaps orphans and passes its own health check
         run: scripts/check-image-reaps.sh eightly-agent-reap:${{ github.run_id }}
       - name: Remove the test image
