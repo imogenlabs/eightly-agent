@@ -370,6 +370,10 @@ gh attestation verify eightly-agent-linux-amd64 \
 
 ---
 
+## Releases in Jira
+
+Whoever cuts a release records it in Jira with `keen release sync --repo-path . --project EA --tag <tag> --head origin/main` (EOS-2718).
+
 ## Security
 
 Eight.ly Agent mediates access to the Docker daemon. Understanding the trust model is critical before deploying it.
