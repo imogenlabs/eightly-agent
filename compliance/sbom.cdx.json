@@ -2,35 +2,35 @@
   "$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:0b73f74b-3698-4b26-8d0b-d51198cc5260",
+  "serialNumber": "urn:uuid:6134f3d2-09bb-417f-8c0c-c8995e4d9ee8",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-06-19T12:26:19-04:00",
+    "timestamp": "2026-10-11T22:46:03-04:00",
     "tools": [
       {
         "vendor": "CycloneDX",
         "name": "cyclonedx-gomod",
-        "version": "v1.10.0",
+        "version": "v1.12.0",
         "hashes": [
           {
             "alg": "MD5",
-            "content": "26fdfa44e8815598542690ac85df95fc"
+            "content": "553bd85204d7ab45becce1904a298066"
           },
           {
             "alg": "SHA-1",
-            "content": "3d825d9288ea97eb2c0e47d64f1eb959b965f451"
+            "content": "a5b6fd655a1d9893d8f515dcc984b47984c5abf5"
           },
           {
             "alg": "SHA-256",
-            "content": "1c8c76cd1a1afdb774467a9d2b6d5065032206ba94c57b1807d2c1a708c443f6"
+            "content": "bfdbd73fe8d7e99c13e66f5a601cdea56be0233dd58bf4267cbfd511f5c1b01a"
           },
           {
             "alg": "SHA-384",
-            "content": "f53bf2328bd6b6c5e008d2a153b7e344178afd7ef85bcc36b0f203c5d048561d5cac213b2cd16038568ed935dadde85c"
+            "content": "5f8b855f1740317ff527d8ada533570016b7300311bc07127acac8eca1079d823a6038a65f2bb8288592716d9636c833"
           },
           {
             "alg": "SHA-512",
-            "content": "62e0f698df8193c833fc5411defafda9d50eac20cee10358226802c02d835032e6046c8ac829d20f209f7817b36b19cec2ca9bc794285e8a3220c8ce59c7717d"
+            "content": "56fcb1404b24713d88ca18abfc2af1c7df6efa9ff6345d4669bfa5dbb7d0f53cdd1de548f9aa75c06ff9d2dfaa1acf6560dd05e7af700a96d87dea1d5d2e36a9"
           }
         ],
         "externalReferences": [
@@ -294,18 +294,18 @@
       "purl": "pkg:golang/go.yaml.in/yaml/v2@v2.4.2?goarch=arm64\u0026goos=darwin\u0026type=module"
     },
     {
-      "bom-ref": "pkg:golang/golang.org/x/sys@v0.44.0?type=module",
+      "bom-ref": "pkg:golang/golang.org/x/sys@v0.48.0?type=module",
       "type": "library",
       "name": "golang.org/x/sys",
-      "version": "v0.44.0",
+      "version": "v0.48.0",
       "scope": "required",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "8a5759977278bb378a3f4eebd85fbe3a9ec4f41dbd251532f9adbb1226ed0534"
+          "content": "6db5ff8bfe8c813f4154b33d453d6d866c4bd38c9e4c085b133e12c9a75b5e8a"
         }
       ],
-      "purl": "pkg:golang/golang.org/x/sys@v0.44.0?goarch=arm64\u0026goos=darwin\u0026type=module"
+      "purl": "pkg:golang/golang.org/x/sys@v0.48.0?goarch=arm64\u0026goos=darwin\u0026type=module"
     },
     {
       "bom-ref": "pkg:golang/google.golang.org/protobuf@v1.36.8?type=module",
@@ -329,7 +329,7 @@
         "pkg:golang/github.com/gorilla/websocket@v1.5.3?type=module",
         "pkg:golang/github.com/prometheus/client_golang@v1.23.2?type=module",
         "pkg:golang/github.com/rs/zerolog@v1.35.1?type=module",
-        "pkg:golang/golang.org/x/sys@v0.44.0?type=module"
+        "pkg:golang/golang.org/x/sys@v0.48.0?type=module"
       ]
     },
     {
@@ -345,13 +345,13 @@
       "ref": "pkg:golang/github.com/mattn/go-colorable@v0.1.14?type=module",
       "dependsOn": [
         "pkg:golang/github.com/mattn/go-isatty@v0.0.20?type=module",
-        "pkg:golang/golang.org/x/sys@v0.44.0?type=module"
+        "pkg:golang/golang.org/x/sys@v0.48.0?type=module"
       ]
     },
     {
       "ref": "pkg:golang/github.com/mattn/go-isatty@v0.0.20?type=module",
       "dependsOn": [
-        "pkg:golang/golang.org/x/sys@v0.44.0?type=module"
+        "pkg:golang/golang.org/x/sys@v0.48.0?type=module"
       ]
     },
     {
@@ -367,7 +367,7 @@
         "pkg:golang/github.com/prometheus/common@v0.66.1?type=module",
         "pkg:golang/github.com/prometheus/procfs@v0.16.1?type=module",
         "pkg:golang/go.yaml.in/yaml/v2@v2.4.2?type=module",
-        "pkg:golang/golang.org/x/sys@v0.44.0?type=module",
+        "pkg:golang/golang.org/x/sys@v0.48.0?type=module",
         "pkg:golang/google.golang.org/protobuf@v1.36.8?type=module"
       ]
     },
@@ -387,14 +387,14 @@
         "pkg:golang/github.com/prometheus/client_model@v0.6.2?type=module",
         "pkg:golang/github.com/prometheus/procfs@v0.16.1?type=module",
         "pkg:golang/go.yaml.in/yaml/v2@v2.4.2?type=module",
-        "pkg:golang/golang.org/x/sys@v0.44.0?type=module",
+        "pkg:golang/golang.org/x/sys@v0.48.0?type=module",
         "pkg:golang/google.golang.org/protobuf@v1.36.8?type=module"
       ]
     },
     {
       "ref": "pkg:golang/github.com/prometheus/procfs@v0.16.1?type=module",
       "dependsOn": [
-        "pkg:golang/golang.org/x/sys@v0.44.0?type=module"
+        "pkg:golang/golang.org/x/sys@v0.48.0?type=module"
       ]
     },
     {
@@ -402,14 +402,14 @@
       "dependsOn": [
         "pkg:golang/github.com/mattn/go-colorable@v0.1.14?type=module",
         "pkg:golang/github.com/mattn/go-isatty@v0.0.20?type=module",
-        "pkg:golang/golang.org/x/sys@v0.44.0?type=module"
+        "pkg:golang/golang.org/x/sys@v0.48.0?type=module"
       ]
     },
     {
       "ref": "pkg:golang/go.yaml.in/yaml/v2@v2.4.2?type=module"
     },
     {
-      "ref": "pkg:golang/golang.org/x/sys@v0.44.0?type=module"
+      "ref": "pkg:golang/golang.org/x/sys@v0.48.0?type=module"
     },
     {
       "ref": "pkg:golang/google.golang.org/protobuf@v1.36.8?type=module"
