@@ -2,6 +2,7 @@ package browse
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -24,7 +25,11 @@ func TestHandler_SaysWhyTheBrowserIsUnavailable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := httptest.NewServer(Handler(tc.root))
 			defer srv.Close()
-			resp, err := http.Get(srv.URL + "/browse/ls?volumeID=myvol&path=/")
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/browse/ls?volumeID=myvol&path=/", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				t.Fatal(err)
 			}
