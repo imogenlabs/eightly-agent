@@ -37,6 +37,7 @@ var agentEnvKeys = []string{
 	"EIGHTLY_ENROLL_TOKEN", "EIGHTLY_STATE_PATH", "EIGHTLY_SERVER_CA",
 	"EIGHTLY_ADVERTISE_IP", "EIGHTLY_TLS_SANS", "EIGHTLY_ALLOWED_ORIGINS",
 	"EIGHTLY_BROWSE_READ_ONLY", "EIGHTLY_METRICS_ENABLED", "EIGHTLY_INSECURE_NO_AUTH",
+	"EIGHTLY_ALLOWED_BIND_ROOTS", "EIGHTLY_VOLUMES_PATH", "EIGHTLY_ENROLL_TOKEN_FILE",
 }
 
 func clearAgentEnv(t *testing.T) {
@@ -196,6 +197,22 @@ func TestAgent_FlagErrors(t *testing.T) {
 			}
 		}
 	})
+	t.Run("help prints the usage to stdout and exits 0", func(t *testing.T) {
+		code, stdout, _ := runAgent(t, nil, "help")
+		if code != 0 || !strings.Contains(stdout, "Usage:") || !strings.Contains(stdout, "-server-url") {
+			t.Fatalf("exit %d, want 0 with the usage; stdout:\n%s", code, stdout)
+		}
+	})
+	// Flag parsing stops at the first word that is not a flag, so the agent
+	// used to start with every flag after an unknown word dropped.
+	for _, args := range [][]string{{"strat", "--port", "9002"}, {"--insecure-no-auth", "--port", "9002", "extra"}} {
+		t.Run("an unknown word exits 2: "+strings.Join(args, " "), func(t *testing.T) {
+			code, _, stderr := runAgent(t, nil, args...)
+			if code != 2 || !strings.Contains(stderr, "unknown command or argument") || !strings.Contains(stderr, "Usage:") {
+				t.Fatalf("exit %d, want 2 with the usage; stderr:\n%s", code, stderr)
+			}
+		})
+	}
 	t.Run("an unknown flag exits 2", func(t *testing.T) {
 		code, _, stderr := runAgent(t, nil, "--no-such-flag")
 		if code != 2 || !strings.Contains(stderr, "no-such-flag") {
