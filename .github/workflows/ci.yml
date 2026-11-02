@@ -71,6 +71,11 @@ jobs:
         with:
           cache: false  # Persistent self-hosted runners keep the Go cache on disk
           go-version: '1.26.10'
+      # The gate's own test runs first: it needs no toolchain output, and a
+      # gate that can no longer tell its three outcomes apart must fail before
+      # its verdict is trusted.
+      - name: Coverage gate self-test
+        run: scripts/coverage-check.sh --self-test
       - name: Run tests
         run: go test ./... -count=1 -race -timeout 60s -coverprofile=coverage.out -covermode=atomic
       - name: Upload coverage
@@ -78,14 +83,23 @@ jobs:
         with:
           files: ./coverage.out
           fail_ci_if_error: false
-      - name: Check coverage threshold
+      # Whole-tree and per-package floors (the ratchet); raise them in
+      # scripts/coverage-check.sh as coverage climbs. Exit 2 means no number was
+      # produced (a suite that did not build, a floored package that was
+      # renamed), which is not a coverage regression and is worded apart from
+      # a breach. The dispatch is on the exact status.
+      - name: Coverage gate
         run: |
-          TOTAL=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
-          echo "Total coverage: ${TOTAL}%"
-          if [ "$(echo "$TOTAL < 50" | bc)" -eq 1 ]; then
-            echo "Coverage below 50% threshold"
-            exit 1
+          set +e
+          scripts/coverage-check.sh coverage.out
+          rc=$?
+          set -e
+          if [ "$rc" = "2" ]; then
+            echo "::error title=Coverage gate reached no verdict::No coverage number was produced, so nothing is known about coverage. This is NOT a floor breach; see the log for what failed to measure."
+          elif [ "$rc" = "1" ]; then
+            echo "::error title=Coverage below a floor::A package or the whole tree is below its floor in scripts/coverage-check.sh, or a package has no floor. See the table in the log."
           fi
+          exit "$rc"
 
   race:
     name: Race Detector
