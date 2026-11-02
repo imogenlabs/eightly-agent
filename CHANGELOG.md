@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pull requests from forks run only on GitHub-hosted runners.
 
 ### Fixed
+- An unknown first argument, or a stray word after the flags, stops the agent with the usage and exit status 2. Before, the agent started and dropped every flag after the word, so `eightly-agent strat --port 9002` ran on 9001. `eightly-agent help` prints the usage and exits 0, as `-h` does.
 - Token renewal and re-registration report the agent's port. They sent none, so Eight.ly OS reset an agent listening on another port to 9001 at its first renewal and could no longer reach it.
 - A WebSocket console client that stopped reading could hold its session open past the idle and 8-hour limits. Every write now has a 10-second deadline, and the limits are enforced separately from the writes.
 - `/host` could hang on a stuck `system_profiler`, `diskutil` or PowerShell command. Each one now stops after 15 seconds, and the summary is cached for 30 seconds so polling does not start new commands each time.

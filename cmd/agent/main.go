@@ -4,9 +4,11 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,20 +24,31 @@ var version = "dev"
 func main() {
 	// Check for subcommands before flag parsing
 	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "version":
+		switch arg := os.Args[1]; {
+		case arg == "version":
 			fmt.Println(version)
 			return
-		case "healthcheck":
+		case arg == "healthcheck":
 			healthcheckMain()
 			return
-		case "install", "uninstall", "start", "stop", "status":
-			handleServiceCommand(os.Args[1])
+		case arg == "install", arg == "uninstall", arg == "start", arg == "stop", arg == "status":
+			handleServiceCommand(arg)
 			return
+		case arg == "help":
+			printUsage(os.Stdout)
+			return
+		case !strings.HasPrefix(arg, "-"):
+			os.Exit(badArgument(arg, os.Stderr))
 		}
 	}
 
+	// -h and a bad flag print the same usage, to stderr, through the flag
+	// package: -h exits 0 and a bad flag 2.
+	flag.CommandLine.Usage = func() { printUsage(flag.CommandLine.Output()) }
 	cfg := config.Parse(version)
+	if flag.NArg() > 0 {
+		os.Exit(badArgument(flag.Arg(0), os.Stderr))
+	}
 
 	if cfg.ShowVersion {
 		fmt.Println(version)
