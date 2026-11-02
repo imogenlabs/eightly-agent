@@ -5,6 +5,7 @@ package websocket
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -177,8 +178,29 @@ func newUpgrader(authEnabled bool, allowedOrigins []string) websocket.Upgrader {
 	}
 }
 
+// Targets decides whether a session may reach a container, with the rules
+// the Docker proxy applies to exec and attach. *proxy.TargetChecker is the
+// implementation; the bridges reach Docker directly, so without it they would
+// skip those rules.
+type Targets interface {
+	// Container returns the full ID of the container id names, or why it
+	// is refused.
+	Container(ctx context.Context, id string) (fullID, reason string)
+	// Exec returns why the exec instance id may not be started, or "".
+	Exec(ctx context.Context, id string) (reason string)
+}
+
+// refuse answers a session whose target is off limits, before the upgrade.
+func refuse(w http.ResponseWriter, r *http.Request, reason string) {
+	log.Warn().Msgf("[SECURITY] websocket.denied path=%s ip=%s reason=%q", r.URL.Path, r.RemoteAddr, reason)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	// Encoded, not concatenated: the reason may echo the caller's text.
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": "forbidden: " + reason})
+}
+
 // AttachHandler returns an HTTP handler that upgrades to WebSocket and attaches to a running container's stdio.
-func AttachHandler(socketPath string, authEnabled bool, allowedOrigins []string) http.HandlerFunc {
+func AttachHandler(socketPath string, targets Targets, authEnabled bool, allowedOrigins []string) http.HandlerFunc {
 	up := newUpgrader(authEnabled, allowedOrigins)
 	return func(w http.ResponseWriter, r *http.Request) {
 		containerID := r.URL.Query().Get("id")
@@ -190,6 +212,16 @@ func AttachHandler(socketPath string, authEnabled bool, allowedOrigins []string)
 			http.Error(w, "invalid container id", http.StatusBadRequest)
 			return
 		}
+		full, reason := targets.Container(r.Context(), containerID)
+		if reason != "" {
+			refuse(w, r, reason)
+			return
+		}
+		// Attach to the ID that was checked: a short ID or name could
+		// otherwise point somewhere else by the time Docker reads it.
+		if full != "" {
+			containerID = full
+		}
 
 		raw := fmt.Sprintf("POST /containers/%s/attach?stdin=1&stdout=1&stderr=1&stream=1 HTTP/1.1\r\nHost: docker\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n", containerID)
 		serveBridge(w, r, up, socketPath, raw, "docker attach failed")
@@ -197,7 +229,7 @@ func AttachHandler(socketPath string, authEnabled bool, allowedOrigins []string)
 }
 
 // ExecHandler returns an HTTP handler that upgrades to WebSocket and starts an exec session in a container.
-func ExecHandler(socketPath string, authEnabled bool, allowedOrigins []string) http.HandlerFunc {
+func ExecHandler(socketPath string, targets Targets, authEnabled bool, allowedOrigins []string) http.HandlerFunc {
 	up := newUpgrader(authEnabled, allowedOrigins)
 	return func(w http.ResponseWriter, r *http.Request) {
 		execID := r.URL.Query().Get("id")
@@ -207,6 +239,10 @@ func ExecHandler(socketPath string, authEnabled bool, allowedOrigins []string) h
 		}
 		if !validDockerID(execID) {
 			http.Error(w, "invalid exec id", http.StatusBadRequest)
+			return
+		}
+		if reason := targets.Exec(r.Context(), execID); reason != "" {
+			refuse(w, r, reason)
 			return
 		}
 

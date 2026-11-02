@@ -130,8 +130,9 @@ func Run(ctx context.Context, cfg *config.Config) error {
 			"api_version": "2",
 		})
 	})
-	mux.Handle("/websocket/attach", authed(websocket.AttachHandler(cfg.SocketPath, authEnabled, allowedOrigins)))
-	mux.Handle("/websocket/exec", authed(websocket.ExecHandler(cfg.SocketPath, authEnabled, allowedOrigins)))
+	targets := proxy.NewTargetChecker(cfg.SocketPath, bindRoots)
+	mux.Handle("/websocket/attach", authed(websocket.AttachHandler(cfg.SocketPath, targets, authEnabled, allowedOrigins)))
+	mux.Handle("/websocket/exec", authed(websocket.ExecHandler(cfg.SocketPath, targets, authEnabled, allowedOrigins)))
 	mux.Handle("/browse/", authed(browse.Handler(cfg.DataPath, browse.ReadOnly(cfg.BrowseReadOnly))))
 	mux.Handle("/host", authed(hostinfo.Handler()))
 	mux.Handle("/", authed(proxy.NewDockerProxy(cfg.SocketPath, bindRoots)))

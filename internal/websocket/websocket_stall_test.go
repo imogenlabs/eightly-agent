@@ -64,7 +64,7 @@ func setLimits(t *testing.T, ping, write, idle, absolute time.Duration) {
 // writes to it stall once the socket buffers are full.
 func dialNeverRead(t *testing.T, sock string) {
 	t.Helper()
-	srv := httptest.NewServer(AttachHandler(sock, false, nil))
+	srv := httptest.NewServer(AttachHandler(sock, allowAll{}, false, nil))
 	t.Cleanup(srv.Close)
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/websocket/attach?id=abcdef123456"
 	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second, ReadBufferSize: 1024}
