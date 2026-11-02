@@ -126,6 +126,7 @@ func dialSession(t *testing.T, handler http.Handler, path, id string) (int, stri
 	}
 	if resp == nil {
 		t.Fatalf("dial %s: %v", path, err)
+		return 0, ""
 	}
 	defer resp.Body.Close()
 	var body strings.Builder
