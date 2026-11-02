@@ -1,3 +1,7 @@
+---
+description: "Every Eight.ly Agent flag and environment variable, with defaults and what each one controls."
+---
+
 # Configuration
 
 Eight.ly Agent is configured entirely through command-line flags and environment variables. There are no config files. Every flag has an equivalent environment variable, and **environment variables take precedence** over flags when both are set.
@@ -64,7 +68,7 @@ Path to the Docker daemon Unix socket. The agent proxies Docker API requests and
 
 **`--secret` / `EIGHTLY_AGENT_SECRET`**
 
-The HMAC-SHA256 shared secret used to validate Bearer tokens on incoming requests. This must match the secret configured in your EOS instance. See [[Authentication]] for the full token format and validation flow.
+The HMAC-SHA256 shared secret used to validate Bearer tokens on incoming requests. This must match the secret configured in your EOS instance. See [Authentication](Authentication.md) for the full token format and validation flow.
 
 The agent **refuses to start** without this value unless `--insecure-no-auth` is explicitly set (fail-closed default). This prevents accidental deployment without authentication.
 
@@ -76,7 +80,7 @@ When set, allows the agent to start without a shared secret. Authentication is b
 
 **`--server-url` / `EIGHTLY_SERVER_URL`**
 
-The URL of the EOS server this agent should register with. Example: `https://your-eos-server:8080` or `https://os.eight.ly`. When set, the agent will attempt to register on startup and begin sending heartbeats every 30 seconds. When empty, registration and heartbeat are both disabled. See [[Registration-and-Heartbeat]] for details.
+The URL of the EOS server this agent should register with. Example: `https://your-eos-server:8080` or `https://os.eight.ly`. When set, the agent will attempt to register on startup and begin sending heartbeats every 30 seconds. When empty, registration and heartbeat are both disabled. See [Registration and Heartbeat](Registration-and-Heartbeat.md) for details.
 
 **`--enroll-token` / `EIGHTLY_ENROLL_TOKEN`**
 
@@ -86,14 +90,14 @@ A one-time token provided by the EOS admin to authorize the first registration. 
 
 **`--state-path` / `EIGHTLY_STATE_PATH`**
 
-Path to the JSON file where the agent stores its registration state (agent ID, server-assigned token, server URL, registration timestamp). This file is written atomically (write to `.tmp`, then rename). See [[Registration-and-Heartbeat]] for the file format.
+Path to the JSON file where the agent stores its registration state (agent ID, server-assigned token, server URL, registration timestamp). This file is written atomically (write to `.tmp`, then rename). See [Registration and Heartbeat](Registration-and-Heartbeat.md) for the file format.
 
 **`--data-path` / `DATA_PATH`**
 
 Root directory for agent data. Two things live here:
 
-1. TLS certificates: `<data-path>/cert.pem` and `<data-path>/key.pem` (auto-generated if missing). See [[TLS]].
-2. Volume file browser root: the file browser resolves paths as `<data-path>/volumes/<volumeID>/_data/<path>`. See [[File-Browser]].
+1. TLS certificates: `<data-path>/cert.pem` and `<data-path>/key.pem` (auto-generated if missing). See [TLS](TLS.md).
+2. Volume file browser root: the file browser resolves paths as `<data-path>/volumes/<volumeID>/_data/<path>`. See [File Browser](File-Browser.md).
 
 ### Logging
 
@@ -221,12 +225,12 @@ docker run -d --init --name eightly-agent --restart unless-stopped \
   ghcr.io/imogenlabs/eightly-agent:v1.0.0
 ```
 
-The agent checks for existing `cert.pem` and `key.pem` in the data directory before generating self-signed certs. See [[TLS]] for details.
+The agent checks for existing `cert.pem` and `key.pem` in the data directory before generating self-signed certs. See [TLS](TLS.md) for details.
 
 ## See Also
 
-- [[Installation]] -- Setup instructions
-- [[Authentication]] -- Token format and validation
-- [[Registration-and-Heartbeat]] -- How registration uses `--server-url` and `--enroll-token`
-- [[TLS]] -- Certificate generation and custom certs
-- [[Troubleshooting]] -- Debug logging and common config issues
+- [Installation](Installation.md) -- Setup instructions
+- [Authentication](Authentication.md) -- Token format and validation
+- [Registration and Heartbeat](Registration-and-Heartbeat.md) -- How registration uses `--server-url` and `--enroll-token`
+- [TLS](TLS.md) -- Certificate generation and custom certs
+- [Troubleshooting](Troubleshooting.md) -- Debug logging and common config issues

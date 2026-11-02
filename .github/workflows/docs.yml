@@ -1,0 +1,73 @@
+name: Docs
+
+# Builds the docs site from docs/wiki with MkDocs Material. Pull requests only
+# build it (--strict, so a broken link or a page without a description fails).
+# A push to main also publishes it to GitHub Pages, once the repo is public.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/wiki/**'
+      - 'docs/overrides/**'
+      - 'docs/hooks/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/wiki/**'
+      - 'docs/overrides/**'
+      - 'docs/hooks/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build docs
+    # GitHub-hosted for every event: the build runs code from the pull request.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - name: Install MkDocs
+        run: pip install -r requirements-docs.txt
+      - name: Build
+        run: mkdocs build --strict
+      - name: Upload site for Pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.event.repository.private == false
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    # Skipped while the repo is private: Pages on a private repo needs a paid
+    # plan, and the site would be public while the code is not.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.event.repository.private == false
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

@@ -1,8 +1,12 @@
+---
+description: "Eight.ly Agent is a small Go daemon that lets Eight.ly OS manage the Docker hosts it runs on, over authenticated TLS."
+---
+
 # Eight.ly Agent
 
 Eight.ly Agent is a lightweight, cross-platform Docker management daemon written in Go. It runs on remote Docker hosts (Linux, macOS, and Windows) and lets [Eight.ly OS](https://eight.ly) manage them from a single dashboard. Deploy the agent on any machine with Docker, and EOS gains full container management, WebSocket console access, volume file browsing, and host monitoring -- all over authenticated TLS.
 
-**~2,050 lines of Go. 134 tests. v1.0.0 released. Apache 2.0 license. Hardened through 6 rounds of security review.**
+**One Go binary. Apache 2.0 license. Hardened through 6 rounds of security review.** The newest release is on the [Releases](https://github.com/imogenlabs/eightly-agent/releases) page.
 
 ![Remote Environments — connected agents with heartbeat status](https://imogenlabs.ai/images/eightly/agent/agent-environments.webp)
 
@@ -95,31 +99,33 @@ internal/websocket/ws.go           125 LOC -- WebSocket attach + exec handlers
 
 No frameworks, no ORM, no config libraries.
 
-## Wiki Pages
+## Documentation
 
 **Getting Started**
 
-- [[Installation]] -- Docker, binary, and build-from-source instructions
-- [[Configuration]] -- All flags and environment variables
+- [Installation](Installation.md) -- Docker, binary, and build-from-source instructions
+- [Configuration](Configuration.md) -- All flags and environment variables
 
 **Core Concepts**
 
-- [[Authentication]] -- HMAC-SHA256 token validation
-- [[Registration-and-Heartbeat]] -- How agents register with EOS and maintain connectivity
-- [[TLS]] -- Auto-generated certificates and custom cert support
+- [Authentication](Authentication.md) -- HMAC-SHA256 token validation
+- [Registration and Heartbeat](Registration-and-Heartbeat.md) -- How agents register with EOS and maintain connectivity
+- [TLS](TLS.md) -- Auto-generated certificates and custom cert support
 
 **Features**
 
-- [[API-Reference]] -- Full endpoint documentation with examples
-- [[File-Browser]] -- Volume file management operations
-- [[WebSocket-Console]] -- Interactive container console access
+- [API Reference](API-Reference.md) -- Full endpoint documentation with examples
+- [File Browser](File-Browser.md) -- Volume file management operations
+- [WebSocket Console](WebSocket-Console.md) -- Interactive container console access
 
 **Help**
 
-- [[Troubleshooting]] -- Common issues and debug procedures
+- [Troubleshooting](Troubleshooting.md) -- Common issues and debug procedures
 
 ## Links
 
 - [Eight.ly OS](https://eight.ly)
-- [Docker Hub](https://hub.docker.com/r/smashingtags/eightly-agent)
+- [Source on GitHub](https://github.com/imogenlabs/eightly-agent)
 - [GitHub Container Registry](https://github.com/imogenlabs/eightly-agent/pkgs/container/eightly-agent)
+- [Docker Hub mirror](https://hub.docker.com/r/smashingtags/eightly-agent)
+- [Imogen Labs](https://imogenlabs.ai)
