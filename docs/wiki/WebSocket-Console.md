@@ -73,7 +73,7 @@ Exec mode always starts with `Tty: true` and `Detach: false`, meaning the sessio
 
 ### Connection
 
-The WebSocket endpoint uses the standard HTTP upgrade mechanism. The agent uses gorilla/websocket with `CheckOrigin` set to accept all origins. The connection URL scheme is `wss://` since the agent always runs over TLS.
+The WebSocket endpoint uses the standard HTTP upgrade mechanism (gorilla/websocket). The `Origin` header is checked on every upgrade (see [Security Model](#security-model)). The connection URL scheme is `wss://` since the agent always runs over TLS.
 
 ```
 wss://agent-host:9001/websocket/attach?id=<container-id>
@@ -82,7 +82,7 @@ wss://agent-host:9001/websocket/exec?id=<exec-id>
 
 ### Message Format
 
-- **Client to agent**: Any WebSocket message type. The raw message bytes are forwarded to Docker's stdin.
+- **Client to agent**: Any WebSocket message type. The raw message bytes are forwarded to Docker's stdin. A single message larger than 64 KB closes the session.
 - **Agent to client**: Binary WebSocket messages. Each message contains raw terminal output bytes from Docker's stdout/stderr.
 
 There is no framing protocol, escape sequences, or multiplexing. The WebSocket carries raw terminal bytes in both directions.
@@ -115,11 +115,16 @@ Client                    Agent                     Docker
 
 ### Termination
 
-The bridge terminates when either side closes:
+The bridge closes both the WebSocket and the Docker connection when any of these happens:
 
-- **Client closes WebSocket**: The agent's read loop gets an error, closes the Docker connection, and the bridge ends.
-- **Docker closes stream**: The agent's Docker read loop gets an error (EOF), the `done` channel closes, and the bridge function returns. The WebSocket connection is then closed via `defer ws.Close()`.
-- **Container exits**: Docker closes the stream, triggering the same flow as above.
+- **Client closes the WebSocket** or the request is cancelled.
+- **Docker closes the stream**, for example because the container or the exec'd process exited.
+- **No pong for 60 seconds.** The agent pings the client every 30 seconds; a pong, or any client message, resets the 60-second read deadline.
+- **Idle for 15 minutes.** No message from the client in that time. Output from the container does not count as activity.
+- **8 hours since the session started**, whatever the activity.
+- **A write to the client takes longer than 10 seconds.** Every write (terminal output and pings) has a 10-second deadline, so a client that stops reading cannot hold a session open. The idle and 8-hour limits are watched separately from the writes, so they fire even while a write is stuck.
+
+Before the bridge starts, connecting to the Docker socket is bounded at 5 seconds and Docker's `101 Switching Protocols` reply at 10 seconds.
 
 ## Connecting from a Browser
 
@@ -167,18 +172,22 @@ curl -k -X POST -H "Authorization: Bearer $TOKEN" \
 ## Security Model
 
 - **Authentication**: Both WebSocket endpoints require a valid Bearer token (see [Authentication](Authentication.md)). The token is validated during the initial HTTP request before the WebSocket upgrade occurs.
-- **Origin checking**: The WebSocket upgrader accepts all origins (`CheckOrigin` returns `true`). Access control is handled entirely by the HMAC token.
-- **No rate limiting**: There is no limit on the number of concurrent WebSocket sessions. Each session holds open a Docker connection and a goroutine pair.
+- **Origin checking**: Checked on every upgrade, whether or not authentication is enabled, to stop cross-site WebSocket hijacking. With `--allowed-origins` (`EIGHTLY_ALLOWED_ORIGINS`, comma-separated) the `Origin` must exactly match one entry (scheme, host and port). Without it, the `Origin` must be `http` or `https` and match the request's host (the TLS server name, or the `Host` header), with default ports treated as equal. A request with no `Origin` is accepted only if it carries a Bearer token (a server-to-agent call, not a browser).
+- **Session limit**: At most 50 WebSocket sessions run at once across attach and exec. Further requests get `503 Service Unavailable` "too many sessions" before the upgrade.
+- **Timeouts**: See [Termination](#termination). The HTTP server's `WriteTimeout` does not apply once the connection is upgraded; the session limits above do.
 - **No audit logging**: WebSocket sessions are not logged beyond the initial HTTP request. Commands entered in the terminal are not recorded by the agent.
-- **Timeout**: The HTTP server's `WriteTimeout` is 30 minutes, which applies to the WebSocket connection. Sessions idle for more than 30 minutes may be terminated by the server.
 
 ## Error Handling
 
 | Scenario | Behavior |
 |----------|----------|
 | Missing `id` parameter | Returns `400 Bad Request` with "missing id param" (before WebSocket upgrade) |
+| `id` is not 12-64 letters and digits | Returns `400 Bad Request` with "invalid container id" or "invalid exec id" |
+| 50 sessions already open | Returns `503 Service Unavailable` with "too many sessions" |
+| `Origin` not allowed | Upgrade refused with `403 Forbidden` |
 | WebSocket upgrade fails | Connection is dropped silently |
-| Cannot connect to Docker socket | Sends WebSocket close frame with code 1011 and reason "docker connect failed" |
+| Cannot connect to Docker socket (5 s) | Sends WebSocket close frame with code 1011 and reason "docker connect failed" |
+| Writing the request to Docker fails | Sends WebSocket close frame with code 1011 and reason "docker write failed" |
 | Docker attach/exec fails | Sends WebSocket close frame with code 1011 and reason "docker attach failed" or "docker exec start failed" |
 | Container does not exist | Docker returns an error during attach/exec, resulting in a 1011 close frame |
 

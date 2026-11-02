@@ -58,7 +58,7 @@ Each entry includes:
 | `dir` | bool | `true` if the entry is a directory |
 | `modTime` | string | Last modification time (RFC 3339) |
 
-Returns an empty array `[]` for empty directories. Returns `500` if the path does not exist or is not readable.
+Entries whose name starts with `.` are left out. Returns an empty array `[]` for empty directories. Returns `500` if the path does not exist, is not readable, or is not a directory (a file, a named pipe).
 
 ### Download File (get)
 
@@ -66,12 +66,15 @@ Returns an empty array `[]` for empty directories. Returns `500` if the path doe
 GET /browse/get?volumeID=<volume>&path=<filepath>
 ```
 
-Serves the file using Go's `http.ServeFile`, which handles:
+Serves the file using Go's `http.ServeContent`, which handles:
 - Content-Type detection from the file extension
 - Range requests for partial downloads
 - If-Modified-Since / Last-Modified caching headers
 
 The response body is the raw file content.
+
+- Only regular files are served. A directory returns `400` "target is a directory"; a named pipe, socket or device node returns `400` "not a regular file".
+- A symlink at the last path component returns `404`.
 
 ### Upload File (put)
 
@@ -81,12 +84,12 @@ POST /browse/put?volumeID=<volume>&path=<filepath>
 
 Accepts a multipart form upload with a `file` field. The file is written to the resolved path on disk.
 
-- Parent directories are created automatically (`os.MkdirAll` with mode `0755`).
-- Uses a 32 MB copy buffer for efficient large file transfers.
+- Parent directories are created automatically (mode `0755`). New files get mode `0644`.
+- An existing regular file is overwritten (truncated, then written).
 - Returns `201 Created` with `{"status": "ok"}` on success.
-- Returns `400 Bad Request` if the `file` form field is missing.
+- Returns `400 Bad Request` if the `file` form field is missing, the target is a directory, or the target is a named pipe, socket or device node. Nothing is written in those cases.
 
-Uploads are capped at 100 MB per file; a larger body is rejected. The agent's `ReadTimeout` is 120 seconds and `WriteTimeout` is 30 minutes.
+Uploads are capped at 100 MB per file; a larger body is rejected with `400`. The agent's `ReadTimeout` is 30 seconds and `WriteTimeout` is 30 minutes.
 
 ### Delete (delete)
 
@@ -97,6 +100,8 @@ DELETE /browse/delete?volumeID=<volume>&path=<filepath>
 Deletes the file or directory at the specified path. For directories, this is a recursive delete (`os.RemoveAll`).
 
 - Returns `204 No Content` on success.
+- Returns `400 Bad Request` for the volume root itself.
+- Deleting a symlink removes the link, never what it points to.
 - There is no confirmation prompt or recycle bin. Deletion is immediate and permanent.
 
 ### Rename (rename)
@@ -114,7 +119,8 @@ Content-Type: application/json
 Renames a file or directory within its current parent directory. The `newName` is a bare filename, not a path.
 
 - Returns `200 OK` with `{"status": "ok"}` on success.
-- Returns `400 Bad Request` if `newName` contains `..` or `/` characters.
+- Returns `400 Bad Request` if `newName` is not a plain name: it must start with a letter or digit and contain only letters, digits, `_`, `.` and `-` (so no `/`, no `..`, and no leading `.`). Also `400` for the volume root.
+- Returns `403 Forbidden` if `path` is hidden (see [Hidden Files](#hidden-files)), so `.env` cannot be renamed to `env` and then downloaded.
 - This cannot move files between directories -- only rename within the same directory.
 
 ## Path Format
@@ -130,11 +136,27 @@ The `volumeID` parameter is the Docker volume name as it appears in `docker volu
 
 ### Path Traversal Protection
 
-Every path is resolved inside the volume's directory and must stay there. `..`, absolute paths, Windows drive letters and network paths, and symlinks that point outside the volume are all rejected with `400 Bad Request`. On Linux and macOS files are opened without following symlinks, so a link swapped in after the check cannot redirect the open.
+Every path is resolved inside the volume's directory and must stay there. A leading `/` means the volume root. Any `..` segment, a NUL byte, and Windows drive letters and network paths are rejected with `400 Bad Request`. Every operation goes through an `os.Root` opened on the volume's `_data` directory, which refuses a symlink or `..` that leads out of the volume at the moment of the operation; such a request fails (`404` for `get`, `500` for the others) and nothing outside the volume is touched. `get` and `put` also refuse a symlink at the last component: on Linux and macOS in the same system call (`O_NOFOLLOW`), on Windows by checking after the open that the path still names the file that was opened.
+
+### Hidden Files
+
+Any path with a segment that starts with `.` is refused with `403 Forbidden` on every route: `ls`, `get`, `put`, `delete` and the source path of `rename`. A `newName` starting with `.` is refused with `400` by the rename name check. This applies in read-write and read-only mode alike. `.ssh`, `.ssh/id_rsa`, `app/.git/config` and `.env` are never listed, read, written, deleted or renamed. On Windows a `\` also separates segments, so `app\.git` is refused too.
+
+### Regular Files Only
+
+`get` and `put` only read or write regular files. Named pipes, sockets and device nodes are refused with `400`: reading a pipe would hang the request, and a device node a container created in its own volume would reach a host disk. On Linux and macOS the file is opened non-blocking and checked with `fstat` before anything is read, truncated or written, so a pipe or device swapped in after an earlier check is still refused. On Windows the open is verified the same way after it happens, before any truncation.
+
+### Read-Only Mode
+
+With `--browse-read-only` (or `EIGHTLY_BROWSE_READ_ONLY=true`), `put`, `delete` and `rename` are refused with `403` "read-only mode". `ls` and `get` work as usual.
+
+### Audit Log
+
+Every `put`, `delete` and `rename`, including refused ones, is logged as a `browse.mutate` event with the caller (the token's `sub` claim), the verb, the path, the result and the remote address.
 
 ### Rename Validation
 
-The `newName` field in rename requests is additionally checked for both `..` and `/` characters, preventing directory traversal through rename operations.
+The `newName` field must be a plain name (see [Rename](#rename-rename)), so a rename can neither leave the directory nor create a hidden file.
 
 ### Authentication
 
@@ -161,11 +183,13 @@ This maps the host's Docker volume storage into the agent's expected path struct
 
 | Status | Meaning |
 |--------|---------|
-| 400 | Path traversal detected, missing `file` field, invalid `newName`, or bad JSON body |
-| 500 | Filesystem error (permission denied, path not found, disk full) |
-| 201 | File uploaded successfully |
-| 204 | File deleted successfully |
-| 200 | Directory listed or file renamed successfully |
+| 200 | Directory listed, file downloaded, or file renamed |
+| 201 | File uploaded |
+| 204 | File or directory deleted |
+| 400 | Path traversal or invalid `volumeID`, missing `file` field or upload over 100 MB, invalid `newName`, bad JSON body, target is a directory, target is not a regular file, or delete/rename of the volume root |
+| 403 | Hidden path (a segment starting with `.`), read-only mode, or the volume directory is not readable by the agent |
+| 404 | Volume not found, or (`get`) file not found or a symlink |
+| 500 | Filesystem error (permission denied, path not found, not a directory for `ls`, disk full) |
 
 ## See Also
 
