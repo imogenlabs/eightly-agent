@@ -25,8 +25,15 @@ func ProtectPaths(paths ...string) Option {
 			if p == "" {
 				continue
 			}
-			if abs, err := filepath.Abs(p); err == nil && strings.HasPrefix(abs, "/") {
-				f.protectedPaths = append(f.protectedPaths, path.Clean(abs))
+			if !strings.HasPrefix(p, "/") {
+				abs, err := filepath.Abs(p)
+				if err != nil {
+					continue
+				}
+				p = filepath.ToSlash(abs)
+			}
+			if strings.HasPrefix(p, "/") {
+				f.protectedPaths = append(f.protectedPaths, path.Clean(p))
 			}
 		}
 	}
