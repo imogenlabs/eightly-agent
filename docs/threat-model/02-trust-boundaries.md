@@ -16,7 +16,7 @@ own protocol, authentication, and gating controls.
 | TB-5 | **API caller → Host hardware** | inbound→host | HTTP (`internal/hostinfo`) | Inherited from TB-1 | Response minimization (counts/totals only, no fingerprints) |
 | TB-6 | **Agent → EOS server** | outbound | HTTPS register/heartbeat (`internal/register`) | Enroll token (first), then server bearer token | **TOFU SPKI pin** enforced every dial; optional CA chain verify; https-required (`Validate`) |
 | TB-7 | **Agent → Docker daemon (internal)** | local | HTTP-over-unix | none (local socket) | Bounded dial timeouts; the socket file is the trust root |
-| TB-8 | **CI/Supply chain → Agent binary** | build-time | Go modules, pinned base images | module checksums, image digests | Go 1.26.4 pinned, digest-pinned bases, govulncheck (0 findings), SHA-pinned Actions |
+| TB-8 | **CI/Supply chain → Agent binary** | build-time | Go modules, pinned base images | module checksums, image digests | Go 1.26.10 pinned, digest-pinned bases, govulncheck (0 findings), SHA-pinned Actions |
 | TB-9 | **Operator → Config** | startup | CLI flags + env | OS process trust | `InsecureServerTLS` is flag-only; `Validate()` requires secret-or-explicit-opt-out and https server URL |
 
 ## Trust-level summary

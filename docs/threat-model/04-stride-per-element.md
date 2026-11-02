@@ -70,4 +70,4 @@ and the implementing package. Residual is the rating *after* the shipped control
 
 | Threat | Description | Likelihood | Impact | Controls | Residual |
 |--------|-------------|-----------|--------|----------|----------|
-| **T**ampering | Vulnerable dependency or poisoned base image | Low | Critical | r5 Go 1.26.4 pinned, digest-pinned base images, govulncheck 0 findings, SHA-pinned GitHub Actions | Low |
+| **T**ampering | Vulnerable dependency or poisoned base image | Low | Critical | Go 1.26.10 pinned, digest-pinned base images, govulncheck 0 findings, SHA-pinned GitHub Actions | Low |
