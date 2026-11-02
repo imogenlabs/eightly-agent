@@ -17,6 +17,9 @@ services:
       # Docker's named volumes, for the file browser, at the path the agent
       # reads by default (--volumes-path). Leave it out to turn the browser off.
       - /var/lib/docker/volumes:/var/lib/docker/volumes
+      # Each folder in EIGHTLY_ALLOWED_BIND_ROOTS, at the same path, read-only,
+      # so the agent can check app binds under it. Example for /opt/appdata:
+      # - /opt/appdata:/opt/appdata:ro
     # The agent needs the group that owns the socket on this host. The image
     # assumes 999; if yours differs, set DOCKER_GID=$(stat -c %g /var/run/docker.sock)
     # in .env.
@@ -26,6 +29,8 @@ services:
       - EIGHTLY_AGENT_SECRET=${EIGHTLY_AGENT_SECRET}
       - EIGHTLY_SERVER_URL=${EIGHTLY_SERVER_URL:-}
       - EIGHTLY_ENROLL_TOKEN=${EIGHTLY_ENROLL_TOKEN:-}
+      # Host folders apps may bind-mount, comma-separated. Empty allows none.
+      - EIGHTLY_ALLOWED_BIND_ROOTS=${EIGHTLY_ALLOWED_BIND_ROOTS:-}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     # No healthcheck override: the image carries its own. An image built before
     # the in-process health check has no `healthcheck` subcommand and would start a second agent
