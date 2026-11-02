@@ -20,6 +20,15 @@ The state file (`EIGHTLY_STATE_PATH`) exists but cannot be read or parsed. The a
 **"the saved registration at ... is for server A, but the configured server URL is B"**
 The agent is registered with another server. To keep it there, set `EIGHTLY_SERVER_URL` back to the old URL. To move it, run an install command generated on the new server: its enrollment token tells the agent to enroll there, and the old state is copied to `<state path>.bak` first (replacing any older backup). Differences in case, a trailing slash or a default port do not count as another server.
 
+**"--allowed-bind-roots: ... is, holds or is inside the system directory ..."**
+A bind root names a system folder, a folder inside one or a parent of one (`/`, `/opt`, `/var`, `/etc` and others). Name the app data folder itself, such as `/opt/appdata`. Each root must be absolute, with no trailing slash.
+
+**"both an enrollment token ... and a token file ... are set"**
+Keep only the file. On Windows remove the old Machine variable: `[Environment]::SetEnvironmentVariable('EIGHTLY_ENROLL_TOKEN', $null, 'Machine')`.
+
+**Usage printed and exit status 2**
+An unknown word on the command line: a misspelt subcommand, or an argument after the flags. Check the service's command line; `eightly-agent help` lists the flags.
+
 **Port already in use**
 Another process is using port 9001. Use `--port` to pick a different port, or find the conflicting process: `lsof -i :9001` (Linux/macOS) or `netstat -ano | findstr 9001` (Windows).
 
@@ -51,6 +60,27 @@ The Docker socket isn't accessible. Check:
 **Permission denied on Docker socket**
 The agent process doesn't have permission to access the socket. Either run as root (not recommended) or add the agent user to the `docker` group: `sudo usermod -aG docker eightly-agent`
 
+## Docker requests refused (403)
+
+Every refusal returns `{"message":"forbidden: <reason>"}` and logs `[SECURITY] proxy.denied` (`websocket.denied` for the console) with the reason.
+
+**"host bind mount rejected: ... (no --allowed-bind-roots are set; use a named volume)"** or **"... is outside --allowed-bind-roots"**
+The container binds a host folder the agent does not allow. Add the folder or a parent of it to `EIGHTLY_ALLOWED_BIND_ROOTS` and restart the agent, or use a named volume.
+
+**"the agent's own container is off limits"**, **"container ... holds the Docker socket"**, **"container <id>: ..."**
+Exec, attach, the console or a file upload aimed at a container that itself reaches the host. It keeps running and can be started and stopped, but nothing can be run inside it through the agent.
+
+**"endpoint not allowed: <METHOD> <path>"**
+The Docker endpoint is not on the allow-list (see the API reference). Builds, commits, exports, image load and push, and Swarm are not available through the agent.
+
+## File browser
+
+**501** — Docker Desktop keeps volumes inside its VM; the browser is not available unless `--volumes-path` names a folder that holds them.
+
+**503 naming a folder** — the volumes folder is not there. Mount `/var/lib/docker/volumes` into the agent's container at the same path, or set `--volumes-path`.
+
+**403 "volume is not readable by the agent"** — the agent's user cannot read the volume. Docker's own volumes folder is root-only, so an agent running on the host as its own user (the `.deb`/`.rpm` service) gets this for every volume.
+
 ## TLS errors
 
 **Certificate SAN mismatch**
@@ -67,10 +97,10 @@ For outbound connections to EOS, the agent pins the server's certificate on firs
 ## WebSocket issues
 
 **Connection drops immediately**
-Check that the container/exec ID is valid (12-64 hex characters). Check Docker logs for the container — it may have exited.
+Check that the container/exec ID is valid (12-64 letters and digits). A `403` before the upgrade means the target container was refused (see "Docker requests refused" above). Check Docker logs for the container — it may have exited.
 
 **"invalid container id" / "invalid exec id"**
-The ID doesn't match the expected format. Docker container IDs are 12-64 character hex strings. Make sure you're passing the correct ID.
+The ID doesn't match the expected format: 12-64 letters and digits. Docker container IDs are 12-64 character hex strings. Make sure you're passing the correct ID.
 
 ## Windows service
 

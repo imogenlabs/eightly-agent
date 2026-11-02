@@ -8,13 +8,18 @@ Every shipped control → the threat it mitigates → the code that implements i
 | **HMAC-SHA256 Bearer verify** (constant-time) | r4 | Spoofing (forged token) | `internal/auth/jwt.go` (`hmac.Equal`, issuer + type check, `lifetimeProblem`) |
 | **Token bound to this agent; 503 until registered** | — | Spoofing (another agent's token) | `internal/auth/jwt.go` (`sub` check), `internal/server/server.go` `authMiddleware`, `registerWithRetry` |
 | **`[SECURITY]` auth event logging** | r4 | Repudiation; detection | `internal/auth/jwt.go` `logSecurityEvent` |
-| **Docker request deny-list** (create, exec, update, volume create) | r4 | Elevation / Tampering (host escape) | `internal/proxy/docker.go` `inspectBody`, `checkHostConfig`, `dangerousCaps`, `sensitivePaths`, `allowedSecurityOpt`, `isSafeSysctl`, `checkVolumeOptions` |
-| **Swarm and plugin API refusal** | — | Elevation (plugin privileges, Swarm secrets) | `internal/proxy/docker.go` `refusedEndpoint` |
-| **Path normalisation before the filter** | — | Tampering (filter bypass via path tricks) | `internal/proxy/docker.go` `dockerPath` |
-| **Privileged + host-namespace block** | r4 | Elevation (container escape) | `internal/proxy/docker.go` `isHostNamespace`, `UsernsMode` |
-| **Sensitive bind-mount block** (Binds + Mounts) | r4 | Elevation (host FS exposure) | `internal/proxy/docker.go` `isSensitiveHostPath` |
-| **Inspection body cap** (over 1 MiB → 413, never truncated; unparsable → 403) | r4 | DoS (memory), Tampering (smuggled config) | `internal/proxy/docker.go` `maxInspectBody`, `denyDangerousCreates` |
-| **JSON-encoded denial reason** | r4 | Info disclosure / injection in error echo | `internal/proxy/docker.go` `deny` |
+| **Docker endpoint allow-list** (method + path; everything else 403) | — | Elevation (build, commit, export, image load/push, Swarm, plugins, any new endpoint) | `internal/proxy/routes.go` `routes`, `matchRoute`; `filter.go` `ServeHTTP` |
+| **Path normalisation before the filter** | — | Tampering (filter bypass via path tricks) | `internal/proxy/docker.go` `dockerPath`; the decoded path is what is forwarded (`NewDockerProxy` `Rewrite`) |
+| **Host-config checks** on create, update and exec bodies (privileged, private namespaces only, default caps only, VolumesFrom, devices, SecurityOpt allow-list, masked paths, annotations, runtime, sysctls, CgroupParent, OomKillDisable, tmpfs) | r4 | Elevation (container escape) | `internal/proxy/policy.go` `checkHostConfig`, `privateNamespace`, `checkNetwork`, `allowedCaps`, `allowedSecurityOpt`, `isSafeSysctl`, `isSensitiveTmpfsTarget` |
+| **Bind roots** (host paths only under `--allowed-bind-roots`, default none; system folders refused as roots) | — | Elevation (host FS exposure) | `internal/proxy/policy.go` `checkBind`, `checkMount`, `checkBindSource`, `rootFor`; `internal/config/config.go` `BindRoots`, `systemPaths` |
+| **Symlink check below a bind root** (at create and at start, when the agent runs on the host) | — | Elevation (symlink planted under a root) | `internal/proxy/filter.go` `checkSymlinks`, `checkStartMounts`, `seesHostFS` |
+| **Volume option and named-volume checks** | — | Elevation (host path through a local volume) | `internal/proxy/policy.go` `checkVolumeOptions`, `checkNamedVolume` |
+| **Network driver checks** (create: bridge/macvlan/ipvlan; connect: no host-driver network) | — | Elevation (host network namespace) | `internal/proxy/filter.go` `checkBody`; `policy.go` `checkNetwork` |
+| **Target-container checks** for exec, attach, exec start, archive upload and the WebSocket console; checked full ID forwarded | — | Elevation (getting inside a container that reaches the host) | `internal/proxy/filter.go` `checkTargetContainer`, `checkExecStart`, `checkPrivateRead`, `isSelf`, `selfContainerIDs`; `target.go` `TargetChecker`; `internal/websocket/websocket.go` `Targets`, `refuse` |
+| **Inspect redaction** (`EIGHTLY_*`, all env of the agent and socket holders, secret flags) | — | Info disclosure (agent secret through inspect) | `internal/proxy/redact.go` `redactInspect`, `redactContainerJSON`, `redactArgs` |
+| **Image import refusal** (`fromSrc`) | — | Elevation / SSRF (daemon fetches a caller's URL or tarball) | `internal/proxy/filter.go` `ServeHTTP` (`checkImagePull`) |
+| **Inspection body cap** (over 1 MiB → 413, never truncated; unparsable → 403) | r4 | DoS (memory), Tampering (smuggled config) | `internal/proxy/filter.go` `readBody`, `maxInspectBody`, `checkBody` |
+| **JSON-encoded denial reason** | r4 | Info disclosure / injection in error echo | `internal/proxy/docker.go` `deny`; `internal/websocket/websocket.go` `refuse` |
 | **CSWSH origin enforcement** (allowlist / same-origin via SNI) | r2 | Spoofing (cross-site WS hijack) | `internal/websocket/websocket.go` `checkOrigin`, `requestHost`, `hostMatches` |
 | **Absent-Origin requires token** | r2 | Elevation (browser-shaped unauth WS) | `internal/websocket/websocket.go` `hasToken` |
 | **Docker ID validation** | r2 | Tampering (raw-request injection) | `internal/websocket/websocket.go` `validDockerID` |
@@ -39,7 +44,8 @@ Every shipped control → the threat it mitigates → the code that implements i
 | **State file perms/owner gate** (0600/0700 + uid) | r1 | Info disclosure (credential leak) | `internal/register/register.go` `checkStatePerms`, `assertPerm`; `fileuid_unix.go` |
 | **TLS key perm repair** (tighten to 0600) | r1 | Info disclosure (leaked private key) | `internal/tlsutil/tls.go` `tightenKeyPerm` |
 | **Windows access lists** (data folder, state, secret file, TLS key/cert) | — | Info disclosure (local users reading secrets) | `internal/winacl` `Secure`, `ProtectDir`; `cmd/agent/service_windows.go` `protectDataDirs` |
-| **Secret file instead of the environment** | — | Info disclosure (secret in env / Machine variable) | `internal/config/secretfile.go` `loadSecretFile`, `ReadSecretFile` |
+| **Secret and enrollment token files instead of the environment** | — | Info disclosure (secret or token in env / Machine variable) | `internal/config/secretfile.go` `loadSecretFile`, `ReadSecretFile`, `loadEnrollTokenFile` |
+| **Refused enrollment not retried; unusable or foreign state refused** | — | Spoofing / availability (identity replaced, token replayed) | `internal/register/register.go`, `internal/server/server.go` (`BackupState` for a deliberate move to another server) |
 | **Health check pinned to the agent's own certificate** | — | Spoofing (another listener on the port looks healthy) | `internal/server/healthcheck.go` `pinnedTLSConfig` |
 | **Secret-or-explicit-opt-out required; bad boolean env refused** | r1 | Misconfiguration → unauth | `internal/config/config.go` `Validate`, `envOverrideBool` |
 | **TLS 1.2+ with restricted cipher suites** | r1 | Tampering (weak transport) | `internal/server/server.go` `srv.TLSConfig` |

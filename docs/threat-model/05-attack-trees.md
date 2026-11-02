@@ -83,7 +83,9 @@ GOAL: Execute arbitrary code as root on a managed host
 │   │   ├── 2.9.3 Read the agent's EIGHTLY_AGENT_SECRET from container inspect or top
 │   │   │   └── [BLOCKED] inspect output: all Env values of a socket holder or the agent redacted,
 │   │   │       EIGHTLY_* values redacted everywhere, secret flag values redacted; top refused there
-│   │   └── 2.9.4 /websocket/attach (internal/websocket) attaches without passing the proxy  [RESIDUAL]
+│   │   └── 2.9.4 /websocket/attach or /websocket/exec, which reach Docker without passing the proxy
+│   │       └── [BLOCKED] proxy.TargetChecker applies the same target rules before the upgrade (403);
+│   │           attach goes to the checked full ID; privileged exec instances refused
 │   └── 2.10 Escape via a vector the allow-list still admits
 │       ├── 2.10.1 A future HostConfig field that grants host reach      [RESIDUAL]
 │       ├── 2.10.2 A container that can write under a bind root plants a symlink, and a second
@@ -116,9 +118,11 @@ GOAL: Run commands in a container as the operator, cross-origin
 │   │   └── [BLOCKED] r2 absent Origin allowed only WITH a valid Bearer token (browsers can't set it)
 │   └── 1.3 Match a stale/over-broad allowlist entry
 │       └── [RESIDUAL] correctness of operator-supplied --allowed-origins
-├── 2. Inject into the raw Docker hijack request
+├── 2. Use the console to reach a container that reaches the host (the agent's own, a socket holder)
+│   └── [BLOCKED] the proxy's target check runs before the upgrade (Tree 1, 2.9.4)
+├── 3. Inject into the raw Docker hijack request
 │   └── [BLOCKED] r2 validDockerID regex gates id before fmt into the raw request
-└── 3. Exhaust the bridge to deny service to real operators
+└── 4. Exhaust the bridge to deny service to real operators
     └── [BLOCKED] r2 50-session cap, 64KB frames, idle/absolute timeouts, bounded dial/handshake
 ```
 

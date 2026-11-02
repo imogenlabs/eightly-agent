@@ -34,8 +34,8 @@ We credit reporters in release notes unless they prefer anonymity.
 
 | Version | Supported |
 |---------|-----------|
-| 1.x     | Yes       |
-| < 1.0   | No        |
+| 2.1.x   | Yes       |
+| < 2.1   | No        |
 
 ## Security Model
 
@@ -44,13 +44,13 @@ Eight.ly Agent provides authenticated, TLS-encrypted access to a Docker daemon. 
 ### What the agent protects
 
 - **Docker socket access** — the agent mediates all Docker API calls through HMAC-SHA256 authenticated HTTPS. Without a valid token, no Docker operations are possible. A token must carry the server's issuer (`eightly-server`), type `agent`, an issue time and an expiry no more than 30 days later, and must be issued for this agent's registered ID. An agent configured with a server URL answers `503` (`Retry-After: 30`) on every authenticated route until it has registered and knows that ID.
-- **Requests that would reach the host** — even with a valid token, the Docker proxy refuses (`403`) container create, exec create and container update requests that ask for privileged mode, a host PID, IPC, network, user, UTS or cgroup namespace, a dangerous capability, a bind mount of a sensitive host path, host devices or device cgroup rules, a security option outside a short allow-list, masked or read-only path overrides, a sysctl that is not namespaced, a cgroup parent, or a tmpfs over `/`, `/proc`, `/sys` or `/etc`. It also refuses volume driver options that bind a host path or device, the whole Swarm API, and any write to the plugin, service, config, secret and node APIs. A body it must inspect that is over 1 MiB is refused (`413`), never truncated; a body it cannot parse is refused. The path is cleaned and every API version prefix stripped before the check, so the filter sees exactly what Docker will route. This is a deny-list: it blocks the known escape routes, not every possible one.
+- **Requests that would reach the host** — even with a valid token, the Docker proxy forwards only an allow-list of Docker methods and paths and refuses everything else (`403`): image builds, `commit`, container export and archive download, image load, save and push, and all of Swarm, services, tasks, nodes, secrets, configs and plugins among them. On the allowed endpoints it reads container create, container update, exec create, volume create and network create bodies and refuses privileged mode; a host or another container's PID, IPC, UTS, user, cgroup or network namespace; a capability beyond Docker's default set; a host folder outside `--allowed-bind-roots` (empty by default, so containers get named volumes only); `VolumesFrom`; host devices, device requests and device cgroup rules; another runtime; runtime annotations; masked or read-only path overrides; a security option outside the default profiles, `no-new-privileges` and SELinux user, role and level labels; a sysctl that is not namespaced; a cgroup parent; `OomKillDisable`; and a tmpfs over `/`, `/proc`, `/sys` or `/etc`. Named volumes made with bind options are held to the bind roots. Exec, attach, file upload and the WebSocket console refuse the agent's own container and any container that already reaches the host, and go on under the full container ID that was checked. Container inspect hides `EIGHTLY_*` values, every environment value of the agent and of containers holding the socket, and the agent's secret flags. A body it must inspect that is over 1 MiB is refused (`413`), never truncated; a body it cannot parse is refused. The path is cleaned and every API version prefix stripped before the check, so the proxy checks exactly what Docker will route. See [API Reference](docs/wiki/API-Reference.md#docker-api-proxy) for the full list.
 - **File operations** — the file browser is restricted to Docker volume directories and validates all paths against traversal attacks. Hidden paths (any segment starting with `.`) are refused, and so are pipes, sockets and device nodes.
 - **Host information** — PCI device and disk information is only available to authenticated callers.
 
 ### What a valid token grants
 
-A valid HMAC-signed token grants **full Docker API access** on the host where the agent runs. This is equivalent to root access on that host. Treat your `EIGHTLY_AGENT_SECRET` with the same care as a root password.
+A valid HMAC-signed token grants control of every container on the host through the allow-listed Docker API: create, start, stop, remove, exec, logs, images, volumes and networks. The proxy is built to stop that control reaching the host itself, but it cannot know every way a future Docker feature might, and a bind root a container can write to weakens it. Treat your `EIGHTLY_AGENT_SECRET` with the same care as a root password.
 
 ### What the agent trusts
 
@@ -64,7 +64,7 @@ A valid HMAC-signed token grants **full Docker API access** on the host where th
 
 ### Privilege required
 
-Access to the Docker socket is **root-equivalent**. Any process that can issue Docker API calls can create privileged containers, mount the host filesystem, and escalate to full root. The agent must be treated as a root-level service.
+Access to the Docker socket is **root-equivalent**. Any process that can issue Docker API calls directly can create privileged containers, mount the host filesystem, and escalate to full root. The agent holds the socket, so it must be treated as a root-level service even though its proxy refuses those calls.
 
 ### Network exposure
 
@@ -76,9 +76,9 @@ The agent binds to `0.0.0.0:9001` by default, meaning it listens on all interfac
 
 | Scenario | Impact |
 |----------|--------|
-| **Stolen HMAC token or shared secret** | Full Docker API access on the host = root-equivalent. The attacker can create privileged containers, mount `/`, read/write any file, and pivot to other hosts. **Rotate the secret immediately** if compromised. |
+| **Stolen HMAC token or shared secret** | Control of every container on every host that shares the secret: run, stop and remove containers, read their logs, exec into them, read and change volume files through the file browser, and write under any bind root. The proxy refuses the known routes to the host itself. **Rotate the secret immediately** if compromised. |
 | **Same-LAN attacker without a token** | Cannot do anything. All endpoints except `/ping`, `/healthz`, `/readyz` and `/version` require a valid HMAC-signed Bearer token. TLS prevents passive eavesdropping. |
-| **`--insecure-no-auth` enabled** | Any host that can reach port 9001 has full Docker API access. This flag exists only for development and must never be used in production. |
+| **`--insecure-no-auth` enabled** | Any host that can reach port 9001 controls every container through the allow-listed Docker API. This flag exists only for development and must never be used in production. |
 
 ### Threat model
 
@@ -87,14 +87,16 @@ The agent binds to `0.0.0.0:9001` by default, meaning it listens on all interfac
 | Token theft | Every token must carry `iat` and `exp`, at most 30 days apart, and is refused once expired. A token is bound to one agent's ID. Rotate the shared secret if a token or the secret is compromised. |
 | Network interception | All communication is over TLS. The default is fail-closed: the agent verifies the server certificate against the system trust store. Use `--server-ca` to pin a custom CA, or `--insecure-server-tls` to disable verification (development only). |
 | Path traversal | `..` segments are refused and every file operation is confined by an `os.Root` on the volume directory. Volume IDs are restricted to safe identifiers. |
-| CRLF injection | Container and exec IDs are validated against `^[a-zA-Z0-9]{12,64}$` before use in Docker socket requests. |
+| CRLF injection | WebSocket container and exec IDs are validated against `^[a-zA-Z0-9]{12,64}$`, and an `{id}` in a proxied path must be a Docker name, before use in Docker socket requests. |
+| Container escape through the API | The proxy allow-list and its body and target checks above. Keep `--allowed-bind-roots` empty, or limited to folders that hold app data and nothing the host trusts. |
 | Unauthenticated access | The agent refuses to start without a secret (`EIGHTLY_AGENT_SECRET`, or a file named by `--secret-file` / `EIGHTLY_AGENT_SECRET_FILE`) unless `--insecure-no-auth` is explicitly set. It also refuses to start when both a secret and a secret file are set, or when a boolean variable such as `EIGHTLY_INSECURE_NO_AUTH` holds something other than true or false. |
 
 ### Best practices
 
 1. **Always set a strong secret** — generate with `openssl rand -hex 32`
 2. **Keep the secret out of the environment where you can** — use `--secret-file` (the Windows service does this by default) or, for the Linux packages, the root-only `/etc/eightly-agent/agent.env`
-3. **Run as non-root** — use the `eightly-agent` user with Docker group access
-4. **Restrict network access** — bind the agent to a private interface or use a VPN
-5. **Pin TLS certificates** — use `--server-ca` in production instead of `--insecure-server-tls`
-6. **Rotate secrets regularly** — change `EIGHTLY_AGENT_SECRET` on a schedule
+3. **Bind only what you must** — leave `--allowed-bind-roots` empty, or name app data folders such as `/opt/appdata`, never a folder the host reads its configuration from
+4. **Run as non-root** — use the `eightly-agent` user with Docker group access
+5. **Restrict network access** — bind the agent to a private interface or use a VPN
+6. **Pin TLS certificates** — use `--server-ca` in production instead of `--insecure-server-tls`
+7. **Rotate secrets regularly** — change `EIGHTLY_AGENT_SECRET` on a schedule

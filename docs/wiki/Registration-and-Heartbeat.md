@@ -81,14 +81,14 @@ The agent stores `agent_id` and `token` for future heartbeats. A response that r
 
 ### Registration Failure
 
-If registration fails (network error, bad enrollment token, EOS unreachable), the agent logs a warning and keeps running. It does not exit. It retries in the background, first after 5 seconds and then twice as long each time, up to every 5 minutes, until it registers or is stopped.
+If registration fails (network error, rate limiting, a server error, EOS unreachable), the agent logs a warning and keeps running. It does not exit. It retries in the background, first after 5 seconds and then twice as long each time, up to every 5 minutes, until it registers or is stopped.
 
 ```
 WRN registration failed
 WRN agent is not registered; authenticated routes answer 503 until it is
 ```
 
-Until it has registered, every authenticated route answers `503` with `Retry-After: 30`, because the agent cannot yet check that a token was issued for it (see [Authentication](Authentication.md#before-the-agent-knows-its-id)). The probes (`/ping`, `/healthz`, `/readyz`, `/version`) keep answering. A `register failed: status 403` means the enrollment token was refused; retries cannot fix that, so generate a new install command in EOS.
+Until it has registered, every authenticated route answers `503` with `Retry-After: 30`, because the agent cannot yet check that a token was issued for it (see [Authentication](Authentication.md#before-the-agent-knows-its-id)). The probes (`/ping`, `/healthz`, `/readyz`, `/version`) keep answering. When the server refuses the enrollment token (401, 403 or 410: unknown, expired, already used, or its agent deleted), the agent stops retrying, since a single-use token cannot become valid again. It keeps running, answers `503` on authenticated routes, and logs `the server refused the enrollment token; ... generate a new install command on the Agents page and run it on this host`.
 
 ## State File
 
@@ -112,7 +112,7 @@ After successful registration, the agent writes a JSON state file:
 
 **Permissions**: The state file is written with mode `0600`. The parent directory is created with mode `0700` if it does not exist. The agent refuses to load a state file that is not `0600` in a `0700` directory, both owned by its own user; it tightens a directory it owns that holds nothing but its own files. On Windows it sets a protected access list instead and refuses the file if another account keeps access.
 
-On subsequent startups, the agent loads this file and skips registration. It goes directly to the heartbeat loop. A saved state with no agent ID or token is ignored and the agent enrolls again. A saved token that has expired is replaced by a fresh enrollment when an enrollment token is configured; otherwise the agent logs that it must be re-enrolled.
+On subsequent startups, the agent loads this file and skips registration. It goes directly to the heartbeat loop. A saved state with no agent ID or token is ignored and the agent enrolls again. A state file that exists but cannot be read or parsed stops the agent at startup, and the file is left as it is, rather than enrolling over the identity and server pin it holds. A saved registration for a server other than `--server-url` (compared without case, trailing slash or default port) also stops the agent, unless an enrollment token is configured: then the agent copies the old state to `<state-path>.bak` and enrolls with the new server without the old server's pin. A saved token that has expired is replaced by a fresh enrollment when an enrollment token is configured; otherwise the agent logs that it must be re-enrolled.
 
 ## Heartbeat Loop
 

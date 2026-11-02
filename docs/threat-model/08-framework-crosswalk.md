@@ -12,8 +12,10 @@ technique. Rows are keyed to the controls in `06-control-mapping.md`.
 | Fail-closed auth (no-secret → 503) | I/E | V1.4 Access Control Arch | A01 Broken Access Control | CWE-306 Missing Auth, CWE-636 Not-Failing-Securely | AC-3, AC-6 | T1190 Exploit Public-Facing App |
 | HMAC-SHA256 Bearer verify | S | V2.1 / V3.5 Token | A07 Auth Failures | CWE-287, CWE-345 | IA-2, IA-5 | T1078 Valid Accounts |
 | Constant-time compare (`hmac.Equal`) | S | V6.2.3 Crypto | A02 Crypto Failures | CWE-208 Timing Discrepancy | SC-13 | — |
-| Docker request deny-list (create/exec/update/volume, Swarm and plugin APIs) | E/T | V1.4 / V5.1 | A01 / A04 Insecure Design | CWE-269 Improper Privilege Mgmt, CWE-250 | AC-6, SC-39 | T1610 Deploy Container, T1611 Escape to Host |
-| Sensitive bind-mount block | E | V12.3 File Exec | A01 | CWE-22 Path Traversal, CWE-552 | AC-6, SC-39 | T1611 Escape to Host |
+| Docker endpoint allow-list + host-config checks (create/update/exec/volume/network) | E/T | V1.4 / V5.1 | A01 / A04 Insecure Design | CWE-269 Improper Privilege Mgmt, CWE-250 | AC-6, SC-39 | T1610 Deploy Container, T1611 Escape to Host |
+| Bind roots (host paths only under `--allowed-bind-roots`, symlink check) | E | V12.3 File Exec | A01 | CWE-22 Path Traversal, CWE-59 Link Following, CWE-552 | AC-6, SC-39 | T1611 Escape to Host |
+| Target-container checks (exec, attach, upload, WebSocket console) | E | V4.2 / V1.4 | A01 | CWE-269, CWE-668 Exposure to Wrong Sphere | AC-6 | T1609 Container Administration Command, T1611 |
+| Inspect redaction | I | V8.3 / V14.3 | A01 | CWE-200 Info Exposure, CWE-532 | SC-28 | T1552 Unsecured Credentials |
 | Inspection body cap (over 1 MiB → 413, never truncated) | D/T | V13.4 / V12.1 | A05 Misconfiguration | CWE-400 Uncontrolled Resource | SC-5 | T1499 Endpoint DoS |
 | CSWSH origin enforcement | S/E | V13.5 WebSocket / V3.4 | A01 | CWE-346 Origin Validation, CWE-352 CSRF | AC-4, SC-7 | T1190 |
 | Absent-Origin requires token | E | V13.5 | A01 | CWE-306 | AC-3 | T1190 |
@@ -40,7 +42,7 @@ technique. Rows are keyed to the controls in `06-control-mapping.md`.
 
 - **OWASP Top 10 2021** — agent controls touch A01 (access control, the dominant
   theme), A02 (crypto/TLS/pinning), A03 (injection validation), A04 (insecure
-  design / deny-list as a design control), A05 (misconfiguration / headers / DoS),
+  design / the endpoint allow-list as a design control), A05 (misconfiguration / headers / DoS),
   A06 (vulnerable components), A07 (auth), A08 (integrity / supply chain), and A09
   (logging). A10 (SSRF) is not directly applicable — the agent does not make
   attacker-controlled outbound requests; its only outbound is the pinned, fixed
@@ -49,7 +51,8 @@ technique. Rows are keyed to the controls in `06-control-mapping.md`.
   (file handling), and V13 (API/WebSocket). V7 logging is partial (events are
   emitted but lack an on-box integrity chain — see residual risk).
 - **MITRE ATT&CK** — the agent's most-defended techniques are **T1611 Escape to
-  Host** (deny-list + symlink confinement) and **T1557 Adversary-in-the-Middle**
+  Host** (endpoint allow-list, host-config and target checks, bind roots, symlink
+  confinement) and **T1557 Adversary-in-the-Middle**
   (TOFU pin + TLS + https-required), reflecting that its highest-impact asset is
   host root behind the Docker socket.
 - **NIST 800-53** — controls cluster in the **AC** (access control), **SC**

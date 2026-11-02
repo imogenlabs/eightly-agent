@@ -38,7 +38,9 @@ What each signal means:
 |--------|---------|--------|
 | `[SECURITY] auth.unauthorized` | Rejected token (missing, forged, expired, wrong issuer or type, no `iat`/`exp`, lifetime over 30 days, or issued for a different agent). A **burst from one IP** = token brute force. | `internal/auth/jwt.go` |
 | `[SECURITY] auth.misconfigured` | Agent started with no secret and no explicit opt-out — **failing closed (503)**. Operational misconfig, not an attack, but every request is being refused. | `internal/auth/jwt.go` |
-| `[SECURITY] proxy.denied` | A Docker request that would reach the host (privileged, host namespace, dangerous cap, sensitive bind, host device, security option, sysctl, host-path volume, Swarm or plugin API, an unparsable or over-1 MiB body) was **blocked before the Docker socket**. The `reason` names the vector. | `internal/proxy/docker.go` |
+| `[SECURITY] proxy.denied` | A Docker request was **refused before the Docker socket**: an endpoint not on the allow-list (`endpoint not allowed`), or one that would reach the host (privileged, host or container namespace, extra capability, host folder outside `--allowed-bind-roots`, `VolumesFrom`, device, security option, sysctl, host-path volume, exec/attach/upload into a container that reaches the host, an unparsable or over-1 MiB body). The `reason` names the vector. A run of `host bind mount rejected` after an upgrade is usually missing bind roots, not an attack. | `internal/proxy/docker.go` (`deny`), reasons from `filter.go` and `policy.go` |
+| `[SECURITY] websocket.denied` | A WebSocket attach or exec session was refused before the upgrade because its target container reaches the host (the agent's own, a socket holder, privileged and so on). | `internal/websocket/websocket.go` (`refuse`) |
+| `proxy: the agent runs in a container and cannot see the host's filesystem` (warning at startup) | Bind roots are set but the agent cannot check them for symlinks. Expected for a containerized agent with roots; keep the roots to folders no container can write to the top of. | `internal/proxy/filter.go` |
 | `browse.mutate result=rejected` | Path-traversal or symlink-escape write rejected. | `internal/browse/browse.go` |
 | `browse.mutate result=rejected_readonly` | Mutating verb refused on a read-only agent. | `internal/browse/browse.go` |
 | `server cert pin mismatch` (register/heartbeat error) | TLS MITM — the server presented a cert whose key does not match the pinned SPKI. The agent **refused to connect**. | `internal/register/pin.go` |
@@ -244,7 +246,7 @@ journalctl -u eightly-agent --since "5 min ago" | grep -iE 'registered|pin'
 curl -ks -o /dev/null -w '%{http_code}\n' "$EA_TARGET/containers"   # expect 401
 journalctl -u eightly-agent --since "2 min ago" | grep auth.unauthorized
 
-# 3. Confirm the host-escape deny filter is live: a privileged create must 403
+# 3. Confirm the proxy's host-escape checks are live: a privileged create must 403
 #    and log proxy.denied. (Run from the server side with a valid token, against
 #    your OWNED agent only.)
 journalctl -u eightly-agent --since "2 min ago" | grep proxy.denied

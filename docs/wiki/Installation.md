@@ -84,6 +84,8 @@ volumes:
   agent-data:
 ```
 
+The shipped compose file does not set `EIGHTLY_ALLOWED_BIND_ROOTS`, so containers created through it get named volumes only. If your apps bind host folders, add the folders they use under `environment:`, for example `- EIGHTLY_ALLOWED_BIND_ROOTS=/opt/appdata`. See [Configuration](Configuration.md#security).
+
 The agent runs as uid 1000 and reaches Docker through the group that owns the socket. The image assumes GID 999. If your host's socket has another group, put it in `.env`:
 
 ```bash
@@ -108,8 +110,11 @@ docker run -d --init \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
   -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
+  -e EIGHTLY_ALLOWED_BIND_ROOTS="/opt/appdata" \
   ghcr.io/imogenlabs/eightly-agent:latest
 ```
+
+`EIGHTLY_ALLOWED_BIND_ROOTS` names the host folders containers may bind; `/opt/appdata` is where the Eight.ly OS app catalog keeps app data. Without it containers get named volumes only, and an app that binds a host folder is refused. The agent does not need those folders mounted itself: it checks the paths in each request.
 
 To choose when you upgrade, use a release version in place of `latest`, without the `v` (`ghcr.io/imogenlabs/eightly-agent:X.Y.Z`), or a minor line (`X.Y`). The same image is mirrored on Docker Hub as `smashingtags/eightly-agent`.
 
@@ -118,10 +123,11 @@ To choose when you upgrade, use a release version in place of `latest`, without 
 | Mount | Required | Purpose |
 |-------|----------|---------|
 | `/var/run/docker.sock` | Yes | Docker daemon socket -- the agent proxies API requests to this socket |
+| `/var/lib/docker/volumes` | For the file browser | Docker's named volumes, mounted at the same path (`--volumes-path`). Without it the file browser answers `503` |
 | `/data` | Recommended | Persistent storage for TLS certificates (`cert.pem`, `key.pem`) and registration state (`eightly-agent.json`). Without this volume, the agent regenerates certs and re-registers on every restart. Use a named volume: a host directory Docker creates for you is owned by root, and the agent (uid 1000) cannot write its state there. |
 
 !!! warning "A read-only socket mount protects nothing"
-    Mounting the socket with `:ro` marks the socket file read-only, not the Docker API. Anything that can open the socket can still create, start and delete containers, so `:ro` is not a security control. The control is the agent itself: it accepts only signed tokens and refuses Docker requests that would break out of a container (privileged mode, host namespaces, sensitive host mounts and similar). Treat the agent's secret like a root password.
+    Mounting the socket with `:ro` marks the socket file read-only, not the Docker API. Anything that can open the socket can still create, start and delete containers, so `:ro` is not a security control. The control is the agent itself: it accepts only signed tokens, forwards only an allow-list of Docker endpoints, and refuses requests that would break out of a container (privileged mode, host namespaces, extra capabilities, devices, host folders outside the bind roots, and exec or attach into a container that already reaches the host). Treat the agent's secret like a root password.
 
 ## Binary Download
 
@@ -166,6 +172,7 @@ sudoedit /etc/eightly-agent/agent.env
 EIGHTLY_AGENT_SECRET=your-shared-secret
 EIGHTLY_SERVER_URL=https://your-eos-server:8080
 EIGHTLY_ENROLL_TOKEN=your-enrollment-token
+EIGHTLY_ALLOWED_BIND_ROOTS=/opt/appdata
 ```
 
 ```bash
@@ -196,7 +203,7 @@ eightly-agent.exe start
 [System.Environment]::SetEnvironmentVariable("EIGHTLY_AGENT_SECRET", $null, "Machine")
 ```
 
-The service takes no other settings on its command line, so the server URL is read from the `EIGHTLY_SERVER_URL` Machine variable, as above. It is not a secret.
+The service takes no other settings on its command line, so the server URL is read from the `EIGHTLY_SERVER_URL` Machine variable, as above. It is not a secret. Other settings, such as `EIGHTLY_ALLOWED_BIND_ROOTS`, are Machine variables too. A bind root must be an absolute path in `/` form, and a bind written as a Windows path (`C:\...`) is refused, so on Windows give containers named volumes.
 
 The enrollment token is single-use. Delete its file once the agent has registered; a missing or empty token file is not an error, and the agent starts from its saved registration. **Do not put the token in a Machine variable** either: every local user can read it until the agent spends it, and the service refuses to start while `EIGHTLY_ENROLL_TOKEN` is set alongside the token file. An install that used one should remove it:
 

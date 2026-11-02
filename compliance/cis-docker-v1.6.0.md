@@ -16,11 +16,14 @@ A note on the socket mount: unlike a typical app, the agent's *purpose* is to
 broker the Docker API, so it does mount `docker.sock`, read-write. A `:ro` mount
 would mark only the socket file read-only, not the Docker API: anything that can
 open the socket can still create and start containers, so it is not a control.
-The controls are the HMAC token check and an in-process filter
-(`internal/proxy/docker.go` `denyDangerousCreates`) that refuses requests that
-would reach the host: privileged mode, host namespaces, dangerous capabilities,
-sensitive bind mounts, host devices, confinement-disabling security options,
-host sysctls, host-path volume options, and the Swarm and plugin APIs.
+The controls are the HMAC token check and an in-process Docker proxy
+(`internal/proxy`) that forwards only an allow-list of Docker methods and paths
+(`routes.go`) and refuses requests that would reach the host: privileged mode,
+non-private namespaces, capabilities beyond Docker's default set, host folders
+outside `--allowed-bind-roots` (none by default), `VolumesFrom`, host devices,
+confinement-disabling security options, host sysctls, host-path volume options,
+and exec, attach or file upload into a container that already reaches the host.
+Swarm, plugins, builds and image push are not on the list.
 
 ## Section 4 — Container Images & Build
 
@@ -88,14 +91,18 @@ deployment. Operators using a bare `docker run` should mirror these flags.
 ### 5.4 Ensure privileged containers are not used — **Met**
 No `privileged: true` anywhere. The agent runs as a normal non-root container
 and additionally **refuses to create** privileged containers downstream
-(`denyDangerousCreates`).
+(`internal/proxy/policy.go` `checkHostConfig`), and refuses exec or attach into
+an existing privileged container (`filter.go` `checkTargetContainer`).
 
 ### 5.5 Ensure sensitive host directories are not mounted — **Partial / by design**
-The only host mount is `/var/run/docker.sock`, mounted read-write — and
-brokering that socket is the agent's reason to exist. No other host path is
-mounted; data lives in the named `agent-data` volume. The socket exposure is
-mitigated by (a) HMAC-auth gating *who* reaches it and (b) the request filter
-gating *what* they can do (`SECURITY.md` → "Privilege required").
+Two host paths are mounted: `/var/run/docker.sock`, read-write, because
+brokering that socket is the agent's reason to exist; and
+`/var/lib/docker/volumes`, read-write, so the file browser can serve and change
+volume files (leave it out to turn the browser off). The agent's own data lives
+in the named `agent-data` volume. The exposure is mitigated by (a) HMAC-auth
+gating *who* reaches it, (b) the proxy's allow-list and checks gating *what*
+they can do through the socket (`SECURITY.md` → "What the agent protects"), and
+(c) the file browser's confinement to each volume's `_data` folder.
 Evidence: `evidence/CIS-5.5-mounts.txt`
 
 ### 5.7 Ensure privileged ports are not mapped — **Met**
@@ -128,7 +135,8 @@ default seccomp profile applies. The systemd unit additionally pins
 to make Docker calls, and `:ro` would not stop them anyway: it marks the socket
 file, not the API. (See 5.5 for why it is mounted at all.) Compensating
 controls: every call from outside reaches the socket only through the agent's
-token check and request filter, and the agent process itself runs as uid 1000.
+token check and the proxy's allow-list and checks, and the agent process itself
+runs as uid 1000.
 
 ## Container vs. systemd hardening crosswalk
 

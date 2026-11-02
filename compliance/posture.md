@@ -24,15 +24,18 @@ chapter files with the reason stated.
 - **Fail-closed auth.** No secret + no explicit `--insecure-no-auth` → the agent
   refuses to serve (503 / startup error). The Docker socket is never exposed
   unauthenticated by accident. (`internal/auth/jwt.go`, `internal/config/config.go`)
-- **Defense-in-depth over the socket.** Auth gates *who*; the
-  `denyDangerousCreates` filter gates *what*. Container create, exec create,
-  container update and volume create bodies that ask for privileged mode, a host
-  namespace, a dangerous capability, a sensitive bind mount, host devices,
-  a non-default seccomp/AppArmor/SELinux setting, host sysctls or host-path
-  volume options are refused even with a valid token, as are the Swarm API and
-  writes to the plugin and Swarm-object APIs. A body over 1 MiB is refused
-  (413), never truncated; a body it cannot parse is refused (403).
-  (`internal/proxy/docker.go`)
+- **Defense-in-depth over the socket.** Auth gates *who*; the proxy's
+  allow-list gates *what*. Only listed Docker methods and paths are forwarded
+  (`routes.go`); Swarm, plugins, builds, commits, exports and image push are
+  not on the list. Container create, update, exec create, volume create and
+  network create bodies that ask for privileged mode, a non-private namespace,
+  a capability beyond Docker's default set, a host folder outside
+  `--allowed-bind-roots` (none by default), host devices, a non-default
+  seccomp/AppArmor/SELinux setting, host sysctls or host-path volume options are
+  refused even with a valid token. Exec, attach, file upload and the WebSocket
+  console refuse the agent's own container and any container that reaches the
+  host. A body over 1 MiB is refused (413), never truncated; a body it cannot
+  parse is refused (403). (`internal/proxy/filter.go`, `policy.go`, `target.go`)
 - **Identity before access.** With a secret and a server URL set, every
   authenticated route answers 503 (`Retry-After: 30`) until the agent knows its
   registered ID, and then accepts only tokens issued for that ID with
@@ -60,9 +63,9 @@ chapter files with the reason stated.
 
 | ID | Status | Residual | Reason it is accepted | Compensating control |
 |----|--------|----------|-----------------------|----------------------|
-| CIS 5.5 / 5.29 | Partial | `docker.sock` mounted read-write into the container | Brokering the socket is the agent's core function; `:ro` would mark only the socket file, not the Docker API, so it protects nothing | HMAC token check + the proxy's request filter |
+| CIS 5.5 / 5.29 | Partial | `docker.sock` mounted read-write into the container | Brokering the socket is the agent's core function; `:ro` would mark only the socket file, not the Docker API, so it protects nothing | HMAC token check + the proxy's allow-list and checks |
 | CIS 5.12 / 5.14 | NA (container) | compose ref does not set `read_only`/`no-new-privileges` | The binary writes TLS material + state under `/data`; operators can add these flags | systemd path enforces both; binary execs no setuid helper |
-| ASVS V4.1.3 | Partial | A valid token grants full Docker API (root-equivalent) | Documented trust model — the agent *is* a root-level service (`SECURITY.md`) | Token `exp`, secret rotation guidance, create-deny filter |
+| ASVS V4.1.3 | Partial | A valid token controls every container through the allow-listed Docker API | Documented trust model — the agent *is* a root-level service (`SECURITY.md`) | Token `exp`, secret rotation guidance, the proxy's allow-list, bind roots and target checks |
 | ASVS V7.4.1 | Partial | Logs not shipped off-box by the agent | Central aggregation is an operator-pipeline concern | Stable `[SECURITY]` JSON prefix for easy ingestion |
 | CIS 4.5 | Partial | Docker Content Trust / Notary not used | cosign keyless signing is equivalent/stronger | cosign verify + SLSA provenance |
 
