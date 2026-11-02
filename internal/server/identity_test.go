@@ -209,7 +209,9 @@ func TestRun_RegistersInBackgroundAndGatesUntilThen(t *testing.T) {
 		}
 	}()
 
-	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}} // #nosec G402 -- test server
+	// The first /host after registration gathers hardware info; on Windows
+	// that runs PowerShell and can take several seconds.
+	client := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}} // #nosec G402 -- test server
 	waitForServer(t, client, port)
 	get := func(token string) int {
 		req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("https://127.0.0.1:%s/host", port), nil) //nolint:noctx // test
@@ -226,7 +228,7 @@ func TestRun_RegistersInBackgroundAndGatesUntilThen(t *testing.T) {
 		t.Fatalf("before registration /host answered %d, want 503", code)
 	}
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(45 * time.Second)
 	for get(agentToken("agent-me")) != http.StatusOK {
 		if time.Now().After(deadline) {
 			t.Fatalf("never registered (%d register calls)", calls.Load())
