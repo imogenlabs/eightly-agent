@@ -116,7 +116,7 @@ curl -k -H "Authorization: Bearer $TOKEN" https://localhost:9001/host
 
 ## File Browser
 
-All file browser endpoints operate on Docker volume data stored under `<data-path>/volumes/<volumeID>/_data/`. See [File Browser](File-Browser.md) for full details.
+All file browser endpoints operate on Docker volume data stored under `<volumes-path>/<volumeID>/_data/` (`--volumes-path`, by default `/var/lib/docker/volumes`). See [File Browser](File-Browser.md) for full details.
 
 ### GET /browse/ls
 

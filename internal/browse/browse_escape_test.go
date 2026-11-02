@@ -61,7 +61,7 @@ func newEscapeFixture(t *testing.T) *escapeFixture {
 			t.Skipf("symlinks not supported: %v", err)
 		}
 	}
-	f := &escapeFixture{srv: httptest.NewServer(Handler(dataPath)), volID: volID, dataDir: dataDir, outside: outside, victim: victim}
+	f := &escapeFixture{srv: httptest.NewServer(Handler(filepath.Join(dataPath, "volumes"))), volID: volID, dataDir: dataDir, outside: outside, victim: victim}
 	t.Cleanup(f.srv.Close)
 	return f
 }

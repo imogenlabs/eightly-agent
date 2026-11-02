@@ -8,19 +8,28 @@ The file browser provides HTTP endpoints for managing files inside Docker volume
 
 ## How It Works
 
-The file browser operates on Docker volume data stored on disk. All paths are resolved relative to the agent's data directory:
+The file browser operates on Docker volume data stored on disk, in the folder where Docker keeps named volumes:
 
 ```
-<data-path>/volumes/<volumeID>/_data/<path>
+<volumes-path>/<volumeID>/_data/<path>
 ```
 
 Where:
-- `<data-path>` is the agent's `--data` (default `/data`)
+- `<volumes-path>` is `--volumes-path` / `EIGHTLY_VOLUMES_PATH` (see below for the default)
 - `<volumeID>` is the Docker volume name or ID
 - `_data` is the standard Docker volume subdirectory
 - `<path>` is the user-specified path within the volume
 
-For example, with default settings, a request for `volumeID=myapp_data&path=/config/app.yml` resolves to `/data/volumes/myapp_data/_data/config/app.yml`.
+For example, with default settings on Linux, a request for `volumeID=myapp_data&path=/config/app.yml` resolves to `/var/lib/docker/volumes/myapp_data/_data/config/app.yml`.
+
+When `--volumes-path` is not set, the agent uses, in order:
+
+1. `/var/lib/docker/volumes` (`C:\ProgramData\docker\volumes` on Windows) when it exists. That is where Docker keeps volumes, and where `docker-compose.yml` binds them into the agent's container.
+2. `<data-path>/volumes` when it exists. Older instructions bound the volumes there (`/var/lib/docker/volumes:/data/volumes`); such installs keep working.
+3. On Linux, `/var/lib/docker/volumes` anyway. Requests are answered `503` with a message naming that folder until it is bound.
+4. On macOS and Windows, none. Docker Desktop keeps volumes inside its virtual machine, out of the agent's reach, and requests are answered `501`.
+
+The agent's data directory (`--data`) holds only its own state, certificate and key; volumes are never read from it unless it holds a `volumes` folder as in item 2.
 
 ## Operations
 
@@ -164,20 +173,18 @@ All file browser endpoints require a valid Bearer token (see [Authentication](Au
 
 ### Volume Scope
 
-The file browser only accesses files under `<data-path>/volumes/`. It cannot access arbitrary paths on the host filesystem. However, if the agent's data path is mounted to include Docker volume data (which it typically is), all Docker volume contents on that host are accessible.
+The file browser only accesses files under `<volumes-path>/<volumeID>/_data/`. It cannot access arbitrary paths on the host filesystem, but every Docker volume on the host is within its reach.
 
 ## Docker Volume Layout
 
-Docker stores named volume data at `/var/lib/docker/volumes/<name>/_data/`. For the file browser to work, the agent's data path must encompass this directory, or the volume data must be separately mounted into the agent's data path.
-
-When running the agent in Docker, the typical setup is:
+Docker stores named volume data at `/var/lib/docker/volumes/<name>/_data/`. When the agent runs in a container, bind that folder in at the same path, as `docker-compose.yml` does:
 
 ```yaml
 volumes:
-  - /var/lib/docker/volumes:/data/volumes:rw
+  - /var/lib/docker/volumes:/var/lib/docker/volumes
 ```
 
-This maps the host's Docker volume storage into the agent's expected path structure.
+Leave the bind out to turn the file browser off; it then answers `503`. If Docker keeps its data elsewhere (`data-root` in `daemon.json`), bind `<data-root>/volumes` and set `--volumes-path` to where it lands. When the agent runs directly on the host as a non-root user (the `.deb`/`.rpm` service), it cannot read `/var/lib/docker/volumes`, which is root-only; the browser then answers `403` for each volume.
 
 ## Error Responses
 
@@ -190,6 +197,8 @@ This maps the host's Docker volume storage into the agent's expected path struct
 | 403 | Hidden path (a segment starting with `.`), read-only mode, or the volume directory is not readable by the agent |
 | 404 | Volume not found, or (`get`) file not found or a symlink |
 | 500 | Filesystem error (permission denied, path not found, not a directory for `ls`, disk full) |
+| 501 | No volumes folder on this host: Docker Desktop keeps volumes inside its VM. Set `--volumes-path` if they can be reached |
+| 503 | The volumes folder does not exist: bind Docker's volumes folder into the agent's container, or set `--volumes-path` |
 
 ## See Also
 

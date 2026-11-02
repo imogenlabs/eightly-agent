@@ -41,8 +41,8 @@ func newHiddenFixture(t *testing.T) *hiddenFixture {
 	f := &hiddenFixture{
 		dataDir: dataDir,
 		volID:   volID,
-		rw:      httptest.NewServer(Handler(dataPath)),
-		ro:      httptest.NewServer(Handler(dataPath, ReadOnly(true))),
+		rw:      httptest.NewServer(Handler(filepath.Join(dataPath, "volumes"))),
+		ro:      httptest.NewServer(Handler(filepath.Join(dataPath, "volumes"), ReadOnly(true))),
 	}
 	t.Cleanup(f.rw.Close)
 	t.Cleanup(f.ro.Close)

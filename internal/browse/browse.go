@@ -43,11 +43,13 @@ func ReadOnly(ro bool) Option {
 	return func(o *options) { o.readOnly = ro }
 }
 
-// Handler returns an HTTP handler for listing, downloading, uploading, deleting, and renaming files in Docker volumes.
-//
-// The variadic opts keep the existing call site (browse.Handler(cfg.DataPath))
-// compiling unchanged while allowing ReadOnly(true) and future options.
-func Handler(dataPath string, opts ...Option) http.Handler {
+// Handler returns an HTTP handler for listing, downloading, uploading,
+// deleting, and renaming files in Docker volumes. volumesRoot is the folder
+// that holds them, as Docker lays it out: <volumesRoot>/<name>/_data. An
+// empty volumesRoot means this host has no such folder the agent can see
+// (Docker Desktop keeps volumes inside its VM), and every request is answered
+// 501.
+func Handler(volumesRoot string, opts ...Option) http.Handler {
 	var cfg options
 	for _, opt := range opts {
 		opt(&cfg)
@@ -56,7 +58,7 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /browse/ls", func(w http.ResponseWriter, r *http.Request) {
-		root, name, ok := openPath(w, dataPath, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
+		root, name, ok := openPath(w, volumesRoot, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
 		if !ok {
 			return
 		}
@@ -93,7 +95,7 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 	})
 
 	mux.HandleFunc("GET /browse/get", func(w http.ResponseWriter, r *http.Request) {
-		root, name, ok := openPath(w, dataPath, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
+		root, name, ok := openPath(w, volumesRoot, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
 		if !ok {
 			return
 		}
@@ -129,7 +131,7 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 100*1024*1024) // 100 MB limit
 
-		root, name, ok := openPath(w, dataPath, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
+		root, name, ok := openPath(w, volumesRoot, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
 		if !ok {
 			return
 		}
@@ -187,7 +189,7 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 			rejectReadOnly(w, r, "delete")
 			return
 		}
-		root, name, ok := openPath(w, dataPath, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
+		root, name, ok := openPath(w, volumesRoot, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
 		if !ok {
 			return
 		}
@@ -224,7 +226,7 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 			return
 		}
 
-		root, name, ok := openPath(w, dataPath, r.URL.Query().Get("volumeID"), body.Path)
+		root, name, ok := openPath(w, volumesRoot, r.URL.Query().Get("volumeID"), body.Path)
 		if !ok {
 			return
 		}
@@ -259,7 +261,7 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 // route: hidden files and directories (.ssh, .env, .git) are never reachable.
 //
 // The caller must Close the returned Root.
-func openPath(w http.ResponseWriter, dataPath, volumeID, userPath string) (*os.Root, string, bool) {
+func openPath(w http.ResponseWriter, volumesRoot, volumeID, userPath string) (*os.Root, string, bool) {
 	name, ok := volumeName(userPath)
 	if !ok || !validIdentifier.MatchString(volumeID) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path traversal rejected"})
@@ -269,7 +271,10 @@ func openPath(w http.ResponseWriter, dataPath, volumeID, userPath string) (*os.R
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 		return nil, "", false
 	}
-	root, err := os.OpenRoot(filepath.Join(dataPath, "volumes", volumeID, "_data"))
+	if !available(w, volumesRoot) {
+		return nil, "", false
+	}
+	root, err := os.OpenRoot(filepath.Join(volumesRoot, volumeID, "_data"))
 	if errors.Is(err, fs.ErrPermission) {
 		// The Root needs read permission on _data, not only search.
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "volume is not readable by the agent"})
@@ -280,6 +285,21 @@ func openPath(w http.ResponseWriter, dataPath, volumeID, userPath string) (*os.R
 		return nil, "", false
 	}
 	return root, name, true
+}
+
+// available answers 501 or 503 when the agent cannot see Docker's volumes
+// folder at all, so a host where the browser cannot work says why instead of
+// answering 404 for every volume.
+func available(w http.ResponseWriter, volumesRoot string) bool {
+	if volumesRoot == "" {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "file browser unavailable: Docker keeps its volumes inside a virtual machine on this host (Docker Desktop), out of the agent's reach; set --volumes-path if they are reachable at some path"})
+		return false
+	}
+	if _, err := os.Stat(volumesRoot); errors.Is(err, fs.ErrNotExist) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "file browser unavailable: the volumes folder " + volumesRoot + " does not exist; bind Docker's volumes folder there or set --volumes-path"})
+		return false
+	}
+	return true
 }
 
 // volumeName turns a request path into a clean name relative to the volume

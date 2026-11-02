@@ -71,6 +71,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - agent-data:/data
+      - /var/lib/docker/volumes:/var/lib/docker/volumes  # for the file browser
     group_add:
       - "${DOCKER_GID:-999}"
     environment:
@@ -102,6 +103,7 @@ docker run -d --init \
   -v /var/run/docker.sock:/var/run/docker.sock \
   --group-add "$(stat -c %g /var/run/docker.sock)" \
   -v eightly-agent-data:/data \
+  -v /var/lib/docker/volumes:/var/lib/docker/volumes \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
