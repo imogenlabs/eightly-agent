@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/imogenlabs/eightly-agent/internal/dockerdial"
 	"github.com/rs/zerolog/log"
 )
 
@@ -24,7 +25,7 @@ var versionPrefix = regexp.MustCompile(`^/v[0-9]+\.[0-9]+`)
 func NewDockerProxy(socketPath string, bindRoots []string) http.Handler {
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+			return dockerdial.DialContext(ctx, socketPath)
 		},
 		DisableCompression: true,
 	}

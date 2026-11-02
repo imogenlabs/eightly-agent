@@ -22,6 +22,7 @@ import (
 	"github.com/imogenlabs/eightly-agent/internal/auth"
 	"github.com/imogenlabs/eightly-agent/internal/browse"
 	"github.com/imogenlabs/eightly-agent/internal/config"
+	"github.com/imogenlabs/eightly-agent/internal/dockerdial"
 	"github.com/imogenlabs/eightly-agent/internal/hostinfo"
 	"github.com/imogenlabs/eightly-agent/internal/metrics"
 	"github.com/imogenlabs/eightly-agent/internal/proxy"
@@ -110,7 +111,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		conn, err := net.DialTimeout("unix", cfg.SocketPath, 2*time.Second)
+		conn, err := dockerdial.DialTimeout(cfg.SocketPath, 2*time.Second)
 		if err != nil {
 			metrics.DockerSocketReachable.Set(0)
 			w.WriteHeader(http.StatusServiceUnavailable)

@@ -21,6 +21,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	"github.com/imogenlabs/eightly-agent/internal/dockerdial"
 	"github.com/imogenlabs/eightly-agent/internal/metrics"
 )
 
@@ -216,7 +217,7 @@ func detectDockerVersion(socketPath string) string {
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+				return dockerdial.DialContext(ctx, socketPath)
 			},
 		},
 	}

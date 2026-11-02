@@ -19,7 +19,7 @@ import (
 func floodingDocker(t *testing.T) string {
 	t.Helper()
 	// Under /tmp to stay inside the sun_path limit on macOS.
-	dir, err := os.MkdirTemp("/tmp", "ws")
+	dir, err := os.MkdirTemp(socketBase(), "ws")
 	if err != nil {
 		t.Fatal(err)
 	}

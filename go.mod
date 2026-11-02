@@ -5,6 +5,7 @@ go 1.26.4
 toolchain go1.26.10
 
 require (
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/gorilla/websocket v1.5.3
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/zerolog v1.35.1

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -20,7 +21,7 @@ type seen struct {
 // it receives. The socket lives under /tmp to stay inside the sun_path limit.
 func dockerBackend(t *testing.T) (string, <-chan seen) {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "dp")
+	dir, err := os.MkdirTemp(socketBase(), "dp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,4 +155,13 @@ func TestForward_EncodedPath(t *testing.T) {
 			}
 		})
 	}
+}
+
+// socketBase keeps the test socket path short: macOS caps a Unix socket path
+// at 104 bytes, and its default temp folder is long. Windows has no /tmp.
+func socketBase() string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+	return "/tmp"
 }

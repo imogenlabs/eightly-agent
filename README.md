@@ -25,7 +25,7 @@ Run on every Docker host. Manage them all from one dashboard.
 
 Eight.ly Agent is a single Go binary that turns any Docker host into a managed node for Eight.ly OS. Deploy the agent on Linux, macOS, or Windows, point EOS at it, and get full container management, WebSocket console, file browsing, and system monitoring — all over authenticated TLS.
 
-**About 4,800 lines of Go. Four dependencies. Zero config files.**
+**About 4,800 lines of Go. Five dependencies. Zero config files.**
 
 ### Key Capabilities
 
@@ -124,7 +124,7 @@ Every flag except `--addr`, `--insecure-server-tls` and `--version` has an equiv
 | `--enroll-token` | `EIGHTLY_ENROLL_TOKEN` | — | One-time enrollment token |
 | `--state-path` | `EIGHTLY_STATE_PATH` | `eightly-agent.json` in the data directory | Registration state file |
 | `--data` | `DATA_PATH` | `/data` | Data directory (TLS certs, state) |
-| `--socket` | `DOCKER_SOCKET` | `/var/run/docker.sock` | Docker socket path |
+| `--socket` | `DOCKER_SOCKET` | `/var/run/docker.sock` (`//./pipe/docker_engine` on Windows) | Docker socket path |
 | `--log-level` | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
 | `--metrics` | `EIGHTLY_METRICS_ENABLED` | `false` | Enable Prometheus `/metrics` endpoint |
 | `--server-ca` | `EIGHTLY_SERVER_CA` | — | CA cert path to verify the EOS server chain (in addition to TOFU leaf pin) |
@@ -171,6 +171,10 @@ eightly-agent.exe uninstall
 Keep the secret in the file, never in a Machine environment variable: every local user can read those. The service refuses to start when `EIGHTLY_AGENT_SECRET` is set alongside the file; remove an old one with `[Environment]::SetEnvironmentVariable('EIGHTLY_AGENT_SECRET', $null, 'Machine')`. `--secret-file` (or `EIGHTLY_AGENT_SECRET_FILE`) works on Linux and macOS too.
 
 Windows ignores unix file modes, so the agent sets an explicit, protected access list (SYSTEM and Administrators full control, plus the agent's own account when it is run by hand; nothing inherited) on the data folder, the state file, the secret file and the TLS key and certificate when it creates or reuses them, and refuses to load the state, secret or key if any other account still has access. A folder is only re-permissioned when it holds nothing but the agent's files; elsewhere each file is protected on its own. Default data path on Windows is `C:\ProgramData\eightly-agent`.
+
+Ownership is checked too, because an owner can rewrite the access list at any time. When another account owns the data folder or one of the agent's files (a local user who created `C:\ProgramData\eightly-agent` before the install, for example), the agent takes it back for Administrators; as the service (SYSTEM) or from an elevated prompt it holds the privilege to do so. When it cannot, or when someone else owns a shared folder holding the agent's files, it refuses to start and names the owner. Delete the folder and run `install` again to start clean.
+
+The agent reaches Docker over the named pipe `//./pipe/docker_engine` by default (Docker Desktop and Docker Engine on Windows Server). `--socket` takes either pipe spelling, `//./pipe/name` or `\\.\pipe\name`; any other path is dialled as a Unix socket.
 
 ---
 
@@ -294,6 +298,7 @@ cmd/agent/
   service_other.go    — stubs for Linux and macOS
 internal/auth/jwt.go  — HMAC shared-secret token validation middleware
 internal/browse/      — file browser (ls, get, put, delete, rename), confined to each volume
+internal/dockerdial/  — connects to Docker: named pipe on Windows, Unix socket elsewhere
 internal/config/
   config.go           — CLI flags + env var parsing and validation
   secretfile.go       — --secret-file reading
@@ -320,6 +325,7 @@ internal/winacl/      — Windows access lists for the data folder, state, secre
 | `github.com/prometheus/client_golang` | Prometheus metrics (optional, `--metrics` flag) |
 | `github.com/rs/zerolog` | Structured JSON logging |
 | `golang.org/x/sys` | Windows service management (SCM API) |
+| `github.com/Microsoft/go-winio` | Docker's named pipe on Windows |
 
 </details>
 
@@ -329,7 +335,7 @@ internal/winacl/      — Windows access lists for the data folder, state, secre
 
 | Workflow | Trigger | What it does |
 |:---------|:--------|:-------------|
-| **CI** | Push/PR to `main`, `dev` | Lint (vet, staticcheck, govulncheck, gosec, golangci-lint, all pinned) → Test (race, 50% coverage floor) → image reaps orphans → Build matrix (linux/amd64, linux/arm64, linux/arm, darwin/amd64, darwin/arm64, windows/amd64) |
+| **CI** | Push/PR to `main`, `dev` | Lint (vet, staticcheck, govulncheck, gosec, golangci-lint, all pinned) → Test (race, 50% coverage floor), Test on Windows (GitHub-hosted: named pipe, access lists and owners) → image reaps orphans → Build matrix (linux/amd64, linux/arm64, linux/arm, darwin/amd64, darwin/arm64, windows/amd64) |
 | **Pentest Gate** | Push/PR to `main`, `dev` | Security regression tests for auth, proxy, browse, register and websocket; govulncheck and gosec gates |
 | **CodeQL** | Push/PR to `main`, weekly | Go analysis; any finding fails the job |
 | **Docs** | Push/PR touching the docs | `mkdocs build --strict`; on `main` publishes the [docs site](https://imogenlabs.github.io/eightly-agent/) to GitHub Pages once the repo is public |

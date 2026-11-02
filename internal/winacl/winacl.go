@@ -4,8 +4,10 @@
 // bits the rest of the agent sets are ignored, and a file under ProgramData
 // inherits an ACL that lets every local user read it. Protect replaces that
 // with an explicit, protected DACL (SYSTEM and Administrators full control, plus
-// the agent's own account when it is not SYSTEM, nothing inherited), and Check
-// refuses a file anyone else can open. On other platforms both do nothing.
+// the agent's own account when it is not SYSTEM, nothing inherited) and takes
+// ownership back from any other account, since an owner can always rewrite the
+// DACL. Check refuses a file anyone else can open or owns. On other platforms
+// both do nothing.
 package winacl
 
 import (
@@ -54,6 +56,18 @@ func verdict(path string, present bool, entries []ace, trusted map[string]bool) 
 	return nil
 }
 
+// ownerVerdict refuses an owner outside the trusted set: whoever owns a file
+// can rewrite its access list whatever the list says today.
+func ownerVerdict(path, owner string, trusted map[string]bool) error {
+	if owner == "" {
+		return fmt.Errorf("%s has no owner the agent can read", path)
+	}
+	if !trusted[owner] {
+		return fmt.Errorf("%s is owned by %s, not SYSTEM, Administrators or the agent's account, so that account can reopen it", path, owner)
+	}
+	return nil
+}
+
 // OnlyAgentFiles reports whether dir holds nothing but the agent's own files:
 // its TLS pair, its secret, and its state (*.json and the *.json.tmp written
 // beside it). A protected DACL on a folder is pushed down to everything in it,
@@ -89,16 +103,21 @@ func isAgentFile(name string) bool {
 
 // ProtectDir protects dir when it holds only the agent's files and reports
 // whether it did. Files inside are protected one by one by their owners
-// regardless, so skipping a shared folder never leaves a secret open.
+// regardless, so skipping a shared folder never leaves a secret open. A shared
+// folder is still refused when someone else owns it: the owner could swap the
+// agent's files for their own.
 func ProtectDir(dir string) (bool, error) {
 	ok, err := OnlyAgentFiles(dir)
-	if err != nil || !ok {
+	if err != nil {
 		return false, err
+	}
+	if !ok {
+		return false, CheckOwner(dir)
 	}
 	if err := Protect(dir); err != nil {
 		return false, err
 	}
-	return true, nil
+	return true, Check(dir)
 }
 
 // Secure protects path and then checks the result, so a caller can rely on the

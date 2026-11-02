@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -211,7 +212,7 @@ func TestBridge_ReadLimitClosesOnOversizedFrame(t *testing.T) {
 
 	// The socket lives under /tmp to stay inside the sun_path limit (104 bytes
 	// on macOS, where t.TempDir() is already too long).
-	dir, err := os.MkdirTemp("/tmp", "ws")
+	dir, err := os.MkdirTemp(socketBase(), "ws")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,4 +301,13 @@ func TestValidDockerID(t *testing.T) {
 			}
 		})
 	}
+}
+
+// socketBase keeps the test socket path short: macOS caps a Unix socket path
+// at 104 bytes, and its default temp folder is long. Windows has no /tmp.
+func socketBase() string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+	return "/tmp"
 }

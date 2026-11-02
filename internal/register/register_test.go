@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -588,6 +589,9 @@ func TestCheckWritable(t *testing.T) {
 }
 
 func TestCheckWritable_ReadOnlyDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a read-only mode bit does not stop writes into a folder on Windows")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("root can write a read-only directory")
 	}
