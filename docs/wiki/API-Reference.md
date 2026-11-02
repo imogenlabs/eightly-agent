@@ -350,6 +350,20 @@ Version prefixes matching `/v<major>.<minor>` are stripped from all requests. Sh
 
 The proxy sets `FlushInterval: 100ms` for streaming responses (logs, events, etc.).
 
+#### Refused requests
+
+The Docker socket is host root, so the proxy refuses requests that would let a container reach the host. Paths are cleaned and every version prefix is stripped before the check, so the filter sees exactly the path the daemon will route.
+
+- `POST /containers/create`, `POST /containers/<id>/exec` and `POST /containers/<id>/update` are refused with **403** when the body asks for: `Privileged`; host PID, IPC, network, user, UTS or cgroup namespace; a dangerous capability (`SYS_ADMIN`, `SYS_PTRACE`, `SYS_MODULE`, `SYS_RAWIO`, `DAC_READ_SEARCH`, `DAC_OVERRIDE`, `NET_ADMIN`, `SYS_BOOT`, `SYS_CHROOT`, `ALL`); a bind of `/`, `/etc`, `/root`, `/proc`, `/sys`, `/dev`, `/boot`, `/home`, `/run`, `/var/run`, `/var/lib/docker` or the Docker socket, a path under one of them, or a parent of one (such as `/var`); a volume mount whose driver options bind a host path or device; any `SecurityOpt` other than `seccomp=builtin`, `apparmor=docker-default`, `no-new-privileges` and `label=user:`/`role:`/`level:`; `MaskedPaths` or `ReadonlyPaths`; `Devices`; `DeviceCgroupRules`; a sysctl outside `net.*`, `fs.mqueue.*` and the kernel IPC set; `CgroupParent`; a tmpfs over `/`, `/proc`, `/sys` or `/etc`. Binds under ordinary data paths such as `/mnt/user/appdata` or `/opt/appdata`, and named volumes, are allowed.
+- `POST /volumes/create` is refused when `DriverOpts` bind a host path or device. NFS, CIFS and tmpfs options are allowed; options for any driver other than `local` are refused.
+- Every request under `/swarm`, and every request other than `GET`/`HEAD` under `/plugins`, `/services`, `/configs`, `/secrets` and `/nodes`, is refused with **403**.
+- An inspected body that cannot be parsed is refused with **403**. `CapAdd`, `Binds`, `SecurityOpt` and `DeviceCgroupRules` may be a string or a list, as Docker accepts.
+- An inspected body over 1 MiB is refused with **413**.
+
+```json
+{"message": "forbidden: Privileged=true rejected"}
+```
+
 ```bash
 # List containers
 curl -k -H "Authorization: Bearer $TOKEN" https://localhost:9001/containers
@@ -361,7 +375,7 @@ curl -k -H "Authorization: Bearer $TOKEN" https://localhost:9001/containers/abc1
 curl -k -X POST -H "Authorization: Bearer $TOKEN" \
   "https://localhost:9001/images/create?fromImage=nginx&tag=latest"
 
-# Any Docker Engine API call works
+# Any other Docker Engine API call is forwarded as sent
 curl -k -H "Authorization: Bearer $TOKEN" https://localhost:9001/info
 ```
 
@@ -375,6 +389,22 @@ Returned for any authentication failure (missing token, bad signature, wrong iss
 
 ```json
 {"message": "unauthorized"}
+```
+
+### 403 Forbidden
+
+Returned by the Docker API proxy for a refused request (see [Refused requests](#refused-requests)).
+
+```json
+{"message": "forbidden: <reason>"}
+```
+
+### 413 Request Entity Too Large
+
+Returned by the Docker API proxy when a body it must inspect is over 1 MiB.
+
+```json
+{"message": "too large: request body over the 1 MiB inspection limit"}
 ```
 
 ### 400 Bad Request
