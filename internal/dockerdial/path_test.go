@@ -42,7 +42,7 @@ func TestDialTimeoutUnixSocket(t *testing.T) {
 	if err != nil {
 		t.Skipf("unix sockets unavailable here: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go func() {
 		if c, err := ln.Accept(); err == nil {
 			_, _ = c.Write([]byte("ok"))
@@ -53,7 +53,7 @@ func TestDialTimeoutUnixSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial %s: %v", sock, err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	buf := make([]byte, 2)
 	if _, err := conn.Read(buf); err != nil || string(buf) != "ok" {
 		t.Fatalf("read %q, %v", buf, err)
@@ -66,7 +66,7 @@ func TestDialTimeoutMissing(t *testing.T) {
 		path = `//./pipe/eightly-agent-test-missing`
 	}
 	if conn, err := DialTimeout(path, 500*time.Millisecond); err == nil {
-		conn.Close()
+		_ = conn.Close()
 		t.Fatalf("dialing %s succeeded", path)
 	}
 }
