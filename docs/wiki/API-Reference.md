@@ -317,13 +317,13 @@ The agent sends `POST /exec/<id>/start` with `{"Tty":true,"Detach":false}` and b
 
 ## Docker API Proxy
 
-### * /* (catch-all)
+### Allowed Docker endpoints
 
-All requests that do not match a specific endpoint are proxied to the local Docker daemon socket.
+Requests that do not match one of the agent's own endpoints go to the Docker proxy. Only the method and path pairs below are forwarded to the local Docker daemon socket; anything else is refused with **403**.
 
 **Auth**: Required
 
-The agent acts as a reverse proxy, forwarding the request to the Docker Unix socket at the configured `--socket`. The following path rewrites are applied:
+The agent forwards to the Docker socket at the configured `--socket`. The following path rewrites are applied:
 
 | Incoming Path | Proxied To |
 |--------------|------------|
@@ -333,18 +333,49 @@ The agent acts as a reverse proxy, forwarding the request to the Docker Unix soc
 | `/volumes` | `/volumes` |
 | `/networks` | `/networks` |
 
-Version prefixes matching `/v<major>.<minor>` are stripped from all requests. Short paths for list endpoints are expanded to their full Docker API equivalents.
+Version prefixes matching `/v<major>.<minor>` are stripped from all requests and the path is cleaned. The daemon receives the decoded path the filter checked, never the client's own escaping of it. `HEAD` is allowed wherever `GET` is.
 
 The proxy sets `FlushInterval: 100ms` for streaming responses (logs, events, etc.).
 
+| Method | Path | Checked |
+|--------|------|---------|
+| GET | `/_ping`, `/version`, `/info`, `/events`, `/system/df` | |
+| GET | `/containers/json`, `/containers/<id>/logs`, `/stats`, `/changes` | |
+| GET | `/containers/<id>/json` | Env values redacted in the response (see below) |
+| GET | `/containers/<id>/top` | refused for the agent's own container and any container holding the Docker socket |
+| POST | `/containers/create` | body |
+| POST | `/containers/<id>/start`, `/restart` | bind sources re-checked for symlinks when the agent runs on the host |
+| POST | `/containers/<id>/stop`, `/kill`, `/pause`, `/unpause`, `/wait`, `/rename`, `/resize` | |
+| POST | `/containers/<id>/update` | body |
+| POST | `/containers/<id>/exec` | body and the target container |
+| POST | `/containers/<id>/attach`; GET `/containers/<id>/attach/ws` | the target container |
+| PUT | `/containers/<id>/archive` | the target container |
+| DELETE | `/containers/<id>` | |
+| POST | `/containers/prune` | |
+| GET | `/exec/<id>/json` | |
+| POST | `/exec/<id>/start` | the exec's container; a privileged exec is refused |
+| POST | `/exec/<id>/resize` | |
+| GET | `/images/json`, `/images/search`, `/images/<name>/json`, `/images/<name>/history` | |
+| POST | `/images/create` | registry pulls only (`fromImage`); `fromSrc` is refused |
+| POST | `/images/<name>/tag`, `/images/prune`; DELETE `/images/<name>` | |
+| GET | `/volumes`, `/volumes/<name>`; DELETE `/volumes/<name>`; POST `/volumes/prune` | |
+| POST | `/volumes`, `/volumes/create` | body |
+| GET | `/networks`, `/networks/<id>`; DELETE `/networks/<id>`; POST `/networks/prune`, `/networks/<id>/disconnect` | |
+| POST | `/networks`, `/networks/create` | driver must be `bridge`, `macvlan` or `ipvlan` |
+| POST | `/networks/<id>/connect` | refused for a network whose driver is `host` |
+
+Not on the list, among others: `/build`, `/session`, `/grpc`, `/commit`, `/containers/<id>/export`, downloading from `/containers/<id>/archive`, `/images/load`, `/images/get`, `/images/<name>/push`, `/auth`, `/distribution`, and everything under `/swarm`, `/services`, `/tasks`, `/nodes`, `/secrets`, `/configs` and `/plugins`, reads included.
+
 #### Refused requests
 
-The Docker socket is host root, so the proxy refuses requests that would let a container reach the host. Paths are cleaned and every version prefix is stripped before the check, so the filter sees exactly the path the daemon will route.
+The Docker socket is host root, so the proxy refuses requests that would let a container reach the host.
 
-- `POST /containers/create`, `POST /containers/<id>/exec` and `POST /containers/<id>/update` are refused with **403** when the body asks for: `Privileged`; host PID, IPC, network, user, UTS or cgroup namespace; a dangerous capability (`SYS_ADMIN`, `SYS_PTRACE`, `SYS_MODULE`, `SYS_RAWIO`, `DAC_READ_SEARCH`, `DAC_OVERRIDE`, `NET_ADMIN`, `SYS_BOOT`, `SYS_CHROOT`, `ALL`); a bind of `/`, `/etc`, `/root`, `/proc`, `/sys`, `/dev`, `/boot`, `/home`, `/run`, `/var/run`, `/var/lib/docker` or the Docker socket, a path under one of them, or a parent of one (such as `/var`); a volume mount whose driver options bind a host path or device; any `SecurityOpt` other than `seccomp=builtin`, `apparmor=docker-default`, `no-new-privileges` and `label=user:`/`role:`/`level:`; `MaskedPaths` or `ReadonlyPaths`; `Devices`; `DeviceCgroupRules`; a sysctl outside `net.*`, `fs.mqueue.*` and the kernel IPC set; `CgroupParent`; a tmpfs over `/`, `/proc`, `/sys` or `/etc`. Binds under ordinary data paths such as `/mnt/user/appdata` or `/opt/appdata`, and named volumes, are allowed.
-- `POST /volumes/create` is refused when `DriverOpts` bind a host path or device. NFS, CIFS and tmpfs options are allowed; options for any driver other than `local` are refused.
-- Every request under `/swarm`, and every request other than `GET`/`HEAD` under `/plugins`, `/services`, `/configs`, `/secrets` and `/nodes`, is refused with **403**.
-- An inspected body that cannot be parsed is refused with **403**. `CapAdd`, `Binds`, `SecurityOpt` and `DeviceCgroupRules` may be a string or a list, as Docker accepts.
+- **Container create, update and exec bodies** are refused with **403** when they ask for: `Privileged`; a PID, IPC, UTS, user or cgroup namespace other than a private one (`host` or `container:<id>`); `NetworkMode` `host`, `container:<id>`, or a network whose driver is `host` (also when named in `NetworkingConfig`); a capability outside Docker's default set (`AUDIT_WRITE`, `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `FSETID`, `KILL`, `MKNOD`, `NET_BIND_SERVICE`, `NET_RAW`, `SETFCAP`, `SETGID`, `SETPCAP`, `SETUID`, `SYS_CHROOT`), which rules out `NET_ADMIN`, `SYS_ADMIN`, `BPF`, `PERFMON` and the rest; `VolumesFrom`; a non-local `VolumeDriver`; any `SecurityOpt` other than `seccomp=builtin`, `apparmor=docker-default`, `no-new-privileges` and `label=user:`/`role:`/`level:`; `MaskedPaths` or `ReadonlyPaths`; OCI `Annotations`; a `Runtime` other than `runc`; `Devices`, `DeviceRequests` (GPUs, CDI) or `DeviceCgroupRules`; a sysctl outside `net.*`, `fs.mqueue.*` and the kernel IPC set; `CgroupParent`; `OomKillDisable`; a tmpfs over `/`, `/proc`, `/sys` or `/etc`; a mount type other than `bind`, `volume` or `tmpfs`; shared mount propagation.
+- **Host paths.** A bind source (in `Binds`, a `bind` mount, or a local volume's `device`) must lie under one of the `--allowed-bind-roots`. The default is none: containers get named volumes only. A path with `..` is refused, and so is the Docker socket. `/etc/localtime` and `/etc/timezone` may be bound read-only. A `Binds` source counts as a named volume only when it is a valid Docker name; anything else is a host path. When the agent runs on the host itself, a bind whose path runs through a symlink below its root is refused at create and at start.
+- **Named volumes.** Every named volume a container create mounts is looked up, and one made on the host with bind options (`o=bind`, `device=/path`) is held to the same rule. `POST /volumes/create` applies it to `DriverOpts`; NFS, CIFS and tmpfs options are allowed, and options for any driver other than `local` are refused.
+- **Existing containers.** Exec create, exec start, attach and archive upload look up the target container and refuse the agent's own container and any container that is privileged, shares a host or another container's namespace, holds the Docker socket, binds a host path outside the roots, has a capability outside the default set, or has a host device. The request is forwarded with the container's full ID, so a rename between the check and the call cannot swap the target.
+- **Container inspect** (`GET /containers/<id>/json`) answers with `EIGHTLY_*` environment values replaced by `<redacted>`, and every environment value replaced for the agent's own container and any container holding the Docker socket. Values of the agent's `--secret` and `--enroll-token` flags are redacted from `Args`, `Cmd` and `Entrypoint`.
+- An inspected body that cannot be parsed is refused with **403**. `CapAdd`, `Binds`, `SecurityOpt`, `VolumesFrom` and `DeviceCgroupRules` may be a string or a list, as Docker accepts.
 - An inspected body over 1 MiB is refused with **413**.
 
 ```json
@@ -362,7 +393,7 @@ curl -k -H "Authorization: Bearer $TOKEN" https://localhost:9001/containers/abc1
 curl -k -X POST -H "Authorization: Bearer $TOKEN" \
   "https://localhost:9001/images/create?fromImage=nginx&tag=latest"
 
-# Any other Docker Engine API call is forwarded as sent
+# Any other call on the allow-list above is forwarded as sent
 curl -k -H "Authorization: Bearer $TOKEN" https://localhost:9001/info
 ```
 

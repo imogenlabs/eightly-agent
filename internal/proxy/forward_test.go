@@ -48,7 +48,7 @@ func forward(t *testing.T, req *http.Request) (seen, *httptest.ResponseRecorder)
 	t.Helper()
 	sock, got := dockerBackend(t)
 	rr := httptest.NewRecorder()
-	NewDockerProxy(sock).ServeHTTP(rr, req)
+	NewDockerProxy(sock, nil).ServeHTTP(rr, req)
 	select {
 	case s := <-got:
 		return s, rr
@@ -140,12 +140,11 @@ func TestForward_XForwardedForStartsFromClientIP(t *testing.T) {
 }
 
 func TestForward_EncodedPath(t *testing.T) {
+	// The decoded path the filter matched is what reaches the daemon, never
+	// the client's escaping of it.
 	cases := []struct{ in, wantURI string }{
-		// Path untouched: the client's escaping goes out as sent.
-		{"/containers/a%2Fb/json?x=1", "/containers/a%2Fb/json?x=1"},
-		// Version prefix stripped: the old raw form no longer matches, so the
-		// decoded path is what reaches the daemon.
-		{"/v1.45/containers/a%2Fb/json?x=1", "/containers/a/b/json?x=1"},
+		{"/images/lscr.io%2Flinuxserver%2Fsonarr/json?x=1", "/images/lscr.io/linuxserver/sonarr/json?x=1"},
+		{"/v1.45/images/lscr.io%2Fsonarr/json?x=1", "/images/lscr.io/sonarr/json?x=1"},
 	}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {

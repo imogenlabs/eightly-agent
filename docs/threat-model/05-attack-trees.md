@@ -26,22 +26,32 @@ GOAL: Execute arbitrary code as root on a managed host
 │       └── 1.4.2 Before the target knows its ID
 │           └── [BLOCKED] authenticated routes answer 503 until registration succeeds
 ├── 2. With a valid token, submit a host-escape request
+│   ├── 2.0 Call an endpoint that carries host reach the filter does not read
+│   │   │     (/build, /session, /grpc, /commit, export, archive download, image load/push,
+│   │   │      Swarm, plugins, anything new)
+│   │   └── [BLOCKED] allow-list of method + path (routes.go); everything else is 403
 │   ├── 2.1 Privileged=true (HostConfig, top level, or on exec create)
 │   │   └── [BLOCKED] checkHostConfig on HostConfig and on the top-level fields
-│   ├── 2.2 Host PID/IPC/network/user/UTS/cgroup namespace
-│   │   └── [BLOCKED] isHostNamespace on PidMode, IpcMode, NetworkMode, UsernsMode, UTSMode, CgroupnsMode
-│   ├── 2.3 CapAdd: SYS_ADMIN / SYS_PTRACE / DAC_READ_SEARCH / ALL …
-│   │   └── [BLOCKED] dangerousCaps (CAP_ prefix normalized; list or single string)
-│   ├── 2.4 Bind-mount a sensitive host path (Binds, Mounts Type "bind")
-│   │   └── [BLOCKED] isSensitiveHostPath: path.Clean resolves .. and //, then refuses a path equal to,
-│   │       under, or a parent of /, /etc, /root, /proc, /sys, /dev, /boot, /home, /run, /var/run,
-│   │       /var/lib/docker, docker.sock (so /var and /var/lib are refused too)
+│   ├── 2.2 Share a host namespace, or join another container's (container:<id>)
+│   │   └── [BLOCKED] PID, IPC, UTS, user and cgroup modes must be private; NetworkMode may not be
+│   │       host or container:<id>, nor a network whose driver is host (looked up by name or ID,
+│   │       also for NetworkingConfig and /networks/{id}/connect); legacy Cgroup joins refused
+│   ├── 2.3 CapAdd beyond the default set (SYS_ADMIN, BPF, PERFMON, SYS_RESOURCE, SYSLOG, NET_ADMIN, ALL …)
+│   │   └── [BLOCKED] allowedCaps is Docker's default set; adding one back is a no-op, anything else is 403
+│   ├── 2.4 Bind-mount a host path (Binds, Mounts Type "bind")
+│   │   └── [BLOCKED] allowed only under --allowed-bind-roots (default: none, named volumes only);
+│   │       ".." refused outright; a Binds source is a named volume only if it is a Docker name,
+│   │       so Windows and relative forms are host paths; /etc/localtime and /etc/timezone read-only
+│   │       only; docker.sock refused; shared/rshared propagation refused
 │   ├── 2.5 Volume that mounts a host path or block device
 │   │   ├── 2.5.1 POST /volumes/create DriverOpts type=none/o=bind/device=/path
-│   │   │   └── [BLOCKED] checkVolumeOptions: bind/rbind, a local-path device, any type but nfs/nfs4/cifs/smb3/tmpfs,
-│   │   │       and options for any non-local driver are refused
-│   │   └── 2.5.2 Mounts Type "volume" with VolumeOptions.DriverConfig options
-│   │       └── [BLOCKED] same checkVolumeOptions
+│   │   │   └── [BLOCKED] a bind device is held to the bind roots; a local-path device of any other
+│   │   │       type, any type but nfs/nfs4/cifs/smb3/tmpfs, and options for non-local drivers are refused
+│   │   ├── 2.5.2 Mounts Type "volume" with VolumeOptions.DriverConfig options
+│   │   │   └── [BLOCKED] same checkVolumeOptions
+│   │   └── 2.5.3 Mount a named volume made on the host with o=bind,device=/
+│   │       └── [BLOCKED] every named volume a create references is inspected (GET /volumes/{name})
+│   │           and its options held to the same rule
 │   ├── 2.6 Weaken the sandbox
 │   │   ├── 2.6.1 SecurityOpt: seccomp unconfined or custom profile, apparmor other than docker-default,
 │   │   │         label=disable or label=type:*, systempaths=unconfined, writable-cgroups=true
@@ -49,28 +59,37 @@ GOAL: Execute arbitrary code as root on a managed host
 │   │   │       no-new-privileges, label=user:/role:/level:)
 │   │   ├── 2.6.2 MaskedPaths / ReadonlyPaths set (overrides the defaults; [] unmasks everything)
 │   │   │   └── [BLOCKED] refused when present
-│   │   ├── 2.6.3 Devices / DeviceCgroupRules (raw disk, /dev/mem)
+│   │   ├── 2.6.3 Devices / DeviceCgroupRules / DeviceRequests (raw disk, GPU, CDI)
 │   │   │   └── [BLOCKED] refused on create and on POST /containers/{id}/update
 │   │   ├── 2.6.4 Sysctls outside the namespaced set
 │   │   │   └── [BLOCKED] only net.*, fs.mqueue.* and the kernel IPC set pass
-│   │   ├── 2.6.5 CgroupParent
-│   │   │   └── [BLOCKED] refused on create and update
+│   │   ├── 2.6.5 CgroupParent, OomKillDisable, a runtime other than runc, OCI annotations,
+│   │   │         a non-local VolumeDriver
+│   │   │   └── [BLOCKED] refused on create (and update, where the field exists)
 │   │   └── 2.6.6 tmpfs over /, /proc, /sys, /etc (Tmpfs map or Mounts Type "tmpfs")
 │   │       └── [BLOCKED] isSensitiveTmpfsTarget
 │   ├── 2.7 Use the Swarm or plugin API
-│   │   ├── 2.7.1 Install/enable a plugin (runs with host privileges)
-│   │   │   └── [BLOCKED] any non-GET/HEAD under /plugins
-│   │   ├── 2.7.2 Create a service/config/secret or change a node
-│   │   │   └── [BLOCKED] any non-GET/HEAD under /services, /configs, /secrets, /nodes
-│   │   └── 2.7.3 Read join tokens or the unlock key, init/join a swarm
-│   │       └── [BLOCKED] every method under /swarm
-│   └── 2.8 Escape via a vector NOT on the deny-list
-│       ├── 2.8.1 A future HostConfig field that grants host reach      [RESIDUAL]
-│       ├── 2.8.2 Join another container's namespaces (NetworkMode/PidMode "container:<id>")
-│       │         or VolumesFrom a container created outside the proxy   [RESIDUAL]
-│       ├── 2.8.3 A symlink on the host that points a harmless-looking bind path at a
-│       │         sensitive one (paths are compared lexically)            [RESIDUAL]
-│       └── 2.8.4 POST /build (e.g. networkmode=host) and NFS/CIFS volumes pointed at the host itself [RESIDUAL]
+│   │   └── [BLOCKED] not on the allow-list, for any method, reads included
+│   ├── 2.8 Copy another container's mounts with VolumesFrom (e.g. the agent's socket bind)
+│   │   └── [BLOCKED] VolumesFrom refused outright; Eight.ly OS never sends it
+│   ├── 2.9 Get inside a container that already reaches the host
+│   │   ├── 2.9.1 Exec, attach or upload files (PUT archive) into the agent's own container or any
+│   │   │         container that is privileged, shares a host or container namespace, holds the
+│   │   │         socket, binds a path outside the roots, has an extra capability or a host device
+│   │   │   └── [BLOCKED] the target is inspected for every such call; the forwarded path carries the
+│   │   │       full ID that was checked, so a rename between check and use cannot swap containers
+│   │   ├── 2.9.2 POST /exec/{id}/start on an exec made elsewhere
+│   │   │   └── [BLOCKED] the exec is inspected, its container checked as above, privileged execs refused
+│   │   ├── 2.9.3 Read the agent's EIGHTLY_AGENT_SECRET from container inspect or top
+│   │   │   └── [BLOCKED] inspect output: all Env values of a socket holder or the agent redacted,
+│   │   │       EIGHTLY_* values redacted everywhere, secret flag values redacted; top refused there
+│   │   └── 2.9.4 /websocket/attach (internal/websocket) attaches without passing the proxy  [RESIDUAL]
+│   └── 2.10 Escape via a vector the allow-list still admits
+│       ├── 2.10.1 A future HostConfig field that grants host reach      [RESIDUAL]
+│       ├── 2.10.2 A container that can write under a bind root plants a symlink, and a second
+│       │          bind follows it. Checked at create and start when the agent runs on the host;
+│       │          a race remains, and an agent in a container cannot see the host's paths  [RESIDUAL]
+│       └── 2.10.3 NFS/CIFS volumes pointed at the host's own exports      [RESIDUAL]
 └── 3. Bypass the proxy filter entirely
     ├── 3.1 Smuggle the body past inspection
     │   ├── 3.1.1 Oversized body (padding past the inspection buffer)
@@ -80,7 +99,8 @@ GOAL: Execute arbitrary code as root on a managed host
     │   │       accept a string or a list, as Docker does
     │   └── 3.1.3 Path tricks (/v1.45/v1.45/containers/create, //, ./, ..)
     │       └── [BLOCKED] dockerPath cleans the path and strips every version prefix; the filter
-    │           inspects exactly the path the proxy forwards
+    │           inspects exactly the path the proxy forwards, decoded (an escaped slash in the
+    │           client's path never reaches the daemon)
     └── 3.2 Reach the unix socket directly
         └── [EXTERNAL] requires host-local access already
 ```

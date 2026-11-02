@@ -77,6 +77,11 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("failed to generate TLS cert: %w", err)
 	}
 
+	bindRoots, err := cfg.BindRoots()
+	if err != nil {
+		return err
+	}
+
 	mux := http.NewServeMux()
 	authed := authMiddleware(cfg, states)
 	authEnabled := cfg.Secret != ""
@@ -128,7 +133,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	mux.Handle("/websocket/exec", authed(websocket.ExecHandler(cfg.SocketPath, authEnabled, allowedOrigins)))
 	mux.Handle("/browse/", authed(browse.Handler(cfg.DataPath, browse.ReadOnly(cfg.BrowseReadOnly))))
 	mux.Handle("/host", authed(hostinfo.Handler()))
-	mux.Handle("/", authed(proxy.NewDockerProxy(cfg.SocketPath)))
+	mux.Handle("/", authed(proxy.NewDockerProxy(cfg.SocketPath, bindRoots)))
 
 	handler := headerMiddleware(mux, cfg.Version)
 

@@ -21,6 +21,7 @@ Eight.ly Agent is configured entirely through command-line flags and environment
 | `--data` | `DATA_PATH` | `/data` | Storage | Data directory. TLS certificates are stored here, and the file browser resolves volume paths under it. |
 | `--metrics` | `EIGHTLY_METRICS_ENABLED` | `false` | Monitoring | Enable the Prometheus `/metrics` endpoint |
 | `--allowed-origins` | `EIGHTLY_ALLOWED_ORIGINS` | (empty) | Security | Comma-separated WebSocket origin allowlist (empty = same-origin check) |
+| `--allowed-bind-roots` | `EIGHTLY_ALLOWED_BIND_ROOTS` | (empty) | Security | Comma-separated host directories containers may bind-mount. Empty: named volumes only |
 | `--browse-read-only` | `EIGHTLY_BROWSE_READ_ONLY` | `false` | Security | Serve the file browser read-only (refuse upload, delete and rename) |
 | `--advertise-ip` | `EIGHTLY_ADVERTISE_IP` | (auto-detected) | Network | Override the detected local IP sent during registration |
 | `--tls-san` | `EIGHTLY_TLS_SANS` | (empty) | TLS | Extra SANs (DNS names or IPs) to include in the auto-generated TLS certificate |
@@ -145,6 +146,16 @@ When set to `true`, exposes a Prometheus-compatible `/metrics` endpoint. This en
 Comma-separated list of allowed origins for WebSocket upgrade requests. When set, a present `Origin` header must match an entry exactly (scheme, host and port). When empty (default), a present `Origin` must match the host the request was sent to. In both cases a request with no `Origin` is accepted only when it carries a valid token. See [WebSocket Console](WebSocket-Console.md).
 
 Example: `--allowed-origins "https://os.eight.ly,https://os-dev.eight.ly"`
+
+**`--allowed-bind-roots` / `EIGHTLY_ALLOWED_BIND_ROOTS`**
+
+Comma-separated host directories that containers created through the agent may bind-mount, as a bind or as a local volume with bind options. A host path outside them is refused, and so is exec, attach or file upload into an existing container that binds one. Empty (the default) allows no host paths at all: containers get named volumes, plus `/etc/localtime` and `/etc/timezone` read-only.
+
+Each root must be an absolute path with no trailing slash. A system directory, a directory inside one, or a parent of one (`/`, `/etc`, `/usr`, `/var`, `/run`, `/opt`, `/var/lib/docker` and so on) is refused at startup.
+
+Any container that can write under a root can plant a symlink there, and the kernel follows a symlink when it mounts a bind. When the agent runs directly on the host it refuses a bind that runs through a symlink, at create and again at start; when it runs in a container it cannot see the host's paths and does not check. Choose roots that hold app data and nothing the host trusts.
+
+Example: `--allowed-bind-roots "/opt/appdata,/mnt/user/media"` (the app catalog's default app data folder is `/opt/appdata`)
 
 ### TLS (Outbound)
 
