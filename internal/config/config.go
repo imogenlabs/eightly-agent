@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -32,6 +33,10 @@ type Config struct {
 	InsecureNoAuth    bool
 	InsecureServerTLS bool
 	ShowVersion       bool
+
+	// envErrs are environment values that could not be read; Validate
+	// reports them so a typo stops the agent instead of being ignored.
+	envErrs []error
 }
 
 // ParseArgs registers all flags on the provided FlagSet, parses the given
@@ -45,7 +50,7 @@ func ParseArgs(fs *flag.FlagSet, args []string, version string) (*Config, error)
 	fs.StringVar(&c.Secret, "secret", "", "HMAC shared secret")
 	fs.StringVar(&c.ServerURL, "server-url", "", "EOS server URL for registration")
 	fs.StringVar(&c.EnrollToken, "enroll-token", "", "first-time registration token")
-	fs.StringVar(&c.StatePath, "state-path", DefaultStatePath, "agent state file")
+	fs.StringVar(&c.StatePath, "state-path", "", "agent state file (default: "+filepath.Base(DefaultStatePath)+" in the data directory)")
 	fs.StringVar(&c.DataPath, "data", DefaultDataPath, "data directory")
 	fs.StringVar(&c.LogLevel, "log-level", "info", "log level")
 	fs.StringVar(&c.SocketPath, "socket", DefaultSocketPath, "Docker socket path")
@@ -75,13 +80,31 @@ func ParseArgs(fs *flag.FlagSet, args []string, version string) (*Config, error)
 	envOverride(&c.AdvertiseIP, "EIGHTLY_ADVERTISE_IP")
 	envOverride(&c.TLSSANs, "EIGHTLY_TLS_SANS")
 	envOverride(&c.AllowedOrigins, "EIGHTLY_ALLOWED_ORIGINS")
-	envOverrideBool(&c.BrowseReadOnly, "EIGHTLY_BROWSE_READ_ONLY")
-	envOverrideBool(&c.MetricsEnabled, "EIGHTLY_METRICS_ENABLED")
-	envOverrideBool(&c.InsecureNoAuth, "EIGHTLY_INSECURE_NO_AUTH")
+	for _, b := range []struct {
+		target *bool
+		key    string
+	}{
+		{&c.BrowseReadOnly, "EIGHTLY_BROWSE_READ_ONLY"},
+		{&c.MetricsEnabled, "EIGHTLY_METRICS_ENABLED"},
+		{&c.InsecureNoAuth, "EIGHTLY_INSECURE_NO_AUTH"},
+	} {
+		if err := envOverrideBool(b.target, b.key); err != nil {
+			c.envErrs = append(c.envErrs, err)
+		}
+	}
 	// InsecureServerTLS is intentionally flag-only: skipping server cert
 	// verification + TOFU pinning is dangerous enough that it must be a
 	// deliberate, operator-typed --insecure-server-tls, never silently enabled
 	// by an inherited/leaked environment variable.
+
+	// The state file lives in the data directory unless it is set on its
+	// own. A fixed default under /data broke every install whose data
+	// directory is elsewhere: the packaged service uses /var/lib/eightly-agent
+	// and cannot write /data, so the agent spent its enrollment token on a
+	// registration it could not save.
+	if c.StatePath == "" {
+		c.StatePath = DefaultStatePathFor(c.DataPath)
+	}
 
 	return c, nil
 }
@@ -104,21 +127,37 @@ func envOverride(target *string, key string) {
 	}
 }
 
-func envOverrideBool(target *bool, key string) {
+// DefaultStatePathFor is the state file used when none is set: in dataPath,
+// named as on this platform. For the default data directory it is
+// DefaultStatePath.
+func DefaultStatePathFor(dataPath string) string {
+	return filepath.Join(dataPath, filepath.Base(DefaultStatePath))
+}
+
+// envOverrideBool sets *target from the environment variable key when it is
+// set. A value that is not a recognised yes or no is an error and leaves
+// *target as it was.
+func envOverrideBool(target *bool, key string) error {
 	v := os.Getenv(key)
 	if v == "" {
-		return
+		return nil
 	}
-	switch strings.ToLower(v) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "true", "1", "yes", "on":
 		*target = true
 	case "false", "0", "no", "off":
 		*target = false
+	default:
+		return fmt.Errorf("%s=%q is not a boolean; use true or false", key, v)
 	}
+	return nil
 }
 
 // Validate checks that required configuration fields are set.
 func (c *Config) Validate() error {
+	if len(c.envErrs) > 0 {
+		return errors.Join(c.envErrs...)
+	}
 	if c.Secret == "" && !c.InsecureNoAuth {
 		return errors.New("EIGHTLY_AGENT_SECRET is required; use --insecure-no-auth to explicitly disable authentication")
 	}

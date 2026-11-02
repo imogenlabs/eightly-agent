@@ -81,7 +81,7 @@ func (f *fakeEOS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func startFakeEOS(t *testing.T) (*fakeEOS, *State, *heartbeater) {
+func startFakeEOS(t *testing.T) (*fakeEOS, *StateHolder, *heartbeater) {
 	t.Helper()
 	f := &fakeEOS{now: time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)}
 	srv := httptest.NewTLSServer(f)
@@ -94,17 +94,17 @@ func startFakeEOS(t *testing.T) (*fakeEOS, *State, *heartbeater) {
 	if err != nil {
 		t.Fatalf("tls: %v", err)
 	}
-	state := &State{AgentID: "agent-1", Token: f.mint(), ServerURL: srv.URL}
+	states := NewStateHolder(&State{AgentID: "agent-1", Token: f.mint(), ServerURL: srv.URL})
 	statePath := filepath.Join(t.TempDir(), "data", "state.json") // Save creates it 0700
-	h := newHeartbeater(state, statePath, "/nonexistent.sock", "test", "10.0.0.9", tlsCfg, zerolog.Nop())
-	return f, state, h
+	h := newHeartbeater(states, statePath, "/nonexistent.sock", "test", "10.0.0.9", tlsCfg, zerolog.Nop())
+	return f, states, h
 }
 
 // Driven through 100 days with a beat every day, the agent
 // renews its token before it lapses and every heartbeat is accepted. Before
 // this, nothing renewed it, and on day 31 it was refused for good.
 func TestHeartbeat_RenewsBeforeExpiryAndStaysConnectedFor100Days(t *testing.T) {
-	f, state, h := startFakeEOS(t)
+	f, states, h := startFakeEOS(t)
 	for day := 1; day <= 100; day++ {
 		f.advance(24 * time.Hour)
 		h.step(context.Background())
@@ -116,7 +116,7 @@ func TestHeartbeat_RenewsBeforeExpiryAndStaysConnectedFor100Days(t *testing.T) {
 		t.Errorf("%d renewals over 100 days; renewing at half-life of 30 days should be about 6", f.registers)
 	}
 	saved, err := LoadState(h.statePath)
-	if err != nil || saved == nil || saved.Token != state.Token {
+	if err != nil || saved == nil || saved.Token != states.Load().Token {
 		t.Fatalf("the renewed token was not saved, so a restart would lose it: %v", err)
 	}
 }
@@ -176,11 +176,11 @@ func TestTokenLifetime_ReadsIssuedAndExpiry(t *testing.T) {
 // save it again, so a restart after the old token lapsed loaded a dead
 // credential. The renewed token stays pending and the next beat saves it.
 func TestHeartbeat_RetriesSavingARenewedTokenAfterTheSaveFailed(t *testing.T) {
-	f, state, h := startFakeEOS(t)
-	if err := state.Save(h.statePath); err != nil {
+	f, states, h := startFakeEOS(t)
+	if err := states.Load().Save(h.statePath); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	original := state.Token
+	original := states.Load().Token
 	// A directory where Save writes its temp file makes the save fail, the
 	// way a full or read-only disk does, without needing root.
 	blocker := h.statePath + ".tmp"
@@ -190,7 +190,7 @@ func TestHeartbeat_RetriesSavingARenewedTokenAfterTheSaveFailed(t *testing.T) {
 
 	f.advance(16 * 24 * time.Hour) // past half-life: this beat renews
 	h.step(context.Background())
-	if state.Token == original {
+	if states.Load().Token == original {
 		t.Fatal("the token was not renewed past half-life")
 	}
 	if onDisk, _ := LoadState(h.statePath); onDisk == nil || onDisk.Token != original {
@@ -204,7 +204,7 @@ func TestHeartbeat_RetriesSavingARenewedTokenAfterTheSaveFailed(t *testing.T) {
 	h.step(context.Background())
 
 	onDisk, err := LoadState(h.statePath)
-	if err != nil || onDisk == nil || onDisk.Token != state.Token {
+	if err != nil || onDisk == nil || onDisk.Token != states.Load().Token {
 		t.Fatalf("the renewed token was never saved after the disk recovered, so a restart loads the old one: %v", err)
 	}
 }

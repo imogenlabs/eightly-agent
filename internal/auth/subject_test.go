@@ -71,14 +71,14 @@ func TestEnrollmentSubjectIsRejected(t *testing.T) {
 	}
 }
 
-// Fail open on unknown identity: an agent that has not registered yet (or runs
-// standalone with no server) must keep working exactly as it did before, or the
-// upgrade would lock installed agents out of their own API.
+// No identity means local-only mode (no server URL): the signature is the
+// check. An agent that registers never reaches the middleware without its ID;
+// the server package answers 503 until it has one.
 func TestUnknownIdentityKeepsPreviousBehaviour(t *testing.T) {
 	h := handlerFor("")
 
 	if code := callWithToken(h, mintToken(t, "agent-aaaaaaaa")); code != http.StatusOK {
-		t.Fatalf("an unregistered agent rejected a valid token with %d; the check must fail open on unknown identity", code)
+		t.Fatalf("a local-only agent rejected a valid token with %d", code)
 	}
 }
 
