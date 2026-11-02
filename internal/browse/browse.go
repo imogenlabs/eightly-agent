@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rs/zerolog/log"
 )
@@ -60,7 +61,7 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 			return
 		}
 		defer root.Close()
-		dir, err := root.Open(name)
+		dir, err := openDir(root, name)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "read failed"})
 			return
@@ -97,13 +98,17 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 			return
 		}
 		defer root.Close()
-		// Refuse dotfiles on download.
-		if strings.HasPrefix(filepath.Base(name), ".") {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		if info, err := root.Lstat(name); err == nil && info.IsDir() {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "target is a directory"})
 			return
 		}
-		// A symlink at the final component is refused, as it always has been.
+		// A symlink at the final component is refused, as it always has been,
+		// and so is anything that is not a regular file (a pipe, a device).
 		f, err := openNoFollow(root, name, os.O_RDONLY, 0)
+		if errors.Is(err, errNotRegular) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a regular file"})
+			return
+		}
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
@@ -112,10 +117,6 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 		info, err := f.Stat()
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "stat failed"})
-			return
-		}
-		if info.IsDir() {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "target is a directory"})
 			return
 		}
 		http.ServeContent(w, r, filepath.Base(name), info.ModTime(), f)
@@ -139,6 +140,12 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "target is a directory"})
 			return
 		}
+		// Reject an existing pipe, socket or device before reading the body.
+		// The open below checks again, so a swap after this cannot get through.
+		if info, err := root.Lstat(name); err == nil && info.Mode()&fs.ModeSymlink == 0 && checkRegular(info.Mode()) != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a regular file"})
+			return
+		}
 
 		file, _, err := r.FormFile("file")
 		if err != nil {
@@ -154,6 +161,11 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 		}
 
 		dst, err := openNoFollow(root, name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644) // #nosec G302 -- files in a volume are world-readable like the rest of its data
+		if errors.Is(err, errNotRegular) {
+			audit(r, "put", name, "rejected")
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a regular file"})
+			return
+		}
 		if err != nil {
 			audit(r, "put", name, "error")
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "write failed"})
@@ -243,12 +255,18 @@ func Handler(dataPath string, opts ...Option) http.Handler {
 // the volume at the moment of the operation, so there is no window between a
 // check and the use for a swapped-in symlink to slip through. It writes the
 // error response itself and returns ok=false when the request is refused.
+// Any path with a segment starting with "." is refused with 403, on every
+// route: hidden files and directories (.ssh, .env, .git) are never reachable.
 //
 // The caller must Close the returned Root.
 func openPath(w http.ResponseWriter, dataPath, volumeID, userPath string) (*os.Root, string, bool) {
 	name, ok := volumeName(userPath)
 	if !ok || !validIdentifier.MatchString(volumeID) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path traversal rejected"})
+		return nil, "", false
+	}
+	if hasHiddenSegment(name) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 		return nil, "", false
 	}
 	root, err := os.OpenRoot(filepath.Join(dataPath, "volumes", volumeID, "_data"))
@@ -285,6 +303,21 @@ func volumeName(userPath string) (string, bool) {
 		return "", false
 	}
 	return filepath.FromSlash(name), true
+}
+
+// hasHiddenSegment reports whether any segment of name starts with ".". name
+// comes from volumeName, so the root itself is "." and is not hidden. Both
+// separators the host OS accepts are split on, so `a\.ssh` on Windows is caught.
+func hasHiddenSegment(name string) bool {
+	if name == "." {
+		return false
+	}
+	for _, seg := range strings.FieldsFunc(name, func(r rune) bool { return r < utf8.RuneSelf && os.IsPathSeparator(uint8(r)) }) {
+		if strings.HasPrefix(seg, ".") {
+			return true
+		}
+	}
+	return false
 }
 
 // rejectReadOnly responds 403 to a mutating request in read-only mode and audits it.

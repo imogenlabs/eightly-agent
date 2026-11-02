@@ -3,13 +3,15 @@
 package hostinfo
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-func readPCIDevices() []PCIDevice {
+// readPCIDevices reads sysfs, which never blocks; ctx is unused.
+func readPCIDevices(_ context.Context) []PCIDevice {
 	entries, err := os.ReadDir("/sys/bus/pci/devices")
 	if err != nil {
 		return []PCIDevice{}
@@ -27,7 +29,7 @@ func readPCIDevices() []PCIDevice {
 	return devs
 }
 
-func readDisks() []PhysicalDisk {
+func readDisks(_ context.Context) []PhysicalDisk {
 	entries, err := os.ReadDir("/sys/block")
 	if err != nil {
 		return []PhysicalDisk{}

@@ -3,17 +3,17 @@
 package hostinfo
 
 import (
-	"os/exec"
+	"context"
 	"strconv"
 	"strings"
 
 	"github.com/rs/zerolog/log"
 )
 
-func readPCIDevices() []PCIDevice {
-	out, err := exec.Command("powershell", "-NoProfile", "-Command",
+func readPCIDevices(ctx context.Context) []PCIDevice {
+	out, err := runCommand(ctx, "powershell", "-NoProfile", "-Command",
 		"Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -like 'PCI*' } | Select-Object InstanceId,FriendlyName,Manufacturer,Class | ConvertTo-Csv -NoTypeInformation",
-	).Output()
+	)
 	if err != nil {
 		log.Debug().Err(err).Msg("powershell Get-PnpDevice failed")
 		return []PCIDevice{}
@@ -40,10 +40,10 @@ func readPCIDevices() []PCIDevice {
 	return devs
 }
 
-func readDisks() []PhysicalDisk {
-	out, err := exec.Command("powershell", "-NoProfile", "-Command",
+func readDisks(ctx context.Context) []PhysicalDisk {
+	out, err := runCommand(ctx, "powershell", "-NoProfile", "-Command",
 		"Get-PhysicalDisk | Select-Object DeviceId,FriendlyName,Size,Manufacturer | ConvertTo-Csv -NoTypeInformation",
-	).Output()
+	)
 	if err != nil {
 		log.Debug().Err(err).Msg("powershell Get-PhysicalDisk failed")
 		return []PhysicalDisk{}
