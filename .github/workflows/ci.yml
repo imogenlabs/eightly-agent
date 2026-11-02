@@ -151,6 +151,31 @@ jobs:
         if: always()
         run: docker rmi -f eightly-agent-reap:${{ github.run_id }} || true
 
+  e2e:
+    # The built agent against a fake Eight.ly OS server and a real Docker
+    # daemon: enrollment, signed-token API calls, the proxy's refusals, the
+    # volume file browser and token renewal (test/e2e). Needs a runner that
+    # can run containers, so the same `docker-build` label as image-reaps.
+    name: End-to-end
+    # A pull request from a fork runs on a GitHub-hosted runner, never on the
+    # persistent self-hosted ones: those keep state between jobs and some hold
+    # release signing access. Pull requests from this repo keep the self-hosted
+    # runners (hosted minutes are limited while the repo is private).
+    runs-on: ${{ fromJSON((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '"ubuntu-latest"' || '["self-hosted", "docker-build"]') }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          cache: false  # Persistent self-hosted runners keep the Go cache on disk
+          go-version: '1.26.10'
+      - name: Docker is reachable
+        run: docker version
+      - name: End-to-end test
+        env:
+          EIGHTLY_E2E: '1'
+        run: go test -tags e2e -count=1 -v -timeout 10m ./test/e2e/
+
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     # A pull request from a fork runs on a GitHub-hosted runner, never on the
