@@ -13,26 +13,32 @@ mediate the Docker socket, so the daemon itself is the deploying operator's to
 harden.
 
 A note on the socket mount: unlike a typical app, the agent's *purpose* is to
-broker the Docker API, so it does mount `docker.sock`. We mount it **read-only**
-(`:ro`) and layer an in-process deny filter (`internal/proxy/docker.go`
-`denyDangerousCreates`) that rejects privileged / host-namespace / sensitive
-bind-mount creates. This is the relevant control, not socket-absence.
+broker the Docker API, so it does mount `docker.sock`, read-write. A `:ro` mount
+would mark only the socket file read-only, not the Docker API: anything that can
+open the socket can still create and start containers, so it is not a control.
+The controls are the HMAC token check and an in-process filter
+(`internal/proxy/docker.go` `denyDangerousCreates`) that refuses requests that
+would reach the host: privileged mode, host namespaces, dangerous capabilities,
+sensitive bind mounts, host devices, confinement-disabling security options,
+host sysctls, host-path volume options, and the Swarm and plugin APIs.
 
 ## Section 4 — Container Images & Build
 
 ### 4.1 Ensure a user for the container has been created — **Met**
-`Dockerfile`: `adduser -S -u 1000 -G docker eightly-agent` then `USER eightly-agent`.
-The container runs as uid 1000, not root. systemd path runs as `User=eightly-agent`.
+`Dockerfile`: `adduser -S -u 1000 -G "$DOCKER_GRP" eightly-agent` (the group with
+GID 999) then `USER eightly-agent`. The container runs as uid 1000, not root; a
+host whose socket has another group adds it with `--group-add` (compose:
+`group_add: ["${DOCKER_GID:-999}"]`). systemd path runs as `User=eightly-agent`.
 Evidence: `evidence/CIS-4.1-user.txt`
 
 ### 4.2 Ensure containers use only trusted base images — **Met**
-`golang:1.26-alpine` (builder) and `alpine:3.23` (runtime), both official images
+`golang:1.26.10-alpine` (builder) and `alpine:3.23` (runtime), both official images
 **pinned by `@sha256:` digest**, not floating tags. Dependabot's `docker`
 ecosystem watches them (`.github/dependabot.yml`).
 Evidence: `evidence/CIS-4.2-base-images.txt`
 
 ### 4.3 Ensure unnecessary packages are not installed — **Met**
-Runtime stage installs only `ca-certificates` and `tzdata`. `git` lives in the
+Runtime stage installs only `ca-certificates`, `tzdata` and `tini` (PID 1, reaps orphaned processes). `git` lives in the
 builder stage only and never reaches the final image (multi-stage build).
 The binary is `CGO_ENABLED=0` static — no libc runtime dependency.
 
@@ -51,9 +57,10 @@ stronger — cryptographic attestation. Verify with:
 `cosign verify --certificate-identity-regexp imogenlabs --certificate-oidc-issuer https://token.actions.githubusercontent.com ghcr.io/imogenlabs/eightly-agent`
 
 ### 4.6 Ensure HEALTHCHECK instructions have been added — **Met**
-`Dockerfile` defines `HEALTHCHECK` against `https://localhost:9001/healthz`.
-`docker-compose.yml` defines an independent compose-level healthcheck against
-`/ping`.
+`Dockerfile` defines `HEALTHCHECK` as `/app/eightly-agent healthcheck`: an
+in-process HTTPS GET of `/healthz` that accepts only the agent's own certificate
+from its data directory and starts no child process. `docker-compose.yml` does
+not override it.
 
 ### 4.7 Ensure update instructions are not used alone — **Met**
 The single `apk add --no-cache` in the runtime stage uses `--no-cache`; there is
@@ -64,7 +71,9 @@ Zero `ADD` instructions. The Dockerfile uses `COPY` only.
 
 ### 4.10 Ensure secrets are not stored in Dockerfiles — **Met**
 No secrets in the Dockerfile. `EIGHTLY_AGENT_SECRET` is injected at runtime via
-env (`docker-compose.yml`) / systemd environment, never baked into a layer or
+env (`docker-compose.yml`), a file named by `--secret-file` /
+`EIGHTLY_AGENT_SECRET_FILE`, or the root-only `/etc/eightly-agent/agent.env` that
+the systemd unit loads with `EnvironmentFile=`; never baked into a layer or
 build arg. gitleaks/secret-scanning is part of the OpenSSF Scorecard checks.
 
 ### 4.11 Ensure only verified packages are installed — **Met**
@@ -82,11 +91,11 @@ and additionally **refuses to create** privileged containers downstream
 (`denyDangerousCreates`).
 
 ### 5.5 Ensure sensitive host directories are not mounted — **Partial / by design**
-The only host mount is `/var/run/docker.sock`, mounted **`:ro`** — and brokering
-that socket is the agent's reason to exist. No other host path is mounted; data
-lives in the named `agent-data` volume. The socket exposure is mitigated by (a)
-read-only mount, (b) HMAC-auth gating *who* reaches it, and (c) the create-deny
-filter gating *what* they can do (`SECURITY.md` → "Privilege required").
+The only host mount is `/var/run/docker.sock`, mounted read-write — and
+brokering that socket is the agent's reason to exist. No other host path is
+mounted; data lives in the named `agent-data` volume. The socket exposure is
+mitigated by (a) HMAC-auth gating *who* reaches it and (b) the request filter
+gating *what* they can do (`SECURITY.md` → "Privilege required").
 Evidence: `evidence/CIS-5.5-mounts.txt`
 
 ### 5.7 Ensure privileged ports are not mapped — **Met**
@@ -114,10 +123,12 @@ No `seccomp:unconfined` and no `--security-opt seccomp=...` override. Docker's
 default seccomp profile applies. The systemd unit additionally pins
 `SystemCallFilter=@system-service` + `SystemCallArchitectures=native`.
 
-### 5.29 Ensure Docker socket is not mounted with write permissions — **Met**
-`docker-compose.yml` mounts the socket **`:ro`**. (See 5.5 for why it is mounted
-at all.) Mutating Docker calls still flow through the agent's authenticated,
-filtered proxy rather than raw socket writes from inside the container.
+### 5.29 Ensure Docker socket is not mounted with write permissions — **Partial / by design**
+`docker-compose.yml` mounts the socket read-write on purpose. The agent's job is
+to make Docker calls, and `:ro` would not stop them anyway: it marks the socket
+file, not the API. (See 5.5 for why it is mounted at all.) Compensating
+controls: every call from outside reaches the socket only through the agent's
+token check and request filter, and the agent process itself runs as uid 1000.
 
 ## Container vs. systemd hardening crosswalk
 
@@ -131,7 +142,7 @@ filtered proxy rather than raw socket writes from inside the container.
 | Kernel protection | host/daemon | `ProtectKernelModules/Tunables/Logs=true`, `ProtectControlGroups=true` |
 | Private tmp | container fs | `PrivateTmp=true`, `UMask=0077` |
 | Syscall filter | Docker default seccomp | `SystemCallFilter=@system-service` |
-| Healthcheck | `HEALTHCHECK` + compose | systemd `Restart=always` |
+| Healthcheck | `HEALTHCHECK` (`eightly-agent healthcheck`) | systemd `Restart=always` |
 
 Evidence: `evidence/SYSTEMD-hardening.txt`
 
@@ -139,6 +150,6 @@ Evidence: `evidence/SYSTEMD-hardening.txt`
 
 | Status | Count |
 |--------|-------|
-| Met | 14 |
-| Partial / by-design | 4 |
+| Met | 13 |
+| Partial / by-design | 5 |
 | NA (operator-recommended on container path, Met on systemd path) | 2 |

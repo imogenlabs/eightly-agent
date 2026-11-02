@@ -36,13 +36,14 @@ What each signal means:
 
 | Signal | Meaning | Source |
 |--------|---------|--------|
-| `[SECURITY] auth.unauthorized` | Rejected token (missing/forged/expired/wrong issuer). A **burst from one IP** = token brute force. | `internal/auth/jwt.go` |
+| `[SECURITY] auth.unauthorized` | Rejected token (missing, forged, expired, wrong issuer or type, no `iat`/`exp`, lifetime over 30 days, or issued for a different agent). A **burst from one IP** = token brute force. | `internal/auth/jwt.go` |
 | `[SECURITY] auth.misconfigured` | Agent started with no secret and no explicit opt-out — **failing closed (503)**. Operational misconfig, not an attack, but every request is being refused. | `internal/auth/jwt.go` |
-| `[SECURITY] proxy.denied` | A container/exec create requesting privileged / host namespace / dangerous cap / sensitive bind was **blocked before the Docker socket**. The `reason` names the vector. | `internal/proxy/docker.go` |
+| `[SECURITY] proxy.denied` | A Docker request that would reach the host (privileged, host namespace, dangerous cap, sensitive bind, host device, security option, sysctl, host-path volume, Swarm or plugin API, an unparsable or over-1 MiB body) was **blocked before the Docker socket**. The `reason` names the vector. | `internal/proxy/docker.go` |
 | `browse.mutate result=rejected` | Path-traversal or symlink-escape write rejected. | `internal/browse/browse.go` |
 | `browse.mutate result=rejected_readonly` | Mutating verb refused on a read-only agent. | `internal/browse/browse.go` |
 | `server cert pin mismatch` (register/heartbeat error) | TLS MITM — the server presented a cert whose key does not match the pinned SPKI. The agent **refused to connect**. | `internal/register/pin.go` |
 | WS upgrade 403 / "too many sessions" 503 | CSWSH origin reject / WebSocket DoS cap. | `internal/websocket/websocket.go` |
+| 503 `agent is not registered with the server yet` + log `agent is not registered; authenticated routes answer 503 until it is` | The agent has a server URL but no registration yet; it retries every 5 s, doubling to 5 min. Operational, not an attack. | `internal/server/server.go` |
 
 Triage prompts:
 
@@ -92,10 +93,11 @@ sudo cp -a "$EIGHTLY_STATE_PATH" ./state.json 2>/dev/null      # token + pin
 sha256sum eightly-agent.binary state.json > evidence.sha256
 ```
 
-> The agent **state file** holds the long-lived bearer token and the server-cert
-> pin (`server_pin`). Its path is `EIGHTLY_STATE_PATH` (default
-> `/data/eightly-agent.json`; commonly under `/var/lib/eightly-agent/` in the
-> systemd deployment). It is 0600 and owned by the `eightly-agent` user by
+> The agent **state file** holds the bearer token (30-day lifetime, renewed by
+> the agent from half-life on) and the server-cert pin (`server_pin`). Its path
+> is `EIGHTLY_STATE_PATH`; by default `eightly-agent.json` in the data directory
+> (`/data` in the container, `/var/lib/eightly-agent` for the packaged systemd
+> service, whose unit sets it explicitly). It is 0600 and owned by the `eightly-agent` user by
 > contract — the agent refuses to load it otherwise.
 
 ---
@@ -139,15 +141,18 @@ two halves — invalidate it server-side, then re-enroll the agent.
 ```sh
 # 1. On the Eight.ly server: revoke/de-register this agent so the old token is
 #    no longer accepted (server-side agent registry; see the server runbook).
-#    Until this is done, the leaked token still works against any agent that
-#    shares the same secret.
+#    Until this is done, the leaked token still works against this agent until
+#    it expires (at most 30 days after it was issued). Other agents refuse it:
+#    each accepts only tokens issued for its own ID.
 
 # 2. On the agent host: delete the captured state so the old token can't be
 #    reloaded, then re-enroll with a fresh single-use enrollment token.
 sudo systemctl stop eightly-agent
-sudo rm -f "$EIGHTLY_STATE_PATH"          # default /data/eightly-agent.json
-# Re-enroll: supply a fresh EIGHTLY_ENROLL_TOKEN (1-hour, single-use) and start.
-sudo EIGHTLY_ENROLL_TOKEN="<new-enroll-token>" systemctl start eightly-agent
+sudo rm -f "$EIGHTLY_STATE_PATH"          # packaged service: /var/lib/eightly-agent/eightly-agent.json
+# Re-enroll: put a fresh single-use EIGHTLY_ENROLL_TOKEN in
+# /etc/eightly-agent/agent.env (sudoedit), then start. systemctl does not pass
+# the caller's environment to the service.
+sudo systemctl start eightly-agent
 #   The agent registers, gets a new token + re-captures the server pin, and
 #   writes a fresh 0600 state file.
 ```
@@ -162,9 +167,11 @@ every agent that shares it, together.
 # Generate a new secret (server + agent must match):
 openssl rand -hex 32
 
-# On the agent host — update the unit's environment (or the EnvironmentFile /
-# the .env for the container) and restart:
-sudo systemctl edit eightly-agent     # set  Environment=EIGHTLY_AGENT_SECRET=<new>
+# On the agent host — update the root-only settings file (or the secret file
+# named by --secret-file / EIGHTLY_AGENT_SECRET_FILE, or the .env for the
+# container) and restart. Do not use `systemctl edit`: a drop-in is readable by
+# every user and `systemctl show` prints its values.
+sudoedit /etc/eightly-agent/agent.env  # set  EIGHTLY_AGENT_SECRET=<new>
 sudo systemctl restart eightly-agent
 #   containerized:  edit .env / -e EIGHTLY_AGENT_SECRET=<new>, then recreate.
 
@@ -263,8 +270,9 @@ After the incident is closed:
    for the same window (the server attributes the agent's token to a user).
 2. **Blast radius.** Did any `proxy.denied`-class create *succeed*? Enumerate
    running containers and bind mounts (`docker ps -a`, `docker inspect`) to
-   confirm nothing escaped. Was the token used against *other* agents sharing the
-   secret? Rotate everywhere it was shared.
+   confirm nothing escaped. A leaked token opens only the agent it was issued for; a
+   leaked *secret* lets an attacker mint tokens for every agent that shares it,
+   so rotate it everywhere it was shared.
 3. **Root cause.** Leaked secret/token (how — backup, process list, loose state
    perms)? Misconfig (`auth.misconfigured` should never appear in steady state)?
    A control gap the harness didn't cover?

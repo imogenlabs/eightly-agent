@@ -56,17 +56,22 @@ flowchart TB
 
 1. **Inbound API request** (`UI → headerMiddleware → auth.Middleware`). TLS
    terminates at the agent. Headers set, then the HMAC middleware verifies the
-   Bearer token. No secret + no opt-out → 503 (fail-closed); bad/absent token →
-   401. Both are `[SECURITY]`-logged.
+   Bearer token. No secret + no opt-out → 503 (fail-closed); an agent with a
+   server URL that has not registered yet → 503 with `Retry-After: 30`;
+   bad/absent token, or one issued for another agent → 401. Auth failures and
+   the fail-closed case are `[SECURITY]`-logged.
 2. **Authenticated request fans out** to one of four host-reaching handlers.
    Each applies its own boundary control *after* auth (defense in depth).
-3. **Docker proxy** strips the version prefix, rewrites convenience paths, and —
-   on create/exec POSTs — buffers and inspects the body for host-escape config
-   before replaying it to the socket.
+3. **Docker proxy** cleans the path, strips every version prefix, rewrites
+   convenience paths, refuses the Swarm API and writes to the plugin and
+   Swarm-object APIs, and — on container create, exec create, container update
+   and volume create — buffers the body (refused over 1 MiB) and inspects it for
+   host-escape config before replaying exactly those bytes to the socket.
 4. **WebSocket exec/attach** validates the Docker ID, checks Origin (CSWSH),
    enforces the concurrency cap, dials Docker with bounded timeouts, hijacks, and
-   bridges with frame-size and idle/absolute timeouts.
-5. **Browse** confines every path under the symlink-resolved volume root, opens
-   with `O_NOFOLLOW`, and audits all mutations (and read-only rejections).
+   bridges with frame-size limits, a write deadline, and idle/absolute timeouts.
+5. **Browse** refuses `..` and hidden segments, runs every operation through an
+   `os.Root` on the volume directory, opens files with `O_NOFOLLOW`, serves only
+   regular files, and audits all mutations (and read-only rejections).
 6. **Outbound to EOS** (register/heartbeat) enforces the TOFU SPKI pin on every
    dial and reads/writes the 0600 state file holding the token and pin.

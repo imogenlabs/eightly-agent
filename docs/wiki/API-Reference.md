@@ -11,7 +11,7 @@ Eightly-Agent: <version>
 Eightly-Agent-API-Version: 2
 ```
 
-All endpoints except `/ping` require a valid Bearer token. See [Authentication](Authentication.md) for token format.
+All endpoints except `/ping`, `/healthz`, `/readyz` and `/version` require a valid Bearer token. See [Authentication](Authentication.md) for token format. While an agent that registers with Eight.ly OS does not yet know its own ID, the authenticated endpoints answer [503](#503-service-unavailable).
 
 ---
 
@@ -92,7 +92,7 @@ Exposed metrics include:
 
 ### GET /host
 
-Returns information about the host machine's PCI devices and physical disks. This data is read from the Linux sysfs filesystem (`/sys/bus/pci/devices` and `/sys/block`).
+Returns a summary of the host's PCI devices and physical disks: counts and total disk size only. Model and vendor strings are not sent, so the response does not fingerprint the hardware.
 
 **Auth**: Required
 
@@ -100,30 +100,13 @@ Returns information about the host machine's PCI devices and physical disks. Thi
 
 ```json
 {
-  "pci_devices": [
-    {
-      "address": "0000:00:02.0",
-      "vendor": "0x8086",
-      "device": "0x5917",
-      "class": "0x030000"
-    }
-  ],
-  "physical_disks": [
-    {
-      "name": "sda",
-      "size_gb": 476,
-      "vendor": "Samsung "
-    },
-    {
-      "name": "nvme0n1",
-      "size_gb": 953,
-      "vendor": ""
-    }
-  ]
+  "pci_count": 24,
+  "disk_count": 2,
+  "disk_total_gb": 1429
 }
 ```
 
-PCI device fields are raw hex values from sysfs. Physical disks exclude loop, ram, and device-mapper (`dm-`) devices. Disk size is calculated from the sector count (`size * 512 / 1GB`).
+On Linux the data comes from sysfs (`/sys/bus/pci/devices` and `/sys/block`; loop, ram and device-mapper devices are skipped). On macOS it comes from `system_profiler` and `diskutil`, on Windows from PowerShell. Each of those reads is stopped after 15 seconds, and a part that times out is reported as empty. The summary is cached for 30 seconds, so frequent polling does not start new host commands each time.
 
 ```bash
 curl -k -H "Authorization: Bearer $TOKEN" https://localhost:9001/host
@@ -340,7 +323,7 @@ All requests that do not match a specific endpoint are proxied to the local Dock
 
 **Auth**: Required
 
-The agent acts as a reverse proxy, forwarding the request to the Docker Unix socket at the configured `--socket-path`. The following path rewrites are applied:
+The agent acts as a reverse proxy, forwarding the request to the Docker Unix socket at the configured `--socket`. The following path rewrites are applied:
 
 | Incoming Path | Proxied To |
 |--------------|------------|
@@ -389,7 +372,7 @@ curl -k -H "Authorization: Bearer $TOKEN" https://localhost:9001/info
 
 ### 401 Unauthorized
 
-Returned for any authentication failure (missing token, bad signature, wrong issuer).
+Returned for any authentication failure: missing token, bad signature, wrong issuer or type, missing `iat` or `exp`, a lifetime over 30 days, an expired token, or a token issued for a different agent.
 
 ```json
 {"message": "unauthorized"}
@@ -402,6 +385,16 @@ Returned by the Docker API proxy for a refused request (see [Refused requests](#
 ```json
 {"message": "forbidden: <reason>"}
 ```
+
+### 503 Service Unavailable
+
+Returned on every authenticated route while an agent that registers with Eight.ly OS does not yet know its own ID, with a `Retry-After: 30` header. It stops once registration succeeds.
+
+```json
+{"message": "service unavailable: agent is not registered with the server yet"}
+```
+
+`/readyz` also answers 503 when the Docker socket is unreachable.
 
 ### 413 Request Entity Too Large
 

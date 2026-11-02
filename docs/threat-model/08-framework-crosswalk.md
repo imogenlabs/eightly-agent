@@ -12,16 +12,16 @@ technique. Rows are keyed to the controls in `06-control-mapping.md`.
 | Fail-closed auth (no-secret → 503) | I/E | V1.4 Access Control Arch | A01 Broken Access Control | CWE-306 Missing Auth, CWE-636 Not-Failing-Securely | AC-3, AC-6 | T1190 Exploit Public-Facing App |
 | HMAC-SHA256 Bearer verify | S | V2.1 / V3.5 Token | A07 Auth Failures | CWE-287, CWE-345 | IA-2, IA-5 | T1078 Valid Accounts |
 | Constant-time compare (`hmac.Equal`) | S | V6.2.3 Crypto | A02 Crypto Failures | CWE-208 Timing Discrepancy | SC-13 | — |
-| Docker create/exec deny-list | E/T | V1.4 / V5.1 | A01 / A04 Insecure Design | CWE-269 Improper Privilege Mgmt, CWE-250 | AC-6, SC-39 | T1610 Deploy Container, T1611 Escape to Host |
+| Docker request deny-list (create/exec/update/volume, Swarm and plugin APIs) | E/T | V1.4 / V5.1 | A01 / A04 Insecure Design | CWE-269 Improper Privilege Mgmt, CWE-250 | AC-6, SC-39 | T1610 Deploy Container, T1611 Escape to Host |
 | Sensitive bind-mount block | E | V12.3 File Exec | A01 | CWE-22 Path Traversal, CWE-552 | AC-6, SC-39 | T1611 Escape to Host |
-| Inspection body cap (1 MiB) | D | V13.4 / V12.1 | A05 Misconfiguration | CWE-400 Uncontrolled Resource | SC-5 | T1499 Endpoint DoS |
+| Inspection body cap (over 1 MiB → 413, never truncated) | D/T | V13.4 / V12.1 | A05 Misconfiguration | CWE-400 Uncontrolled Resource | SC-5 | T1499 Endpoint DoS |
 | CSWSH origin enforcement | S/E | V13.5 WebSocket / V3.4 | A01 | CWE-346 Origin Validation, CWE-352 CSRF | AC-4, SC-7 | T1190 |
 | Absent-Origin requires token | E | V13.5 | A01 | CWE-306 | AC-3 | T1190 |
 | Docker ID validation (regex) | T | V5.1 Input Validation | A03 Injection | CWE-20 Improper Input, CWE-74 Injection | SI-10 | T1059 Command/Scripting |
 | WS DoS bounds (cap/frames/timeouts) | D | V13.4 | A05 | CWE-400, CWE-770 Alloc w/o Limits | SC-5 | T1499 |
 | Browse symlink containment | T/E | V12.3 / V5.1 | A01 | CWE-22 Path Traversal, CWE-59 Link Following | AC-3, AC-6 | T1083 File Discovery, T1611 |
 | `O_NOFOLLOW` on get/put | E | V12.3 | A01 | CWE-59 Link Following, CWE-367 TOCTOU | SC-39 | T1611 |
-| Dotfile suppression | I | V14.3 / V8.1 | A01 | CWE-200 Info Exposure, CWE-538 | SC-28 | T1552 Unsecured Credentials |
+| Hidden-path refusal | I | V14.3 / V8.1 | A01 | CWE-200 Info Exposure, CWE-538 | SC-28 | T1552 Unsecured Credentials |
 | Mutate audit (actor/verb/path) | R | V7.1 Logging | A09 Logging Failures | CWE-778 Insufficient Logging | AU-2, AU-3 | T1070 Indicator Removal |
 | Browse ReadOnly mode | T | V1.4 | A04 | CWE-269 | AC-6 | — |
 | Host info minimization | I | V14.3 | A01 | CWE-200 Info Exposure | SC-28 | T1082 System Info Discovery |

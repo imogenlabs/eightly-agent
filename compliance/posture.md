@@ -15,7 +15,7 @@ chapter files with the reason stated.
 
 | Framework | Met | Partial | Gap | N/A |
 |-----------|-----|---------|-----|-----|
-| CIS Docker v1.6.0 (Sec 4–5) | 14 | 4 | 0 | 2 |
+| CIS Docker v1.6.0 (Sec 4–5) | 13 | 5 | 0 | 2 |
 | OWASP ASVS v4.0.3 L2 | 33 | 3 | 0 | (chapters listed N/A) |
 | NIST CSF 2.0 | 23 | 3 | 2 | — |
 
@@ -25,27 +25,42 @@ chapter files with the reason stated.
   refuses to serve (503 / startup error). The Docker socket is never exposed
   unauthenticated by accident. (`internal/auth/jwt.go`, `internal/config/config.go`)
 - **Defense-in-depth over the socket.** Auth gates *who*; the
-  `denyDangerousCreates` filter gates *what* — privileged / host-namespace /
-  sensitive-bind-mount creates are rejected even with a valid token.
+  `denyDangerousCreates` filter gates *what*. Container create, exec create,
+  container update and volume create bodies that ask for privileged mode, a host
+  namespace, a dangerous capability, a sensitive bind mount, host devices,
+  a non-default seccomp/AppArmor/SELinux setting, host sysctls or host-path
+  volume options are refused even with a valid token, as are the Swarm API and
+  writes to the plugin and Swarm-object APIs. A body over 1 MiB is refused
+  (413), never truncated; a body it cannot parse is refused (403).
   (`internal/proxy/docker.go`)
+- **Identity before access.** With a secret and a server URL set, every
+  authenticated route answers 503 (`Retry-After: 30`) until the agent knows its
+  registered ID, and then accepts only tokens issued for that ID with
+  issuer, type, `iat` and an `exp` no more than 30 days later.
+  (`internal/server/server.go`, `internal/auth/jwt.go`)
 - **Transport.** TLS-only listener, TLS 1.2 minimum, AEAD-only cipher list;
   outbound EOS traffic verified against the system store or a pinned CA, plus a
   TOFU SPKI pin. (`internal/server/server.go`, `internal/register/pin.go`)
-- **Path confinement.** `/browse/*` uses lexical `filepath.Rel` containment +
-  post-`EvalSymlinks` re-check + `O_NOFOLLOW`. (`internal/browse/browse.go`)
+- **Path confinement.** `/browse/*` refuses `..`, runs every operation through
+  an `os.Root` on the volume directory, opens files with `O_NOFOLLOW`, refuses any path with a hidden
+  (dot) segment, and refuses pipes, sockets and devices.
+  (`internal/browse/browse.go`)
 - **Supply chain.** cosign signing, SLSA provenance, SBOM, digest-pinned base
   images, SHA-pinned Actions, Dependabot, and a CI gate of
   govulncheck/gosec/staticcheck/golangci-lint/CodeQL/Scorecard.
 - **Two hardening surfaces.** systemd unit
   (`NoNewPrivileges`, `ProtectSystem=strict`, empty `CapabilityBoundingSet`,
-  `RestrictNamespaces`, syscall filter) and a non-root container (uid 1000,
-  socket `:ro`, healthcheck).
+  `RestrictNamespaces`, syscall filter; secrets in the root-only
+  `/etc/eightly-agent/agent.env`) and a non-root container (uid 1000, socket
+  group added with `group_add`/`--group-add`, tini as PID 1, in-process health
+  check). On Windows the data folder, state, secret file and TLS key carry a
+  protected access list (`internal/winacl`).
 
 ## Accepted residuals
 
 | ID | Status | Residual | Reason it is accepted | Compensating control |
 |----|--------|----------|-----------------------|----------------------|
-| CIS 5.5 | Partial | `docker.sock` mounted into the container | Brokering the socket is the agent's core function | `:ro` mount + HMAC auth + create-deny filter |
+| CIS 5.5 / 5.29 | Partial | `docker.sock` mounted read-write into the container | Brokering the socket is the agent's core function; `:ro` would mark only the socket file, not the Docker API, so it protects nothing | HMAC token check + the proxy's request filter |
 | CIS 5.12 / 5.14 | NA (container) | compose ref does not set `read_only`/`no-new-privileges` | The binary writes TLS material + state under `/data`; operators can add these flags | systemd path enforces both; binary execs no setuid helper |
 | ASVS V4.1.3 | Partial | A valid token grants full Docker API (root-equivalent) | Documented trust model — the agent *is* a root-level service (`SECURITY.md`) | Token `exp`, secret rotation guidance, create-deny filter |
 | ASVS V7.4.1 | Partial | Logs not shipped off-box by the agent | Central aggregation is an operator-pipeline concern | Stable `[SECURITY]` JSON prefix for easy ingestion |
@@ -59,10 +74,11 @@ not the binary.
 
 ## Patch cadence
 
-- **Go toolchain is single-sourced to `1.26.4`** — declared in `go.mod` and
-  pinned identically in `ci.yml`, `release.yml`, and `docker-publish.yml`
-  (via the digest-pinned `golang:1.26-alpine` builder). Bumping one place and
-  the CI `go mod tidy` gate keeps them from drifting.
+- **Go toolchain is `1.26.10`** — the `toolchain` line in `go.mod`, the
+  `go-version` in `ci.yml`, `pentest.yml` and `release.yml`, and the
+  digest-pinned `golang:1.26.10-alpine` builder the image is built from
+  (`Dockerfile`, used by `docker-publish.yml`). They are pinned separately, so a
+  bump touches each of them.
 - **Dependabot** runs **weekly** across three ecosystems — `gomod`,
   `github-actions`, and `docker` (`.github/dependabot.yml`) — so module,
   workflow-action, and base-image updates all arrive as reviewable PRs.
