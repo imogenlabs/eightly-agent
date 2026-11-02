@@ -242,6 +242,9 @@ func TestEnsureCertCreatesSubdirectory(t *testing.T) {
 }
 
 func TestKeyFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ignores unix modes; the key is closed by its access list (internal/winacl)")
+	}
 	dir := t.TempDir()
 
 	_, keyPath, err := EnsureCert(dir)

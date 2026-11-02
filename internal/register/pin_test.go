@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -193,6 +194,9 @@ func TestInsecureServerTLS_SkipsPinning(t *testing.T) {
 // TestLoadState_RejectsBroadFilePerms covers fix #5: a state file looser than
 // 0600 is refused.
 func TestLoadState_RejectsBroadFilePerms(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ignores unix modes; the access-list check covers it (internal/winacl)")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("running as root; permission checks behave differently")
 	}
@@ -219,6 +223,9 @@ func TestLoadState_RejectsBroadFilePerms(t *testing.T) {
 
 // TestLoadState_RejectsBroadDirPerms covers fix #5 for the parent dir.
 func TestLoadState_RejectsBroadDirPerms(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ignores unix modes; the access-list check covers it (internal/winacl)")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("running as root; permission checks behave differently")
 	}
