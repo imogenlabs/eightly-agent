@@ -22,3 +22,6 @@ eightly-agent-metrics-verification.md
 
 # MkDocs build output
 /site/
+
+# Python bytecode (docs hooks)
+__pycache__/

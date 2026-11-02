@@ -6,7 +6,6 @@ package server
 
 import (
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/base64"
 	"os"
 	"path/filepath"
@@ -19,18 +18,12 @@ import (
 	"github.com/imogenlabs/eightly-agent/internal/register"
 )
 
-// loadOrRegister is resume without the saved flag or the error.
-func loadOrRegister(cfg *config.Config, serverTLS *tls.Config) *register.State {
-	state, _, _ := resume(cfg, serverTLS)
-	return state
-}
-
 // Docker creates a new volume directory 0755. The agent saved its
 // registration there, and on the next start its own permission guard refused
 // the directory, so it threw the saved identity away and enrolled again with a
 // single-use token that was already spent: "register failed: status 403".
 // A restart must resume from the saved state instead.
-func TestLoadOrRegister_RestartResumesSavedStateInFreshVolumeDir(t *testing.T) {
+func TestResume_RestartResumesSavedStateInFreshVolumeDir(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("running as root; ownership checks behave differently")
 	}
@@ -62,7 +55,7 @@ func TestLoadOrRegister_RestartResumesSavedStateInFreshVolumeDir(t *testing.T) {
 		t.Fatalf("tls: %v", err)
 	}
 
-	state := loadOrRegister(cfg, tlsCfg)
+	state, _, _ := resume(cfg, tlsCfg)
 
 	if n := calls.Load(); n != 0 {
 		t.Fatalf("a restart with saved state enrolled again (%d register calls); it must resume", n)
@@ -80,7 +73,7 @@ func TestLoadOrRegister_RestartResumesSavedStateInFreshVolumeDir(t *testing.T) {
 }
 
 // The other half: with nothing saved, the agent still enrolls exactly once.
-func TestLoadOrRegister_FirstStartEnrolls(t *testing.T) {
+func TestResume_FirstStartEnrolls(t *testing.T) {
 	srv, calls := registerCounter(t)
 	statePath := filepath.Join(t.TempDir(), "data", "eightly-agent.json")
 	cfg := &config.Config{
@@ -96,7 +89,7 @@ func TestLoadOrRegister_FirstStartEnrolls(t *testing.T) {
 		t.Fatalf("tls: %v", err)
 	}
 
-	state := loadOrRegister(cfg, tlsCfg)
+	state, _, _ := resume(cfg, tlsCfg)
 
 	if n := calls.Load(); n != 1 {
 		t.Fatalf("first start made %d register calls, want 1", n)
@@ -111,7 +104,7 @@ func TestLoadOrRegister_FirstStartEnrolls(t *testing.T) {
 // the volume, the agent used to load it and never look at the new token, so
 // re-enrolling could not work. A lapsed saved token plus an enrollment token
 // means enroll.
-func TestLoadOrRegister_ExpiredSavedTokenWithEnrollTokenEnrollsAgain(t *testing.T) {
+func TestResume_ExpiredSavedTokenWithEnrollTokenEnrollsAgain(t *testing.T) {
 	srv, calls := registerCounter(t)
 	statePath := filepath.Join(t.TempDir(), "data", "eightly-agent.json")
 	lapsed := &register.State{AgentID: "agent-saved", Token: tokenExpiringAt(time.Now().Add(-24 * time.Hour)), ServerURL: srv.URL}
@@ -124,7 +117,7 @@ func TestLoadOrRegister_ExpiredSavedTokenWithEnrollTokenEnrollsAgain(t *testing.
 		t.Fatalf("tls: %v", err)
 	}
 
-	state := loadOrRegister(cfg, tlsCfg)
+	state, _, _ := resume(cfg, tlsCfg)
 
 	if n := calls.Load(); n != 1 {
 		t.Fatalf("lapsed saved token + enrollment token made %d register calls, want 1", n)
@@ -137,7 +130,7 @@ func TestLoadOrRegister_ExpiredSavedTokenWithEnrollTokenEnrollsAgain(t *testing.
 // A saved token that is still valid is kept even when an enrollment token is
 // still in the environment: the install command leaves it there, and it is
 // spent.
-func TestLoadOrRegister_ValidSavedTokenIgnoresLeftoverEnrollToken(t *testing.T) {
+func TestResume_ValidSavedTokenIgnoresLeftoverEnrollToken(t *testing.T) {
 	srv, calls := registerCounter(t)
 	statePath := filepath.Join(t.TempDir(), "data", "eightly-agent.json")
 	live := &register.State{AgentID: "agent-saved", Token: tokenExpiringAt(time.Now().Add(20 * 24 * time.Hour)), ServerURL: srv.URL}
@@ -150,7 +143,7 @@ func TestLoadOrRegister_ValidSavedTokenIgnoresLeftoverEnrollToken(t *testing.T) 
 		t.Fatalf("tls: %v", err)
 	}
 
-	if state := loadOrRegister(cfg, tlsCfg); state == nil || state.AgentID != "agent-saved" || calls.Load() != 0 {
+	if state, _, _ := resume(cfg, tlsCfg); state == nil || state.AgentID != "agent-saved" || calls.Load() != 0 {
 		t.Fatalf("a valid saved registration was replaced (%d register calls)", calls.Load())
 	}
 }
@@ -161,7 +154,7 @@ func TestLoadOrRegister_ValidSavedTokenIgnoresLeftoverEnrollToken(t *testing.T) 
 // pin-only mode re-enrollment trusted whatever certificate answered and sent
 // the fresh single-use enrollment token to it. A server whose key does not
 // match the saved pin is refused, and the token never leaves the agent.
-func TestLoadOrRegister_ReEnrollSameServerRefusesCertNotMatchingSavedPin(t *testing.T) {
+func TestResume_ReEnrollSameServerRefusesCertNotMatchingSavedPin(t *testing.T) {
 	srv, calls := registerCounter(t)
 	statePath := filepath.Join(t.TempDir(), "data", "eightly-agent.json")
 	lapsed := &register.State{
@@ -181,7 +174,7 @@ func TestLoadOrRegister_ReEnrollSameServerRefusesCertNotMatchingSavedPin(t *test
 		t.Fatalf("tls: %v", err)
 	}
 
-	state := loadOrRegister(cfg, tlsCfg)
+	state, _, _ := resume(cfg, tlsCfg)
 
 	if n := calls.Load(); n != 0 {
 		t.Fatalf("re-enrollment sent the enrollment token to a server whose key does not match the saved pin (%d register calls)", n)
@@ -197,7 +190,7 @@ func TestLoadOrRegister_ReEnrollSameServerRefusesCertNotMatchingSavedPin(t *test
 
 // The other half: the same server, presenting the key it was pinned to, is
 // re-enrolled with, and the pin carries over into the new registration.
-func TestLoadOrRegister_ReEnrollSameServerMatchingSavedPinKeepsPin(t *testing.T) {
+func TestResume_ReEnrollSameServerMatchingSavedPinKeepsPin(t *testing.T) {
 	srv, calls := registerCounter(t)
 	sum := sha256.Sum256(srv.Certificate().RawSubjectPublicKeyInfo)
 	pin := "sha256/" + base64.StdEncoding.EncodeToString(sum[:])
@@ -212,7 +205,7 @@ func TestLoadOrRegister_ReEnrollSameServerMatchingSavedPinKeepsPin(t *testing.T)
 		t.Fatalf("tls: %v", err)
 	}
 
-	state := loadOrRegister(cfg, tlsCfg)
+	state, _, _ := resume(cfg, tlsCfg)
 
 	if n := calls.Load(); n != 1 || state == nil || state.Token != "new-token" {
 		t.Fatalf("re-enrollment with a matching pin did not go through (%d register calls, state %+v)", n, state)
@@ -225,7 +218,7 @@ func TestLoadOrRegister_ReEnrollSameServerMatchingSavedPinKeepsPin(t *testing.T)
 // In the image, /data is both --data and the state folder, so it
 // holds the agent's TLS key pair beside the state file. That is still wholly
 // the agent's folder, so a restart repairs it and resumes.
-func TestLoadOrRegister_VolumeWithTLSPairIsStillRepaired(t *testing.T) {
+func TestResume_VolumeWithTLSPairIsStillRepaired(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("running as root; ownership checks behave differently")
 	}
@@ -253,7 +246,7 @@ func TestLoadOrRegister_VolumeWithTLSPairIsStillRepaired(t *testing.T) {
 		t.Fatalf("tls: %v", err)
 	}
 
-	state := loadOrRegister(cfg, tlsCfg)
+	state, _, _ := resume(cfg, tlsCfg)
 
 	if calls.Load() != 0 || state == nil || state.AgentID != "agent-saved" {
 		t.Fatalf("the agent's own volume was not repaired: %d register calls, state %+v", calls.Load(), state)
