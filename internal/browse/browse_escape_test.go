@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -516,6 +517,9 @@ func TestOpenVerifiedRace(t *testing.T) {
 
 // A volume the agent may search but not read answers 403, not a misleading 404.
 func TestUnreadableVolumeIsForbidden(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permission bits do not make a folder unreadable on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root reads any directory")
 	}

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -154,6 +155,9 @@ func TestRegisterWithRetry_StopsWithContext(t *testing.T) {
 // the result, and could never enroll again. It must not register at all when
 // the state cannot be saved.
 func TestResume_DoesNotSpendEnrollTokenWhenStateIsNotWritable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a read-only mode bit does not stop writes into a folder on Windows")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("root can write a read-only directory")
 	}
@@ -222,7 +226,9 @@ func TestRun_RegistersInBackgroundAndGatesUntilThen(t *testing.T) {
 		}
 	}()
 
-	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}} // #nosec G402 -- test server
+	// The first /host after registration gathers hardware info; on Windows
+	// that runs PowerShell and can take several seconds.
+	client := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}} // #nosec G402 -- test server
 	waitForServer(t, client, port)
 	get := func(token string) int {
 		req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("https://127.0.0.1:%s/host", port), nil) //nolint:noctx // test
@@ -240,7 +246,7 @@ func TestRun_RegistersInBackgroundAndGatesUntilThen(t *testing.T) {
 	}
 	held.Store(false)
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(45 * time.Second)
 	for get(agentToken("agent-me")) != http.StatusOK {
 		if time.Now().After(deadline) {
 			t.Fatalf("never registered (%d register calls)", calls.Load())

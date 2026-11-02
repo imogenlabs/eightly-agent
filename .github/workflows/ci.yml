@@ -101,6 +101,25 @@ jobs:
           fi
           exit "$rc"
 
+  windows-test:
+    name: Test (Windows)
+    # GitHub-hosted on every push and pull request, fork or not: no
+    # self-hosted runner here runs Windows, and this is the only job that
+    # exercises the named-pipe dialer and the Windows access-list and owner
+    # checks for real. The runner is elevated, so the owner tests run.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.26.10'
+      - name: Run tests
+        run: go test ./... -count=1 -timeout 120s
+      # Listed by name, so the log shows the pipe and owner tests ran rather
+      # than skipped.
+      - name: Named pipe and owner tests, verbose
+        run: go test ./internal/dockerdial/ ./internal/winacl/ -count=1 -v -run "Pipe|Owner|Owned|Check|Protect"
+
   race:
     name: Race Detector
     # A pull request from a fork runs on a GitHub-hosted runner, never on the
