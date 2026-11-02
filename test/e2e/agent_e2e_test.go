@@ -439,13 +439,17 @@ func TestAgentEndToEnd(t *testing.T) {
 			"Name": vol, "Driver": "local",
 			"DriverOpts": map[string]string{"type": "none", "o": "bind", "device": dir},
 		}
-		// A volume bound to a host path is host access, and the agent refuses
-		// to create one. The test makes it on the socket directly.
-		if code, body := api.do(t, http.MethodPost, "/volumes/create", token, bindVolume); code != http.StatusForbidden {
-			t.Errorf("creating a bind volume through the agent: %d %s, want 403", code, body)
+		// A volume bound to a host path outside the allowed bind roots is host
+		// access, and the agent refuses it. Inside an allowed root it is fine.
+		outside := map[string]any{
+			"Name": vol + "-etc", "Driver": "local",
+			"DriverOpts": map[string]string{"type": "none", "o": "bind", "device": "/etc"},
 		}
-		if code, body := docker.do(t, http.MethodPost, "/volumes/create", "", bindVolume); code != http.StatusCreated {
-			t.Fatalf("creating the test volume: %d %s", code, body)
+		if code, body := api.do(t, http.MethodPost, "/volumes/create", token, outside); code != http.StatusForbidden {
+			t.Errorf("creating a bind volume of /etc through the agent: %d %s, want 403", code, body)
+		}
+		if code, body := api.do(t, http.MethodPost, "/volumes/create", token, bindVolume); code != http.StatusCreated {
+			t.Fatalf("creating a bind volume under an allowed root through the agent: %d %s, want 201", code, body)
 		}
 		if code, body := api.do(t, http.MethodGet, "/volumes/"+vol, token, nil); code != http.StatusOK {
 			t.Errorf("inspecting the volume through the agent: %d %s", code, body)
