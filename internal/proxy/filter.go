@@ -11,11 +11,13 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/rs/zerolog/log"
 )
@@ -42,19 +44,34 @@ type filter struct {
 	// selfIDs identify the agent's own container: full IDs, or the 12-char
 	// prefix Docker uses as the default hostname.
 	selfIDs []string
+	// protectedPaths are host files holding the agent's secrets and state.
+	protectedPaths []string
+
+	selfMu sync.Mutex
+	self   *selfInfo
 }
 
-func newFilter(next http.Handler, roots []string, d daemon) *filter {
+// newChecker is the filter without a next handler, as both the proxy and
+// the WebSocket target checker use it.
+func newChecker(roots []string, d daemon, opts []Option) *filter {
 	f := &filter{
-		next:   next,
 		roots:  roots,
 		daemon: d,
 		hostFS: seesHostFS(),
 		lstat:  os.Lstat,
 	}
 	f.selfIDs = selfContainerIDs(!f.hostFS)
+	for _, o := range opts {
+		o(f)
+	}
+	return f
+}
+
+func newFilter(next http.Handler, roots []string, d daemon, opts ...Option) *filter {
+	f := newChecker(roots, d, opts)
+	f.next = next
 	if len(roots) > 0 && !f.hostFS {
-		log.Warn().Strs("roots", roots).Msg("[SECURITY] proxy: the agent runs in a container and cannot see the host's filesystem, so bind sources cannot be checked for symlinks; keep --allowed-bind-roots to directories no container can write to")
+		log.Warn().Strs("roots", roots).Msg("[SECURITY] proxy: the agent runs in a container and cannot see the host's filesystem, so bind sources cannot be checked for symlinks; keep --allowed-bind-roots to directories no container can write to. A restart policy is refused on containers that mount a path under them.")
 	}
 	return f
 }
@@ -79,49 +96,73 @@ func (f *filter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			deny(w, r, status, reason)
 			return
 		}
+	case checkImagePull, checkImageTag:
+		// Both read their parameters from the form, and the daemon reads a
+		// form body ahead of the query. Neither has any use for a body.
+		body, status, reason := readBody(r)
+		if reason == "" && len(body) > 0 {
+			status, reason = http.StatusForbidden, "a request body is not accepted here"
+		}
+		if reason != "" {
+			deny(w, r, status, reason)
+			return
+		}
 	}
 
+	var full, reason string
 	switch rt.check {
-	case checkExecCreate, checkTarget, checkStart:
-		check := f.checkTargetContainer
-		if rt.check == checkStart {
-			check = f.checkStartMounts
-		}
-		full, reason := check(ctx, id)
-		if reason != "" {
-			deny(w, r, http.StatusForbidden, reason)
-			return
-		}
-		// Forward the immutable ID that was checked, not the caller's name:
-		// a name can be moved to another container between check and use.
-		if full != "" {
-			r.URL.Path = strings.Replace(p, "/containers/"+id+"/", "/containers/"+full+"/", 1)
-			r.URL.RawPath = ""
-		}
-	case checkExecStart:
-		if reason := f.checkExecStart(ctx, id); reason != "" {
-			deny(w, r, http.StatusForbidden, reason)
-			return
-		}
+	case checkExecCreate, checkTarget:
+		full, reason = f.checkTargetContainer(ctx, id)
+	case checkStart:
+		full, reason = f.checkStart(ctx, id, strings.HasSuffix(p, "/restart"))
 	case checkPrivateRead:
-		if reason := f.checkPrivateRead(ctx, id); reason != "" {
-			deny(w, r, http.StatusForbidden, reason)
-			return
-		}
+		full, reason = f.checkPrivateRead(ctx, id)
+	case checkNotSelf:
+		full, reason = f.checkNotSelf(ctx, id, strings.HasSuffix(p, "/rename"))
+	case checkContainerUpdate:
+		full, reason = f.checkUpdateTarget(ctx, id, r)
+	case checkExecStart:
+		reason = f.checkExecStart(ctx, id)
 	case checkNetworkConnect:
-		if reason := f.checkNetwork(ctx, id); reason != "" {
-			deny(w, r, http.StatusForbidden, reason)
-			return
-		}
+		reason = f.checkNetwork(ctx, id)
 	case checkImagePull:
-		// fromSrc imports a tarball, or has the daemon fetch a URL of the
-		// caller's choosing. Pulls from a registry use fromImage.
-		if r.URL.Query().Get("fromSrc") != "" {
-			deny(w, r, http.StatusForbidden, "image import (fromSrc) rejected")
-			return
-		}
+		reason = checkPull(r.URL.Query())
+	case checkImageTag:
+		reason = f.checkTag(ctx, r.URL.Query())
+	}
+	if reason != "" {
+		deny(w, r, statusFor(reason), reason)
+		return
+	}
+	// Forward the immutable ID that was checked, not the caller's name: a
+	// name can be moved to another container between check and use.
+	if full != "" {
+		r.URL.Path = pinContainer(p, id, full)
+		r.URL.RawPath = ""
 	}
 	f.next.ServeHTTP(w, r)
+}
+
+// noSuchContainer is the start of the reason given when a checked container
+// does not exist. It is answered 404, as the daemon would, and the request
+// goes no further: forwarding it by name would let a container renamed to
+// that name in the meantime be reached unchecked.
+const noSuchContainer = "No such container: "
+
+func statusFor(reason string) int {
+	if strings.HasPrefix(reason, noSuchContainer) {
+		return http.StatusNotFound
+	}
+	return http.StatusForbidden
+}
+
+// pinContainer replaces the {id} segment of a /containers/{id}... path.
+func pinContainer(p, id, full string) string {
+	segs := strings.Split(p, "/")
+	if len(segs) > 2 && segs[1] == "containers" && segs[2] == id {
+		segs[2] = full
+	}
+	return strings.Join(segs, "/")
 }
 
 // readBody buffers the request body for inspection and puts back exactly the
@@ -151,6 +192,9 @@ func (f *filter) checkBody(ctx context.Context, c check, body []byte) string {
 		return ""
 	}
 	bad := func(err error) string { return "request body could not be interpreted: " + err.Error() }
+	if err := checkDuplicateKeys(body); err != nil {
+		return bad(err)
+	}
 	switch c {
 	case checkContainerCreate, checkExecCreate:
 		var b createBody
@@ -160,8 +204,14 @@ func (f *filter) checkBody(ctx context.Context, c check, body []byte) string {
 		if reason := f.checkHostConfig(ctx, &b.hostConfig, fromRequest); reason != "" {
 			return reason
 		}
+		if reason := f.checkRestartOnRoots(ctx, &b.hostConfig); reason != "" {
+			return reason
+		}
 		if b.HostConfig != nil {
 			if reason := f.checkHostConfig(ctx, b.HostConfig, fromRequest); reason != "" {
+				return reason
+			}
+			if reason := f.checkRestartOnRoots(ctx, b.HostConfig); reason != "" {
 				return reason
 			}
 		}
@@ -183,7 +233,7 @@ func (f *filter) checkBody(ctx context.Context, c check, body []byte) string {
 		if err := json.Unmarshal(body, &v); err != nil {
 			return bad(err)
 		}
-		return f.checkVolumeOptions(v.Driver, v.DriverOpts)
+		return f.checkVolumeOptions(ctx, v.Driver, v.DriverOpts)
 	case checkNetworkCreate:
 		var n networkCreateBody
 		if err := json.Unmarshal(body, &n); err != nil {
@@ -198,19 +248,29 @@ func (f *filter) checkBody(ctx context.Context, c check, body []byte) string {
 	return ""
 }
 
-// checkTargetContainer reads the container a call acts on and refuses it
-// when getting inside it reaches the host: the agent's own container, or one
-// that is privileged, shares a host or another container's namespace, holds
-// the Docker socket, mounts a host path outside the bind roots, has a
-// capability outside the default set, or has a host device. It returns the
-// container's full ID.
-func (f *filter) checkTargetContainer(ctx context.Context, id string) (string, string) {
+// inspect reads the container a call acts on. A container the daemon does
+// not know is refused with noSuchContainer.
+func (f *filter) inspect(ctx context.Context, id string) (*containerInfo, string) {
 	c, err := f.daemon.container(ctx, id)
 	switch {
 	case errors.Is(err, errNotFound):
-		return "", "" // the daemon answers 404 itself
+		return nil, noSuchContainer + id
 	case err != nil:
-		return "", "container " + id + " could not be checked: " + err.Error()
+		return nil, "container " + id + " could not be checked: " + err.Error()
+	}
+	return c, ""
+}
+
+// checkTargetContainer reads the container a call acts on and refuses it
+// when getting inside it reaches the host: the agent's own container, or one
+// that is privileged, shares a host or another container's namespace, holds
+// the Docker socket, mounts a host path outside the bind roots or a volume
+// of the agent's own, has a capability outside the default set, or has a
+// host device. It returns the container's full ID.
+func (f *filter) checkTargetContainer(ctx context.Context, id string) (string, string) {
+	c, reason := f.inspect(ctx, id)
+	if reason != "" {
+		return "", reason
 	}
 	if f.isSelf(c.ID) {
 		return "", "the agent's own container is off limits"
@@ -224,7 +284,7 @@ func (f *filter) checkTargetContainer(ctx context.Context, id string) (string, s
 		}
 		switch strings.ToLower(m.Type) {
 		case "bind":
-			if reason := f.checkBindSource(m.Source, !m.RW); reason != "" {
+			if reason := f.checkBindSource(ctx, m.Source, !m.RW); reason != "" {
 				return "", "container " + id + ": " + reason
 			}
 		case "volume":
@@ -243,7 +303,8 @@ func (f *filter) checkTargetContainer(ctx context.Context, id string) (string, s
 
 // checkExecStart finds the container an exec instance belongs to and checks
 // it as checkTargetContainer does. An exec created on the host with
-// --privileged is refused too.
+// --privileged is refused too. An exec ID is not a name and cannot be moved,
+// so an unknown one is left to the daemon's 404.
 func (f *filter) checkExecStart(ctx context.Context, id string) string {
 	e, err := f.daemon.exec(ctx, id)
 	switch {
@@ -260,40 +321,113 @@ func (f *filter) checkExecStart(ctx context.Context, id string) string {
 
 // checkPrivateRead refuses reads that show a container's command line on the
 // agent's own container and on any container holding the Docker socket.
-func (f *filter) checkPrivateRead(ctx context.Context, id string) string {
-	c, err := f.daemon.container(ctx, id)
-	switch {
-	case errors.Is(err, errNotFound):
-		return ""
-	case err != nil:
-		return "container " + id + " could not be checked: " + err.Error()
+func (f *filter) checkPrivateRead(ctx context.Context, id string) (string, string) {
+	c, reason := f.inspect(ctx, id)
+	if reason != "" {
+		return "", reason
 	}
 	if f.isSelf(c.ID) || holdsSocket(c.Mounts) {
-		return "container " + id + " holds the Docker socket"
+		return "", "container " + id + " holds the Docker socket"
 	}
-	return ""
+	return c.ID, ""
 }
 
-// checkStartMounts re-checks bind sources for symlinks when a container is
-// started, because that is when the daemon mounts them: a link planted after
-// create would otherwise be followed. Binds outside the roots were made on
-// the host, not through the agent, and are left alone.
-func (f *filter) checkStartMounts(ctx context.Context, id string) (string, string) {
-	if !f.hostFS || len(f.roots) == 0 {
-		return "", ""
+// checkNotSelf refuses stopping, killing, pausing, removing, updating or
+// renaming the agent's own container: each one cuts Eight.ly OS off from
+// this host, or starves the agent. A rename is refused as well on any
+// container holding the Docker socket, whose name an operator relies on.
+func (f *filter) checkNotSelf(ctx context.Context, id string, rename bool) (string, string) {
+	c, reason := f.inspect(ctx, id)
+	if reason != "" {
+		return "", reason
 	}
-	c, err := f.daemon.container(ctx, id)
-	switch {
-	case errors.Is(err, errNotFound):
-		return "", ""
-	case err != nil:
-		return "", "container " + id + " could not be checked: " + err.Error()
+	if f.isSelf(c.ID) {
+		return "", "the agent's own container is off limits"
+	}
+	if rename && holdsSocket(c.Mounts) {
+		return "", "container " + id + " holds the Docker socket and keeps its name"
+	}
+	return c.ID, ""
+}
+
+// checkUpdateTarget refuses an update of the agent's own container, and a
+// restart policy on a container whose mounts reach a bind root when the
+// agent cannot see the host's files (see checkRestartOnRoots). The body has
+// been checked and put back already.
+func (f *filter) checkUpdateTarget(ctx context.Context, id string, r *http.Request) (string, string) {
+	c, reason := f.inspect(ctx, id)
+	if reason != "" {
+		return "", reason
+	}
+	if f.isSelf(c.ID) {
+		return "", "the agent's own container is off limits"
+	}
+	var hc hostConfig
+	body, _ := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	if len(body) == 0 || json.Unmarshal(body, &hc) != nil || !hc.RestartPolicy.restarts() || f.hostFS || len(f.roots) == 0 {
+		return c.ID, ""
 	}
 	for _, m := range c.Mounts {
-		if !strings.EqualFold(m.Type, "bind") || !strings.HasPrefix(m.Source, "/") {
+		var onRoot bool
+		switch strings.ToLower(m.Type) {
+		case "bind":
+			onRoot = f.rootFor(path.Clean(m.Source)) != ""
+		case "volume":
+			if m.Name == "" {
+				continue
+			}
+			var reason string
+			if onRoot, reason = f.volumeOnRoot(ctx, m.Name); reason != "" {
+				return "", reason
+			}
+		}
+		if onRoot {
+			return "", restartOnRootsRefused
+		}
+	}
+	return c.ID, ""
+}
+
+// checkStart re-checks bind sources for symlinks when a container is
+// started, because that is when the daemon mounts them: a link planted after
+// create would otherwise be followed. That holds for a local volume bound to
+// a path under a root as much as for a bind. Binds and volumes outside the
+// roots were made on the host, not through the agent, and are left alone.
+// Restarting the agent's own container is refused.
+func (f *filter) checkStart(ctx context.Context, id string, restart bool) (string, string) {
+	c, reason := f.inspect(ctx, id)
+	if reason != "" {
+		return "", reason
+	}
+	if restart && f.isSelf(c.ID) {
+		return "", "the agent's own container is off limits"
+	}
+	if !f.hostFS || len(f.roots) == 0 {
+		return c.ID, ""
+	}
+	for _, m := range c.Mounts {
+		var src string
+		switch strings.ToLower(m.Type) {
+		case "bind":
+			src = m.Source
+		case "volume":
+			if m.Name == "" {
+				continue
+			}
+			v, err := f.daemon.volume(ctx, m.Name)
+			switch {
+			case errors.Is(err, errNotFound):
+				continue
+			case err != nil:
+				return "", "volume " + m.Name + " could not be checked: " + err.Error()
+			}
+			src, _ = localBindDevice(v.Options)
+		}
+		if !strings.HasPrefix(src, "/") {
 			continue
 		}
-		clean := path.Clean(m.Source)
+		clean := path.Clean(src)
 		if root := f.rootFor(clean); root != "" {
 			if reason := f.checkSymlinks(root, clean); reason != "" {
 				return "", "container " + id + ": " + reason
@@ -301,6 +435,109 @@ func (f *filter) checkStartMounts(ctx context.Context, id string) (string, strin
 		}
 	}
 	return c.ID, ""
+}
+
+// restartOnRootsRefused explains the refusal of checkRestartOnRoots.
+const restartOnRootsRefused = "a restart policy is refused on a container that mounts a path under --allowed-bind-roots while the agent runs in a container: the daemon restarts it without asking the agent, which cannot see the host's files to check them for symlinks; use RestartPolicy \"no\" or a named volume"
+
+// checkRestartOnRoots refuses a restart policy on a container whose binds or
+// local bind volumes lie under a bind root, when the agent runs in a
+// container. Such a container is mounted again on every automatic restart
+// without passing through /start, and the agent, not seeing the host's
+// files, could not have checked the paths for symlinks anyway.
+func (f *filter) checkRestartOnRoots(ctx context.Context, hc *hostConfig) string {
+	if f.hostFS || len(f.roots) == 0 || !hc.RestartPolicy.restarts() {
+		return ""
+	}
+	onRoot := func(src string) bool {
+		src = strings.TrimSpace(src)
+		return strings.HasPrefix(src, "/") && f.rootFor(path.Clean(src)) != ""
+	}
+	for _, b := range hc.Binds {
+		src, _, _ := strings.Cut(b, ":")
+		if onRoot(src) {
+			return restartOnRootsRefused
+		}
+		if dockerVolumeName.MatchString(src) {
+			if yes, reason := f.volumeOnRoot(ctx, src); reason != "" || yes {
+				return firstNonEmpty(reason, restartOnRootsRefused)
+			}
+		}
+	}
+	for _, m := range hc.Mounts {
+		switch strings.ToLower(strings.TrimSpace(m.Type)) {
+		case "bind":
+			if onRoot(m.Source) {
+				return restartOnRootsRefused
+			}
+		case "volume":
+			if m.VolumeOptions != nil && m.VolumeOptions.DriverConfig != nil {
+				if dev, ok := localBindDevice(m.VolumeOptions.DriverConfig.Options); ok && onRoot(dev) {
+					return restartOnRootsRefused
+				}
+			}
+			if m.Source != "" {
+				if yes, reason := f.volumeOnRoot(ctx, m.Source); reason != "" || yes {
+					return firstNonEmpty(reason, restartOnRootsRefused)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// volumeOnRoot reports whether an existing named volume is a local bind of
+// a path under a bind root.
+func (f *filter) volumeOnRoot(ctx context.Context, name string) (bool, string) {
+	v, err := f.daemon.volume(ctx, name)
+	switch {
+	case errors.Is(err, errNotFound):
+		return false, ""
+	case err != nil:
+		return false, "volume " + name + " could not be checked: " + err.Error()
+	}
+	dev, ok := localBindDevice(v.Options)
+	return ok && strings.HasPrefix(dev, "/") && f.rootFor(path.Clean(dev)) != "", ""
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+// checkPull allows a registry pull and nothing else. The daemon imports an
+// image instead whenever fromImage is empty: from fromSrc, a URL it fetches
+// or "-" for the request body. The body itself has been refused already, so
+// the query is the whole form.
+func checkPull(q url.Values) string {
+	if q.Has("fromSrc") {
+		return "image import (fromSrc) rejected"
+	}
+	if strings.TrimSpace(q.Get("fromImage")) == "" {
+		return "image import rejected: only a registry pull (fromImage) is allowed"
+	}
+	return ""
+}
+
+// checkTag refuses tagging an image into the agent's own repository: the
+// next pull or update of the agent would run what was tagged there.
+func (f *filter) checkTag(ctx context.Context, q url.Values) string {
+	repo := normalizeRepo(q.Get("repo"))
+	if repo == "" {
+		return ""
+	}
+	self, reason := f.selfInfo(ctx)
+	if reason != "" {
+		return reason
+	}
+	for _, r := range self.repos {
+		if r == repo {
+			return "tagging into the agent's own image repository rejected: " + repo
+		}
+	}
+	return ""
 }
 
 // checkSymlinks refuses a bind source when any component below its root is a

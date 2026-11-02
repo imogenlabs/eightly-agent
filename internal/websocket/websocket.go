@@ -225,11 +225,15 @@ func AttachHandler(socketPath string, targets Targets, authEnabled bool, allowed
 			refuse(w, r, reason)
 			return
 		}
+		// No such container. Going on by name would reach whatever
+		// container is renamed to it next, unchecked.
+		if full == "" {
+			http.Error(w, "no such container", http.StatusNotFound)
+			return
+		}
 		// Attach to the ID that was checked: a short ID or name could
 		// otherwise point somewhere else by the time Docker reads it.
-		if full != "" {
-			containerID = full
-		}
+		containerID = full
 
 		raw := fmt.Sprintf("POST /containers/%s/attach?stdin=1&stdout=1&stderr=1&stream=1 HTTP/1.1\r\nHost: docker\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n", containerID)
 		serveBridge(w, r, up, socketPath, raw, "docker attach failed")

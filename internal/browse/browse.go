@@ -3,6 +3,7 @@
 package browse
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -32,6 +33,7 @@ type fileEntry struct {
 // options holds Handler configuration set via functional options.
 type options struct {
 	readOnly bool
+	admit    func(ctx context.Context, volume string) (status int, reason string)
 }
 
 // Option configures the browse Handler.
@@ -41,6 +43,13 @@ type Option func(*options)
 // (put, delete, rename) are rejected with 403 and the rejection is audited.
 func ReadOnly(ro bool) Option {
 	return func(o *options) { o.readOnly = ro }
+}
+
+// AdmitVolume sets the check a volume must pass before it is opened, the
+// same the Docker proxy applies before a container may mount it. It returns
+// 0 when the volume may be opened, or the status and reason to refuse it with.
+func AdmitVolume(admit func(ctx context.Context, volume string) (status int, reason string)) Option {
+	return func(o *options) { o.admit = admit }
 }
 
 // Handler returns an HTTP handler for listing, downloading, uploading,
@@ -58,11 +67,17 @@ func Handler(volumesRoot string, opts ...Option) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /browse/ls", func(w http.ResponseWriter, r *http.Request) {
-		root, name, ok := openPath(w, volumesRoot, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
+		root, name, ok := cfg.openPath(w, r, volumesRoot, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
 		if !ok {
 			return
 		}
 		defer root.Close()
+		// A listing must not follow a symlink either: "alias -> .ssh" would
+		// list a hidden directory under a name that is not hidden.
+		if info, err := root.Lstat(name); err == nil && info.Mode()&fs.ModeSymlink != 0 {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+			return
+		}
 		dir, err := openDir(root, name)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "read failed"})
@@ -95,7 +110,7 @@ func Handler(volumesRoot string, opts ...Option) http.Handler {
 	})
 
 	mux.HandleFunc("GET /browse/get", func(w http.ResponseWriter, r *http.Request) {
-		root, name, ok := openPath(w, volumesRoot, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
+		root, name, ok := cfg.openPath(w, r, volumesRoot, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
 		if !ok {
 			return
 		}
@@ -131,7 +146,7 @@ func Handler(volumesRoot string, opts ...Option) http.Handler {
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 100*1024*1024) // 100 MB limit
 
-		root, name, ok := openPath(w, volumesRoot, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
+		root, name, ok := cfg.openPath(w, r, volumesRoot, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
 		if !ok {
 			return
 		}
@@ -189,7 +204,7 @@ func Handler(volumesRoot string, opts ...Option) http.Handler {
 			rejectReadOnly(w, r, "delete")
 			return
 		}
-		root, name, ok := openPath(w, volumesRoot, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
+		root, name, ok := cfg.openPath(w, r, volumesRoot, r.URL.Query().Get("volumeID"), r.URL.Query().Get("path"))
 		if !ok {
 			return
 		}
@@ -226,7 +241,7 @@ func Handler(volumesRoot string, opts ...Option) http.Handler {
 			return
 		}
 
-		root, name, ok := openPath(w, volumesRoot, r.URL.Query().Get("volumeID"), body.Path)
+		root, name, ok := cfg.openPath(w, r, volumesRoot, r.URL.Query().Get("volumeID"), body.Path)
 		if !ok {
 			return
 		}
@@ -259,9 +274,13 @@ func Handler(volumesRoot string, opts ...Option) http.Handler {
 // error response itself and returns ok=false when the request is refused.
 // Any path with a segment starting with "." is refused with 403, on every
 // route: hidden files and directories (.ssh, .env, .git) are never reachable.
+// So is a path that runs through a symlink, which the Root would follow as
+// long as it stays in the volume: "alias -> .ssh" would reach a hidden
+// directory by a name that is not hidden. A volume must also pass the same
+// admission a container's mount does (AdmitVolume).
 //
 // The caller must Close the returned Root.
-func openPath(w http.ResponseWriter, volumesRoot, volumeID, userPath string) (*os.Root, string, bool) {
+func (o *options) openPath(w http.ResponseWriter, r *http.Request, volumesRoot, volumeID, userPath string) (*os.Root, string, bool) {
 	name, ok := volumeName(userPath)
 	if !ok || !validIdentifier.MatchString(volumeID) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path traversal rejected"})
@@ -274,6 +293,13 @@ func openPath(w http.ResponseWriter, volumesRoot, volumeID, userPath string) (*o
 	if !available(w, volumesRoot) {
 		return nil, "", false
 	}
+	if o.admit != nil {
+		if status, reason := o.admit(r.Context(), volumeID); status != 0 {
+			log.Warn().Msgf("[SECURITY] browse.denied volume=%s ip=%s status=%d reason=%q", volumeID, r.RemoteAddr, status, reason)
+			writeJSON(w, status, map[string]string{"error": reason})
+			return nil, "", false
+		}
+	}
 	root, err := os.OpenRoot(filepath.Join(volumesRoot, volumeID, "_data"))
 	if errors.Is(err, fs.ErrPermission) {
 		// The Root needs read permission on _data, not only search.
@@ -284,7 +310,39 @@ func openPath(w http.ResponseWriter, volumesRoot, volumeID, userPath string) (*o
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "volume not found"})
 		return nil, "", false
 	}
+	if throughSymlink(root, name) {
+		_ = root.Close()
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return nil, "", false
+	}
 	return root, name, true
+}
+
+// throughSymlink reports whether a directory on the way to name is a
+// symlink. The final component is left to each route: get and put refuse a
+// link there in the open itself, ls refuses it, and delete and rename act on
+// the link rather than through it. A component that does not exist ends the
+// walk (put creates it). A container writing to the volume could still swap
+// a directory for a link between this check and the operation; the Root
+// keeps even that inside the volume, so what it can reach is a hidden name
+// in a volume it can already write.
+func throughSymlink(root *os.Root, name string) bool {
+	dir := filepath.Dir(name)
+	if dir == "." {
+		return false
+	}
+	cur := ""
+	for _, seg := range strings.Split(filepath.ToSlash(dir), "/") {
+		cur = filepath.Join(cur, seg)
+		info, err := root.Lstat(cur)
+		if err != nil {
+			return false
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // available answers 501 or 503 when the agent cannot see Docker's volumes

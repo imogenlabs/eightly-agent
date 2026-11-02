@@ -43,7 +43,8 @@ GO_BIN="${COVERAGE_CHECK_GO:-go}"
 # config 94.3, hostinfo 89.8, metrics 100, proxy 96.9, register 77.2,
 # server 81.0, tlsutil 68.3, websocket 75.2, winacl 75.7. Raised after the
 # WebSocket target checks and proxy daemon tests (Linux CI, same day): overall
-# 86.2, proxy 93.1, websocket 81.5.
+# 86.2, proxy 93.1, websocket 81.5. Raised after the fourth policy round
+# (proxy 94.1 measured on macOS; the package has no platform files).
 OVERALL_FLOOR=84.0
 
 # package (relative to the module root) : floor %
@@ -54,7 +55,7 @@ FLOORS=(
   "internal/config:92.0"
   "internal/hostinfo:87.0"
   "internal/metrics:98.0"
-  "internal/proxy:91.0"
+  "internal/proxy:92.0"
   "internal/register:75.0"
   "internal/server:79.0"
   "internal/tlsutil:66.0"

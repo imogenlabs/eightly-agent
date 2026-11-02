@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"regexp"
 	"strings"
 )
 
@@ -39,7 +40,8 @@ func (s *strOrList) UnmarshalJSON(b []byte) error {
 // versions still decode; a field we do read in a type we cannot interpret is
 // a decode error, and the request is refused.
 type hostConfig struct {
-	Privileged   *bool  `json:"Privileged"`
+	// A bool, as in Docker: a null leaves it as it was, there and here.
+	Privileged   bool   `json:"Privileged"`
 	PidMode      string `json:"PidMode"`
 	IpcMode      string `json:"IpcMode"`
 	NetworkMode  string `json:"NetworkMode"`
@@ -74,6 +76,35 @@ type hostConfig struct {
 	CgroupParent   string            `json:"CgroupParent"`
 	OomKillDisable *bool             `json:"OomKillDisable"`
 	Tmpfs          map[string]string `json:"Tmpfs"`
+
+	RestartPolicy restartPolicy `json:"RestartPolicy"`
+}
+
+// restartPolicy is Docker's {"Name": ...} object. A bare string is read as
+// the name too, so a body the daemon will refuse as malformed is still read
+// here rather than refused by the agent first.
+type restartPolicy struct{ Name string }
+
+func (p *restartPolicy) UnmarshalJSON(b []byte) error {
+	var name string
+	if err := json.Unmarshal(b, &name); err == nil {
+		p.Name = name
+		return nil
+	}
+	var obj struct {
+		Name string `json:"Name"`
+	}
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return err
+	}
+	p.Name = obj.Name
+	return nil
+}
+
+// restarts reports whether the daemon restarts the container on its own.
+func (p restartPolicy) restarts() bool {
+	n := strings.ToLower(strings.TrimSpace(p.Name))
+	return n != "" && n != "no"
 }
 
 type mountSpec struct {
@@ -157,7 +188,7 @@ var readOnlyHostFiles = map[string]struct{}{
 
 // checkHostConfig returns why hc is refused, or "" when it is allowed.
 func (f *filter) checkHostConfig(ctx context.Context, hc *hostConfig, from origin) string {
-	if hc.Privileged != nil && *hc.Privileged {
+	if hc.Privileged {
 		return "Privileged=true rejected"
 	}
 	for _, ns := range []struct{ name, mode string }{
@@ -290,9 +321,17 @@ func (f *filter) checkNetwork(ctx context.Context, mode string) string {
 	return ""
 }
 
+// windowsPath is a Windows drive path ("c:/", "c:\\"). A daemon on Windows
+// reads "c:/:c:/host" as the host's C: drive, where a Linux reading takes the
+// "c" before the first colon for a volume name.
+var windowsPath = regexp.MustCompile(`^[A-Za-z]:([\\/]|$)`)
+
+// dockerVolumeName is the daemon's own pattern for a volume name.
+var dockerVolumeName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
+
 // checkBind checks one "src:dst[:opts]" Binds entry.
 func (f *filter) checkBind(ctx context.Context, bind string) string {
-	if strings.ContainsAny(bind, "\\\x00") {
+	if strings.ContainsAny(bind, "\\\x00") || windowsPath.MatchString(bind) || strings.HasPrefix(bind, "//") {
 		return "bind rejected: " + bind
 	}
 	src, rest, _ := strings.Cut(bind, ":")
@@ -306,10 +345,13 @@ func (f *filter) checkBind(ctx context.Context, bind string) string {
 			return "shared mount propagation rejected: " + bind
 		}
 	}
-	if dockerName.MatchString(src) {
+	if !strings.HasPrefix(src, "/") {
+		if !dockerVolumeName.MatchString(src) {
+			return "bind rejected: " + bind + " (a source is an absolute host path or a volume name)"
+		}
 		return f.checkNamedVolume(ctx, src)
 	}
-	return f.checkBindSource(src, readOnly)
+	return f.checkBindSource(ctx, src, readOnly)
 }
 
 func (f *filter) checkMount(ctx context.Context, m mountSpec) string {
@@ -321,15 +363,18 @@ func (f *filter) checkMount(ctx context.Context, m mountSpec) string {
 				return "shared mount propagation rejected: " + m.Source
 			}
 		}
-		return f.checkBindSource(m.Source, m.ReadOnly)
+		return f.checkBindSource(ctx, m.Source, m.ReadOnly)
 	case "volume":
 		if m.VolumeOptions != nil && m.VolumeOptions.DriverConfig != nil {
 			dc := m.VolumeOptions.DriverConfig
-			if reason := f.checkVolumeOptions(dc.Name, dc.Options); reason != "" {
+			if reason := f.checkVolumeOptions(ctx, dc.Name, dc.Options); reason != "" {
 				return reason
 			}
 		}
 		if m.Source != "" {
+			if !dockerVolumeName.MatchString(m.Source) {
+				return "volume source must be a volume name: " + m.Source
+			}
 			return f.checkNamedVolume(ctx, m.Source)
 		}
 		return ""
@@ -343,12 +388,14 @@ func (f *filter) checkMount(ctx context.Context, m mountSpec) string {
 }
 
 // checkBindSource allows a host path only under a bind root, or one of the
-// read-only time zone files. A path with ".." is refused outright: the kernel
-// resolves ".." after any symlink, so its lexical clean form is not the path
-// that gets mounted.
-func (f *filter) checkBindSource(src string, readOnly bool) string {
+// read-only time zone files, and never one that reaches a path the agent
+// keeps its own secrets or state in. A path with ".." is refused outright:
+// the kernel resolves ".." after any symlink, so its lexical clean form is
+// not the path that gets mounted. A ":" is refused too: on Windows it names
+// a drive, and no Linux path under a root needs one.
+func (f *filter) checkBindSource(ctx context.Context, src string, readOnly bool) string {
 	src = strings.TrimSpace(src)
-	if !strings.HasPrefix(src, "/") || strings.ContainsAny(src, "\\\x00") {
+	if !strings.HasPrefix(src, "/") || strings.HasPrefix(src, "//") || strings.ContainsAny(src, "\\:\x00") {
 		return "bind source must be an absolute host path: " + src
 	}
 	for _, seg := range strings.Split(src, "/") {
@@ -370,6 +417,13 @@ func (f *filter) checkBindSource(src string, readOnly bool) string {
 		}
 		return "host bind mount rejected: " + src + " is outside --allowed-bind-roots"
 	}
+	self, reason := f.selfInfo(ctx)
+	if reason != "" {
+		return reason
+	}
+	if p := self.overlapsProtected(clean); p != "" {
+		return "host bind mount rejected: " + src + " reaches " + p + ", which holds the agent's own data"
+	}
 	return f.checkSymlinks(root, clean)
 }
 
@@ -384,11 +438,20 @@ func (f *filter) rootFor(p string) string {
 	return best
 }
 
-// checkNamedVolume applies the volume policy to an existing named volume. A
-// volume created outside the agent with local bind options mounts a host
-// path just as a bind does. A volume that does not exist yet is created by
-// the daemon with the local driver and no options.
+// checkNamedVolume applies the volume policy to a named volume. A volume
+// mounted into the agent's own container holds its state and keys, and no
+// other container may mount it. A volume created outside the agent with
+// local bind options mounts a host path just as a bind does. A volume that
+// does not exist yet is created by the daemon with the local driver and no
+// options.
 func (f *filter) checkNamedVolume(ctx context.Context, name string) string {
+	self, reason := f.selfInfo(ctx)
+	if reason != "" {
+		return reason
+	}
+	if _, ok := self.volumes[name]; ok {
+		return "volume " + name + " holds the agent's own data"
+	}
 	v, err := f.daemon.volume(ctx, name)
 	switch {
 	case errors.Is(err, errNotFound):
@@ -396,7 +459,7 @@ func (f *filter) checkNamedVolume(ctx context.Context, name string) string {
 	case err != nil:
 		return "volume " + name + " could not be checked: " + err.Error()
 	}
-	if reason := f.checkVolumeOptions(v.Driver, v.Options); reason != "" {
+	if reason := f.checkVolumeOptions(ctx, v.Driver, v.Options); reason != "" {
 		return "volume " + name + ": " + reason
 	}
 	return ""
@@ -408,7 +471,7 @@ func (f *filter) checkNamedVolume(ctx context.Context, name string) string {
 // Network filesystems (nfs, nfs4, cifs, smb3) and tmpfs stay allowed.
 // Options for any other driver are refused, because what they mean is up to
 // the plugin.
-func (f *filter) checkVolumeOptions(driver string, opts map[string]string) string {
+func (f *filter) checkVolumeOptions(ctx context.Context, driver string, opts map[string]string) string {
 	if len(opts) == 0 {
 		return ""
 	}
@@ -441,7 +504,7 @@ func (f *filter) checkVolumeOptions(driver string, opts map[string]string) strin
 		if typ != "" && typ != "none" {
 			return fmt.Sprintf("volume type %q on host device %q rejected", typ, device)
 		}
-		return f.checkBindSource(device, readOnly)
+		return f.checkBindSource(ctx, device, readOnly)
 	}
 	switch typ {
 	case "nfs", "nfs4", "cifs", "smb3", "tmpfs":
@@ -451,6 +514,30 @@ func (f *filter) checkVolumeOptions(driver string, opts map[string]string) strin
 		return fmt.Sprintf("volume type %q with device %q rejected", typ, device)
 	}
 	return ""
+}
+
+// localBindDevice returns the host path a local volume's options bind, and
+// whether they bind one at all.
+func localBindDevice(opts map[string]string) (string, bool) {
+	var device, o string
+	for k, v := range opts {
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "device":
+			device = strings.TrimSpace(v)
+		case "o":
+			o = v
+		}
+	}
+	for _, opt := range strings.Split(o, ",") {
+		name, _, _ := strings.Cut(strings.TrimSpace(opt), "=")
+		if n := strings.ToLower(name); n == "bind" || n == "rbind" {
+			return device, true
+		}
+	}
+	if strings.HasPrefix(device, "/") && !strings.HasPrefix(device, "//") {
+		return device, true
+	}
+	return "", false
 }
 
 // allowedSecurityOpt is an allow-list: the default seccomp and AppArmor

@@ -97,8 +97,9 @@ func TestFilter_RefusesWhatItCannotCheck(t *testing.T) {
 	for name, reason := range map[string]string{
 		"target container": func() string { _, r := f.checkTargetContainer(ctx, "app"); return r }(),
 		"exec":             f.checkExecStart(ctx, "exec-app"),
-		"private read":     f.checkPrivateRead(ctx, "app"),
-		"start mounts":     func() string { _, r := f.checkStartMounts(ctx, "app"); return r }(),
+		"private read":     func() string { _, r := f.checkPrivateRead(ctx, "app"); return r }(),
+		"start":            func() string { _, r := f.checkStart(ctx, "app", false); return r }(),
+		"not self":         func() string { _, r := f.checkNotSelf(ctx, "app", false); return r }(),
 		"network":          f.checkNetwork(ctx, "mynet"),
 		"named volume":     f.checkNamedVolume(ctx, "cache"),
 	} {
@@ -130,14 +131,16 @@ func TestFilter_TargetEdges(t *testing.T) {
 	if _, reason := f.checkTargetContainer(ctx, "sockdest"); !strings.Contains(reason, "Docker socket") {
 		t.Errorf("socket mounted by destination: %q, want refused", reason)
 	}
-	if reason := f.checkPrivateRead(ctx, "sockdest"); reason == "" {
+	if _, reason := f.checkPrivateRead(ctx, "sockdest"); reason == "" {
 		t.Error("private read of a socket holder allowed")
 	}
-	if reason := f.checkPrivateRead(ctx, "missing"); reason != "" {
-		t.Errorf("private read of a missing container: %q, want it left to the daemon", reason)
+	// A missing container is refused, never forwarded by name: a container
+	// renamed to that name in the meantime would be reached unchecked.
+	if _, reason := f.checkPrivateRead(ctx, "missing"); statusFor(reason) != http.StatusNotFound {
+		t.Errorf("private read of a missing container: %q, want 404", reason)
 	}
 	if reason := f.checkExecStart(ctx, "missing"); reason != "" {
-		t.Errorf("missing exec: %q, want it left to the daemon", reason)
+		t.Errorf("missing exec: %q, want it left to the daemon (an exec ID cannot be moved)", reason)
 	}
 
 	f.daemon = oneContainer{pipe}
@@ -146,13 +149,13 @@ func TestFilter_TargetEdges(t *testing.T) {
 	}
 
 	// Start re-checks symlinks only where the agent sees the host's files
-	// and there are roots to check against.
-	if full, reason := f.checkStartMounts(ctx, "pipe"); full != "" || reason != "" {
-		t.Errorf("start without the host's files: (%q, %q), want nothing checked", full, reason)
+	// and there are roots to check against, but always pins the ID.
+	if full, reason := f.checkStart(ctx, "pipe", false); full != "pipe" || reason != "" {
+		t.Errorf("start without the host's files: (%q, %q), want the ID and nothing checked", full, reason)
 	}
 	f.hostFS = true
-	if full, reason := f.checkStartMounts(ctx, "missing"); full != "" || reason != "" {
-		t.Errorf("start of a missing container: (%q, %q), want it left to the daemon", full, reason)
+	if _, reason := f.checkStart(ctx, "missing", false); statusFor(reason) != http.StatusNotFound {
+		t.Errorf("start of a missing container: %q, want 404", reason)
 	}
 
 	if f.isSelf("") {
