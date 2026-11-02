@@ -16,7 +16,7 @@
 | Reviewed at | `gauntlet/ea-integration` @ `c3f810a43dd1679c4dd4ca4b7b3eb3d0638bc3a5` |
 | Remediation branches | `gauntlet/r1`..`r5` (TLS/register, websocket, auth/proxy, browse/hostinfo, supply-chain) folded into `gauntlet/ea-integration` |
 | Go toolchain | `go 1.26.4` (pinned in `go.mod` and every workflow) |
-| Owned target | **local only** — a fork/branch deployed in Michael's own home lab; no third-party system was touched |
+| Owned target | **local only** — a branch deployed on our own lab hosts; no third-party system was touched |
 | Authorization | Owner-operated infrastructure (Eight.ly OS dev/prod VMs + agent test host); source review on the private repo |
 
 **Surface in scope.** The agent exposes a small HTTP/WebSocket surface over TLS: bearer-token auth middleware (`internal/auth`), a Docker socket reverse proxy (`internal/proxy`), a per-volume file browser (`internal/browse`), server enrollment + heartbeat with TOFU cert pinning (`internal/register`, `internal/tlsutil`), a container-attach WebSocket bridge (`internal/websocket`), host-info reporting (`internal/hostinfo`), `/metrics`, and config (`internal/config`). The agent runs adjacent to the Docker daemon, so any auth/proxy weakness is effectively host-root exposure — the threat model treats every finding at that blast radius.
@@ -77,7 +77,7 @@ ok  internal/websocket (CSWSH/origin/SNI, 64 KB read limit, docker-ID allowlist)
 
 **Static / SAST.** `gosec` (severity ≥ medium), `govulncheck` (**0 reachable** vulns on the `1.26.4` toolchain), `staticcheck`, `golangci-lint`, GitHub CodeQL, and OpenSSF Scorecard run in CI. These backed the supply-chain and injection-class Low/Info findings.
 
-**Live (owned target).** Remediation was exercised against the agent deployed on Michael's own lab host alongside Eight.ly OS dev/prod — enrollment + pin capture, heartbeat, the auth middleware, and the Docker proxy were observed end-to-end. No third-party system was in scope (owner's standing rule: dynamic testing only against infrastructure Michael owns).
+**Live (owned target).** Remediation was exercised against the agent deployed on our own lab host alongside Eight.ly OS — enrollment + pin capture, heartbeat, the auth middleware, and the Docker proxy were observed end-to-end. No third-party system was in scope (owner's standing rule: dynamic testing only against infrastructure Michael owns).
 
 **Continuous enforcement (this change).** `.github/workflows/pentest.yml` adds a focused gate on PRs to `main`/`dev`:
 - `security-regression` — `go test -race` across the five hardened packages (the sabotage suite).
