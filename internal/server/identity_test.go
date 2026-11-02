@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -154,6 +155,9 @@ func TestRegisterWithRetry_StopsWithContext(t *testing.T) {
 // the result, and could never enroll again. It must not register at all when
 // the state cannot be saved.
 func TestResume_DoesNotSpendEnrollTokenWhenStateIsNotWritable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a read-only mode bit does not stop writes into a folder on Windows")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("root can write a read-only directory")
 	}
