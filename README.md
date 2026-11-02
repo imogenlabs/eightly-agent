@@ -166,7 +166,7 @@ eightly-agent.exe uninstall
 
 Keep the secret in the file, never in a Machine environment variable: every local user can read those. The service refuses to start when `EIGHTLY_AGENT_SECRET` is set alongside the file; remove an old one with `[Environment]::SetEnvironmentVariable('EIGHTLY_AGENT_SECRET', $null, 'Machine')`. `--secret-file` (or `EIGHTLY_AGENT_SECRET_FILE`) works on Linux and macOS too.
 
-Windows ignores unix file modes, so the agent sets an explicit, protected access list (SYSTEM and Administrators full control, nothing inherited) on the data folder, the state file, the secret file and the TLS key and certificate when it creates or reuses them, and refuses to load the state, secret or key if any other account still has access. A folder is only re-permissioned when it holds nothing but the agent's files; elsewhere each file is protected on its own. Default data path on Windows is `C:\ProgramData\eightly-agent`.
+Windows ignores unix file modes, so the agent sets an explicit, protected access list (SYSTEM and Administrators full control, plus the agent's own account when it is run by hand; nothing inherited) on the data folder, the state file, the secret file and the TLS key and certificate when it creates or reuses them, and refuses to load the state, secret or key if any other account still has access. A folder is only re-permissioned when it holds nothing but the agent's files; elsewhere each file is protected on its own. Default data path on Windows is `C:\ProgramData\eightly-agent`.
 
 ---
 
