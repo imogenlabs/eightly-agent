@@ -1,8 +1,8 @@
 package browse
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -34,10 +34,10 @@ func TestHandler_SaysWhyTheBrowserIsUnavailable(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer resp.Body.Close()
-			body := new(bytes.Buffer)
-			_, _ = body.ReadFrom(resp.Body)
-			if resp.StatusCode != tc.status || !strings.Contains(body.String(), tc.want) {
-				t.Errorf("got %d %s, want %d mentioning %q", resp.StatusCode, body, tc.status, tc.want)
+			var body struct{ Error string }
+			_ = json.NewDecoder(resp.Body).Decode(&body)
+			if resp.StatusCode != tc.status || !strings.Contains(body.Error, tc.want) {
+				t.Errorf("got %d %q, want %d mentioning %q", resp.StatusCode, body.Error, tc.status, tc.want)
 			}
 		})
 	}
