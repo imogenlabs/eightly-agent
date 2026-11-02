@@ -237,7 +237,11 @@ func TestCreate_SymlinkUnderRootRefused(t *testing.T) {
 	t.Cleanup(func() { delete(fakeContainers, "planted") })
 	refusedBy(t, f, http.MethodPost, "/containers/planted/start", "")
 	refusedBy(t, f, http.MethodPost, "/containers/planted/restart", "")
-	forwardedBy(t, f, http.MethodPost, "/containers/app/start", "")
+	// The start goes out under the ID that was checked, so renaming the
+	// planted container into a checked name between check and use fails.
+	if sink := forwardedBy(t, f, http.MethodPost, "/containers/app/start", ""); sink.path != "/containers/"+idApp+"/start" {
+		t.Errorf("start forwarded as %q, want the full ID", sink.path)
+	}
 }
 
 // M1: namespace joins, capabilities, devices, runtimes and the rest.

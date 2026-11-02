@@ -82,8 +82,12 @@ func (f *filter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch rt.check {
-	case checkExecCreate, checkTarget:
-		full, reason := f.checkTargetContainer(ctx, id)
+	case checkExecCreate, checkTarget, checkStart:
+		check := f.checkTargetContainer
+		if rt.check == checkStart {
+			check = f.checkStartMounts
+		}
+		full, reason := check(ctx, id)
 		if reason != "" {
 			deny(w, r, http.StatusForbidden, reason)
 			return
@@ -101,11 +105,6 @@ func (f *filter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case checkPrivateRead:
 		if reason := f.checkPrivateRead(ctx, id); reason != "" {
-			deny(w, r, http.StatusForbidden, reason)
-			return
-		}
-	case checkStart:
-		if reason := f.checkStartMounts(ctx, id); reason != "" {
 			deny(w, r, http.StatusForbidden, reason)
 			return
 		}
@@ -279,16 +278,16 @@ func (f *filter) checkPrivateRead(ctx context.Context, id string) string {
 // started, because that is when the daemon mounts them: a link planted after
 // create would otherwise be followed. Binds outside the roots were made on
 // the host, not through the agent, and are left alone.
-func (f *filter) checkStartMounts(ctx context.Context, id string) string {
+func (f *filter) checkStartMounts(ctx context.Context, id string) (string, string) {
 	if !f.hostFS || len(f.roots) == 0 {
-		return ""
+		return "", ""
 	}
 	c, err := f.daemon.container(ctx, id)
 	switch {
 	case errors.Is(err, errNotFound):
-		return ""
+		return "", ""
 	case err != nil:
-		return "container " + id + " could not be checked: " + err.Error()
+		return "", "container " + id + " could not be checked: " + err.Error()
 	}
 	for _, m := range c.Mounts {
 		if !strings.EqualFold(m.Type, "bind") || !strings.HasPrefix(m.Source, "/") {
@@ -297,11 +296,11 @@ func (f *filter) checkStartMounts(ctx context.Context, id string) string {
 		clean := path.Clean(m.Source)
 		if root := f.rootFor(clean); root != "" {
 			if reason := f.checkSymlinks(root, clean); reason != "" {
-				return "container " + id + ": " + reason
+				return "", "container " + id + ": " + reason
 			}
 		}
 	}
-	return ""
+	return c.ID, ""
 }
 
 // checkSymlinks refuses a bind source when any component below its root is a
