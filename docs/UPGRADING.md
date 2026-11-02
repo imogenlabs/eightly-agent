@@ -62,6 +62,13 @@ Every refusal names its reason in the response and in a `[SECURITY] proxy.denied
 | A network with a driver other than `bridge`, `macvlan` or `ipvlan` | `403` | `network driver rejected: …` |
 | Image import from a URL or tarball (`POST /images/create?fromSrc=…`) | `403` | `image import (fromSrc) rejected` |
 | `GET /containers/{id}/top` on the agent's own container or one holding the socket | `403` | `container … holds the Docker socket` |
+| `POST /images/create` without `fromImage`, or with any request body | `403` | `image import rejected: …` / `a request body is not accepted here` |
+| Stop, kill, pause, restart, update, rename or remove the agent's own container; rename a container holding the socket | `403` | `the agent's own container is off limits` |
+| Mount the agent's own volume (`agent-data`) in another container, or open it in the file browser | `403` | `volume … holds the agent's own data` |
+| Tag an image into the agent's own repository | `403` | `tagging into the agent's own image repository rejected: …` |
+| Agent in a container with `--allowed-bind-roots`: a restart policy other than `no` on a container that binds a path under a root | `403` | `a restart policy is refused on a container that mounts a path under --allowed-bind-roots …` |
+| A request body that gives a key twice (`{"Privileged":true,"privileged":false}`) | `403` | `request body could not be interpreted: duplicate key …` |
+| A Docker call on a container that does not exist (exec, attach, start, stop, …) | `404` from the agent | `No such container: …` |
 | A Docker request body the proxy reads that is over 1 MiB | `413` | `request body over the 1 MiB inspection limit` |
 | Any authenticated route before an agent with a server URL has registered | `503`, `Retry-After: 30` | `agent is not registered with the server yet` |
 | File browser with no volumes folder | `503` (`501` on Docker Desktop) | names the folder |
