@@ -31,11 +31,20 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       # Set Go up from go.mod and build explicitly. autobuild used
       # whatever Go the runner happened to have, so the scan passed or failed
-      # by which machine drew it.
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      # by which machine drew it. setup-go v5 installed the `go` line (an
+      # older Go) and left the `toolchain` line to a download at build time;
+      # v6 and later install the toolchain line and set GOTOOLCHAIN=local.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
+      - name: Go is the go.mod toolchain
+        run: |
+          want="$(sed -n 's/^toolchain //p' go.mod)"
+          want="${want:-go$(sed -n 's/^go //p' go.mod)}"
+          got="$(go env GOVERSION)"
+          echo "go.mod asks for $want; building with $got"
+          test "$got" = "$want"
       - uses: github/codeql-action/init@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3
         with:
           languages: go
