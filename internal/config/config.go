@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -29,6 +30,7 @@ type Config struct {
 	AdvertiseIP       string
 	TLSSANs           string
 	AllowedOrigins    string
+	AllowedBindRoots  string
 	MetricsEnabled    bool
 	BrowseReadOnly    bool
 	InsecureNoAuth    bool
@@ -60,6 +62,7 @@ func ParseArgs(fs *flag.FlagSet, args []string, version string) (*Config, error)
 	fs.StringVar(&c.AdvertiseIP, "advertise-ip", "", "IP address to advertise instead of auto-detecting")
 	fs.StringVar(&c.TLSSANs, "tls-san", "", "comma-separated extra SANs for the self-signed TLS cert")
 	fs.StringVar(&c.AllowedOrigins, "allowed-origins", "", "comma-separated WebSocket origin allowlist (empty = same-origin check)")
+	fs.StringVar(&c.AllowedBindRoots, "allowed-bind-roots", "", "comma-separated host directories containers may bind-mount (empty = named volumes only)")
 	fs.BoolVar(&c.MetricsEnabled, "metrics", false, "enable Prometheus /metrics endpoint")
 	fs.BoolVar(&c.BrowseReadOnly, "browse-read-only", false, "serve the file browser read-only (reject upload/delete/rename)")
 	fs.BoolVar(&c.InsecureNoAuth, "insecure-no-auth", false, "disable authentication (NOT recommended for production)")
@@ -83,6 +86,7 @@ func ParseArgs(fs *flag.FlagSet, args []string, version string) (*Config, error)
 	envOverride(&c.AdvertiseIP, "EIGHTLY_ADVERTISE_IP")
 	envOverride(&c.TLSSANs, "EIGHTLY_TLS_SANS")
 	envOverride(&c.AllowedOrigins, "EIGHTLY_ALLOWED_ORIGINS")
+	envOverride(&c.AllowedBindRoots, "EIGHTLY_ALLOWED_BIND_ROOTS")
 	for _, b := range []struct {
 		target *bool
 		key    string
@@ -164,6 +168,9 @@ func (c *Config) Validate() error {
 	if err := c.loadSecretFile(); err != nil {
 		return err
 	}
+	if _, err := c.BindRoots(); err != nil {
+		return err
+	}
 	if c.Secret == "" && !c.InsecureNoAuth {
 		return errors.New("EIGHTLY_AGENT_SECRET is required; use --insecure-no-auth to explicitly disable authentication")
 	}
@@ -177,4 +184,37 @@ func (c *Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+// systemPaths may not be bind roots, nor lie under one, nor hold one: each
+// holds the host's configuration, binaries or the container runtime's state,
+// and a container that can write there owns the host.
+var systemPaths = []string{
+	"/bin", "/boot", "/dev", "/etc", "/lib", "/lib32", "/lib64", "/libx32",
+	"/opt/cni", "/opt/containerd", "/proc", "/root", "/run", "/sbin", "/sys",
+	"/usr", "/var/lib/containerd", "/var/lib/docker", "/var/run",
+}
+
+// BindRoots returns the host directories a container may bind-mount, from
+// --allowed-bind-roots. Each must be an absolute, clean path that is not a
+// system directory, inside one, or a parent of one. An empty setting allows
+// none: containers get named volumes only.
+func (c *Config) BindRoots() ([]string, error) {
+	var roots []string
+	for _, r := range strings.Split(c.AllowedBindRoots, ",") {
+		r = strings.TrimSpace(r)
+		if r == "" {
+			continue
+		}
+		if !strings.HasPrefix(r, "/") || path.Clean(r) != r {
+			return nil, fmt.Errorf("--allowed-bind-roots: %q must be an absolute path with no trailing slash, '.' or '..'", r)
+		}
+		for _, s := range systemPaths {
+			if r == "/" || r == s || strings.HasPrefix(r, s+"/") || strings.HasPrefix(s, r+"/") {
+				return nil, fmt.Errorf("--allowed-bind-roots: %q is, holds or is inside the system directory %s", r, s)
+			}
+		}
+		roots = append(roots, r)
+	}
+	return roots, nil
 }

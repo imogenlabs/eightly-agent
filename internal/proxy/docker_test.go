@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,14 +9,14 @@ import (
 )
 
 func TestNewDockerProxy_ReturnsNonNilHandler(t *testing.T) {
-	h := NewDockerProxy("/var/run/docker.sock")
+	h := NewDockerProxy("/var/run/docker.sock", nil)
 	if h == nil {
 		t.Fatal("NewDockerProxy returned nil")
 	}
 }
 
 func TestNewDockerProxy_NonexistentSocket_ReturnsError(t *testing.T) {
-	h := NewDockerProxy("/tmp/nonexistent-docker-test.sock")
+	h := NewDockerProxy("/tmp/nonexistent-docker-test.sock", nil)
 
 	req := httptest.NewRequest("GET", "/containers/json", nil)
 	w := httptest.NewRecorder()
@@ -78,7 +79,7 @@ func (s *sinkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func postCreate(t *testing.T, body string) (*httptest.ResponseRecorder, *sinkHandler) {
 	t.Helper()
 	sink := &sinkHandler{}
-	h := denyDangerousCreates(sink)
+	h := testFilter(sink, testRoots)
 	req := httptest.NewRequest(http.MethodPost, "/v1.45/containers/create", strings.NewReader(body))
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
@@ -142,20 +143,17 @@ func TestProxy_SafeBind_PassesThrough(t *testing.T) {
 }
 
 func TestProxy_PathPrefixNotOverMatched(t *testing.T) {
-	// "/etcfoo" must NOT match the sensitive "/etc" entry.
-	rr, sink := postCreate(t, `{"HostConfig":{"Binds":["/etcfoo:/x"]}}`)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for /etcfoo bind (not sensitive), got %d", rr.Code)
-	}
-	if !sink.reached {
-		t.Fatal("/etcfoo create was not forwarded")
+	// "/srvfoo" is not under the root "/srv".
+	rr, sink := postCreate(t, `{"HostConfig":{"Binds":["/srvfoo:/x"]}}`)
+	if rr.Code != http.StatusForbidden || sink.reached {
+		t.Fatalf("/srvfoo bind: got %d reached=%v, want refused", rr.Code, sink.reached)
 	}
 }
 
 func TestProxy_ExecPrivileged_Rejected(t *testing.T) {
 	sink := &sinkHandler{}
-	h := denyDangerousCreates(sink)
-	req := httptest.NewRequest(http.MethodPost, "/v1.45/containers/abc123/exec", strings.NewReader(`{"Privileged":true,"Cmd":["sh"]}`))
+	h := testFilter(sink, testRoots)
+	req := httptest.NewRequest(http.MethodPost, "/v1.45/containers/app/exec", strings.NewReader(`{"Privileged":true,"Cmd":["sh"]}`))
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusForbidden {
@@ -169,7 +167,7 @@ func TestProxy_ExecPrivileged_Rejected(t *testing.T) {
 func TestProxy_ReadEndpoints_NotInspected(t *testing.T) {
 	// GET /containers/json and other non-create traffic must pass untouched.
 	sink := &sinkHandler{}
-	h := denyDangerousCreates(sink)
+	h := testFilter(sink, testRoots)
 	req := httptest.NewRequest(http.MethodGet, "/v1.45/containers/json", nil)
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
@@ -180,7 +178,7 @@ func TestProxy_ReadEndpoints_NotInspected(t *testing.T) {
 
 func TestInspectBody_MalformedJSONRefused(t *testing.T) {
 	// A body the filter cannot interpret is refused: it cannot be shown safe.
-	if reason := inspectBody(bodyContainerCreate, []byte("not json")); reason == "" {
+	if reason := testFilter(nil, nil).checkBody(context.Background(), checkContainerCreate, []byte("not json")); reason == "" {
 		t.Fatal("malformed body passed inspection")
 	}
 }
