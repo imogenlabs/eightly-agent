@@ -18,6 +18,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
+	"github.com/imogenlabs/eightly-agent/internal/dockerdial"
 	"github.com/imogenlabs/eightly-agent/internal/metrics"
 )
 
@@ -237,7 +238,7 @@ func serveBridge(w http.ResponseWriter, r *http.Request, up websocket.Upgrader, 
 		dbgClose(ws.Close(), "ws")
 	}()
 
-	docker, err := net.DialTimeout("unix", socketPath, dockerDialTimeout)
+	docker, err := dockerdial.DialTimeout(socketPath, dockerDialTimeout)
 	if err != nil {
 		closeWith(ws, websocket.CloseInternalServerErr, "docker connect failed")
 		return
