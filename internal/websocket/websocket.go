@@ -34,12 +34,6 @@ const (
 	maxFrameBytes = 64 * 1024
 	// pongWait is how long we wait for a pong before considering the peer dead.
 	pongWait = 60 * time.Second
-	// pingInterval must be shorter than pongWait so a keepalive lands in time.
-	pingInterval = 30 * time.Second
-	// idleTimeout closes a session that has seen no client traffic for this long.
-	idleTimeout = 15 * time.Minute
-	// absoluteTimeout is the hard ceiling on a single session regardless of activity.
-	absoluteTimeout = 8 * time.Hour
 	// dockerDialTimeout bounds connecting to the Docker unix socket.
 	dockerDialTimeout = 5 * time.Second
 	// dockerHandshakeTimeout bounds reading Docker's upgrade response.
@@ -47,6 +41,25 @@ const (
 	// maxConcurrentSessions caps simultaneous bridges across both handlers.
 	maxConcurrentSessions = 50
 )
+
+// Session limits. Variables only so tests can shorten them.
+var (
+	// pingInterval must be shorter than pongWait so a keepalive lands in time.
+	pingInterval = 30 * time.Second
+	// writeWait bounds every write to the client, pings included. A client
+	// that stops reading fills its TCP window; without a deadline the write
+	// blocks forever and the session never ends.
+	writeWait = 10 * time.Second
+	// idleTimeout closes a session that has seen no client traffic for this long.
+	idleTimeout = 15 * time.Minute
+	// absoluteTimeout is the hard ceiling on a single session regardless of activity.
+	absoluteTimeout = 8 * time.Hour
+)
+
+// closeWith sends a close frame under a write deadline, best effort.
+func closeWith(ws *websocket.Conn, code int, reason string) {
+	dbgClose(ws.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason), time.Now().Add(writeWait)), "ws")
+}
 
 // activeSessions tracks the number of in-flight bridges for the concurrency cap.
 var activeSessions int64
@@ -226,7 +239,7 @@ func serveBridge(w http.ResponseWriter, r *http.Request, up websocket.Upgrader, 
 
 	docker, err := net.DialTimeout("unix", socketPath, dockerDialTimeout)
 	if err != nil {
-		dbgClose(ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, "docker connect failed")), "ws")
+		closeWith(ws, websocket.CloseInternalServerErr, "docker connect failed")
 		return
 	}
 	defer func() { dbgClose(docker.Close(), "docker") }()
@@ -240,22 +253,22 @@ func serveBridge(w http.ResponseWriter, r *http.Request, up websocket.Upgrader, 
 	}()
 
 	if err := docker.SetWriteDeadline(time.Now().Add(dockerHandshakeTimeout)); err != nil {
-		dbgClose(ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, "docker write failed")), "ws")
+		closeWith(ws, websocket.CloseInternalServerErr, "docker write failed")
 		return
 	}
 	if _, err := docker.Write([]byte(raw)); err != nil {
-		dbgClose(ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, "docker write failed")), "ws")
+		closeWith(ws, websocket.CloseInternalServerErr, "docker write failed")
 		return
 	}
 
 	// Bound the handshake response read.
 	if err := docker.SetReadDeadline(time.Now().Add(dockerHandshakeTimeout)); err != nil {
-		dbgClose(ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, hsErrMsg)), "ws")
+		closeWith(ws, websocket.CloseInternalServerErr, hsErrMsg)
 		return
 	}
 	resp, err := http.ReadResponse(bufio.NewReader(docker), nil) //nolint:bodyclose // hijacked connection, not a standard HTTP response
 	if err != nil || resp.StatusCode != http.StatusSwitchingProtocols {
-		dbgClose(ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1011, hsErrMsg)), "ws")
+		closeWith(ws, websocket.CloseInternalServerErr, hsErrMsg)
 		return
 	}
 	// Clear handshake deadlines now that the stream is established; the bridge
@@ -266,7 +279,16 @@ func serveBridge(w http.ResponseWriter, r *http.Request, up websocket.Upgrader, 
 	bridge(ctx, ws, docker)
 }
 
+// bridge copies between the client and Docker until either side closes, the
+// client goes quiet for idleTimeout, or absoluteTimeout passes. The timers are
+// watched by a goroutine that never writes, so a write stuck on a client that
+// stopped reading cannot hold them off; closing the conns unblocks that write,
+// and the write deadline ends it on its own after writeWait.
 func bridge(ctx context.Context, ws *websocket.Conn, docker net.Conn) {
+	// Read the limits once so the goroutines below never touch the package
+	// variables (tests change them between sessions).
+	ping, wait, idleAfter, maxAge := pingInterval, writeWait, idleTimeout, absoluteTimeout
+
 	// DoS bounds on the WebSocket side: cap frame size + require periodic pongs.
 	ws.SetReadLimit(maxFrameBytes)
 	resetReadDeadline := func() {
@@ -278,17 +300,18 @@ func bridge(ctx context.Context, ws *websocket.Conn, docker net.Conn) {
 		return nil
 	})
 
-	// gorilla/websocket writes are not concurrency-safe; serialize control
-	// (ping) and data (binary) frames behind one mutex.
-	var wsMu sync.Mutex
-	wsWrite := func(mt int, data []byte) error {
-		wsMu.Lock()
-		defer wsMu.Unlock()
-		return ws.WriteMessage(mt, data)
+	// gorilla/websocket allows one concurrent writer of data frames; the
+	// docker->ws goroutine is the only one. Pings go through WriteControl,
+	// which is safe alongside it and takes its own deadline.
+	wsWrite := func(data []byte) error {
+		if err := ws.SetWriteDeadline(time.Now().Add(wait)); err != nil {
+			return err
+		}
+		return ws.WriteMessage(websocket.BinaryMessage, data)
 	}
 
-	idle := time.NewTimer(idleTimeout)
-	absolute := time.NewTimer(absoluteTimeout)
+	idle := time.NewTimer(idleAfter)
+	absolute := time.NewTimer(maxAge)
 	defer idle.Stop()
 	defer absolute.Stop()
 
@@ -302,26 +325,28 @@ func bridge(ctx context.Context, ws *websocket.Conn, docker net.Conn) {
 		})
 	}
 
-	// Keepalive + timeout supervisor: pings the client, and tears the whole
-	// session down on client disconnect, idle, or absolute deadline.
+	// Timeout supervisor: tears the session down on client disconnect, idle,
+	// or absolute deadline. It never writes, so nothing can block it.
 	go func() {
-		ping := time.NewTicker(pingInterval)
-		defer ping.Stop()
+		select {
+		case <-done:
+		case <-ctx.Done():
+		case <-idle.C:
+		case <-absolute.C:
+		}
+		closeBoth()
+	}()
+
+	// Keepalive: pings the client, each under a write deadline.
+	go func() {
+		ticker := time.NewTicker(ping)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-done:
 				return
-			case <-ctx.Done():
-				closeBoth()
-				return
-			case <-idle.C:
-				closeBoth()
-				return
-			case <-absolute.C:
-				closeBoth()
-				return
-			case <-ping.C:
-				if err := wsWrite(websocket.PingMessage, nil); err != nil {
+			case <-ticker.C:
+				if err := ws.WriteControl(websocket.PingMessage, nil, time.Now().Add(wait)); err != nil {
 					closeBoth()
 					return
 				}
@@ -335,7 +360,7 @@ func bridge(ctx context.Context, ws *websocket.Conn, docker net.Conn) {
 		for {
 			n, err := docker.Read(buf)
 			if n > 0 {
-				if wErr := wsWrite(websocket.BinaryMessage, buf[:n]); wErr != nil {
+				if wErr := wsWrite(buf[:n]); wErr != nil {
 					closeBoth()
 					return
 				}
@@ -356,7 +381,7 @@ func bridge(ctx context.Context, ws *websocket.Conn, docker net.Conn) {
 				closeBoth()
 				return
 			}
-			idle.Reset(idleTimeout)
+			idle.Reset(idleAfter)
 			resetReadDeadline()
 			if _, err := docker.Write(msg); err != nil {
 				closeBoth()
