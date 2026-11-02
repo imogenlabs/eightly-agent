@@ -77,7 +77,7 @@ ok  internal/websocket (CSWSH/origin/SNI, 64 KB read limit, docker-ID allowlist)
 
 **Static / SAST.** `gosec` (severity ≥ medium), `govulncheck` (**0 reachable** vulns on the `1.26.4` toolchain), `staticcheck`, `golangci-lint`, GitHub CodeQL, and OpenSSF Scorecard run in CI. These backed the supply-chain and injection-class Low/Info findings.
 
-**Live (owned target).** Remediation was exercised against the agent deployed on our own lab host alongside Eight.ly OS — enrollment + pin capture, heartbeat, the auth middleware, and the Docker proxy were observed end-to-end. No third-party system was in scope (owner's standing rule: dynamic testing only against infrastructure Michael owns).
+**Live (owned target).** Remediation was exercised against the agent deployed on our own lab host alongside Eight.ly OS — enrollment + pin capture, heartbeat, the auth middleware, and the Docker proxy were observed end-to-end. No third-party system was in scope (owner's standing rule: dynamic testing only against infrastructure we own).
 
 **Continuous enforcement (this change).** `.github/workflows/pentest.yml` adds a focused gate on PRs to `main`/`dev`:
 - `security-regression` — `go test -race` across the five hardened packages (the sabotage suite).
