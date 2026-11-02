@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -75,9 +76,16 @@ func dbgClose(err error, what string) {
 
 // requestHost returns the authoritative host[:port] for the request, preferring
 // the TLS server name (SNI) the client negotiated over the spoofable Host header.
+// SNI carries no port, so the port comes from Host, and only when Host names the
+// same host as SNI: an agent on :9001 is reached as https://host:9001, and that
+// is the Origin its own pages send.
 func requestHost(r *http.Request) string {
 	if r.TLS != nil && r.TLS.ServerName != "" {
-		return r.TLS.ServerName
+		sni := r.TLS.ServerName
+		if h, p, err := net.SplitHostPort(r.Host); err == nil && p != "" && strings.EqualFold(h, sni) {
+			return net.JoinHostPort(sni, p)
+		}
+		return sni
 	}
 	if r.Host != "" {
 		return r.Host
@@ -303,7 +311,10 @@ func serveBridge(w http.ResponseWriter, r *http.Request, up websocket.Upgrader, 
 		closeWith(ws, websocket.CloseInternalServerErr, hsErrMsg)
 		return
 	}
-	resp, err := http.ReadResponse(bufio.NewReader(docker), nil) //nolint:bodyclose // hijacked connection, not a standard HTTP response
+	// Docker can send the 101 and the first terminal output in one write, so
+	// this reader may already hold output. The bridge keeps reading from it.
+	dockerR := bufio.NewReader(docker)
+	resp, err := http.ReadResponse(dockerR, nil) //nolint:bodyclose // hijacked connection, not a standard HTTP response
 	if err != nil || resp.StatusCode != http.StatusSwitchingProtocols {
 		closeWith(ws, websocket.CloseInternalServerErr, hsErrMsg)
 		return
@@ -313,15 +324,16 @@ func serveBridge(w http.ResponseWriter, r *http.Request, up websocket.Upgrader, 
 	dbgClose(docker.SetReadDeadline(time.Time{}), "docker")
 	dbgClose(docker.SetWriteDeadline(time.Time{}), "docker")
 
-	bridge(ctx, ws, docker)
+	bridge(ctx, ws, docker, dockerR)
 }
 
 // bridge copies between the client and Docker until either side closes, the
 // client goes quiet for idleTimeout, or absoluteTimeout passes. The timers are
 // watched by a goroutine that never writes, so a write stuck on a client that
 // stopped reading cannot hold them off; closing the conns unblocks that write,
-// and the write deadline ends it on its own after writeWait.
-func bridge(ctx context.Context, ws *websocket.Conn, docker net.Conn) {
+// and the write deadline ends it on its own after writeWait. Output is read from
+// dockerR, the reader the handshake used, so bytes it buffered are not lost.
+func bridge(ctx context.Context, ws *websocket.Conn, docker net.Conn, dockerR io.Reader) {
 	// Read the limits once so the goroutines below never touch the package
 	// variables (tests change them between sessions).
 	ping, wait, idleAfter, maxAge := pingInterval, writeWait, idleTimeout, absoluteTimeout
@@ -395,7 +407,7 @@ func bridge(ctx context.Context, ws *websocket.Conn, docker net.Conn) {
 	go func() {
 		buf := make([]byte, 32*1024)
 		for {
-			n, err := docker.Read(buf)
+			n, err := dockerR.Read(buf)
 			if n > 0 {
 				if wErr := wsWrite(buf[:n]); wErr != nil {
 					closeBoth()
