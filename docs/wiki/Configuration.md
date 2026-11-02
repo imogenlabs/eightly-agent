@@ -76,7 +76,7 @@ When set, allows the agent to start without a shared secret. Authentication is b
 
 **`--server-url` / `EIGHTLY_SERVER_URL`**
 
-The URL of the EOS server this agent should register with. Example: `https://your-eos-server:7001` or `https://os.eight.ly`. When set, the agent will attempt to register on startup and begin sending heartbeats every 30 seconds. When empty, registration and heartbeat are both disabled. See [[Registration-and-Heartbeat]] for details.
+The URL of the EOS server this agent should register with. Example: `https://your-eos-server:8080` or `https://os.eight.ly`. When set, the agent will attempt to register on startup and begin sending heartbeats every 30 seconds. When empty, registration and heartbeat are both disabled. See [[Registration-and-Heartbeat]] for details.
 
 **`--enroll-token` / `EIGHTLY_ENROLL_TOKEN`**
 
@@ -177,7 +177,7 @@ docker run -d --init \
   -v agent-data:/data \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="a-strong-shared-secret" \
-  -e EIGHTLY_SERVER_URL="https://your-eos-server:7001" \
+  -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
   -e EIGHTLY_ENROLL_TOKEN="token-from-eos-admin" \
   ghcr.io/imogenlabs/eightly-agent:v1.0.0
 ```
@@ -193,7 +193,7 @@ Deploy the same image to each host with the same shared secret but unique enroll
 docker run -d --init --name eightly-agent --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock -v agent-data:/data -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="fleet-secret" \
-  -e EIGHTLY_SERVER_URL="https://eos.local:7001" \
+  -e EIGHTLY_SERVER_URL="https://eos.local:8080" \
   -e EIGHTLY_ENROLL_TOKEN="token-host-a" \
   ghcr.io/imogenlabs/eightly-agent:v1.0.0
 
@@ -201,7 +201,7 @@ docker run -d --init --name eightly-agent --restart unless-stopped \
 docker run -d --init --name eightly-agent --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock -v agent-data:/data -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="fleet-secret" \
-  -e EIGHTLY_SERVER_URL="https://eos.local:7001" \
+  -e EIGHTLY_SERVER_URL="https://eos.local:8080" \
   -e EIGHTLY_ENROLL_TOKEN="token-host-b" \
   ghcr.io/imogenlabs/eightly-agent:v1.0.0
 ```

@@ -4,8 +4,6 @@ Thanks for your interest in contributing. This document covers the basics.
 
 ## Getting Started
 
-> This repo is currently private. `git clone` requires collaborator access until it's made public.
-
 ```bash
 git clone https://github.com/imogenlabs/eightly-agent.git
 cd eightly-agent

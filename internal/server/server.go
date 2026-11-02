@@ -17,15 +17,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog/log"
 
-	"github.com/smashingtags/eightly-agent/internal/auth"
-	"github.com/smashingtags/eightly-agent/internal/browse"
-	"github.com/smashingtags/eightly-agent/internal/config"
-	"github.com/smashingtags/eightly-agent/internal/hostinfo"
-	"github.com/smashingtags/eightly-agent/internal/metrics"
-	"github.com/smashingtags/eightly-agent/internal/proxy"
-	"github.com/smashingtags/eightly-agent/internal/register"
-	"github.com/smashingtags/eightly-agent/internal/tlsutil"
-	"github.com/smashingtags/eightly-agent/internal/websocket"
+	"github.com/imogenlabs/eightly-agent/internal/auth"
+	"github.com/imogenlabs/eightly-agent/internal/browse"
+	"github.com/imogenlabs/eightly-agent/internal/config"
+	"github.com/imogenlabs/eightly-agent/internal/hostinfo"
+	"github.com/imogenlabs/eightly-agent/internal/metrics"
+	"github.com/imogenlabs/eightly-agent/internal/proxy"
+	"github.com/imogenlabs/eightly-agent/internal/register"
+	"github.com/imogenlabs/eightly-agent/internal/tlsutil"
+	"github.com/imogenlabs/eightly-agent/internal/websocket"
 )
 
 // Run starts the agent's HTTPS server and blocks until ctx is cancelled or a fatal error occurs.
@@ -55,7 +55,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 
 	mux := http.NewServeMux()
 	// The registration state pointer can still be nil here and gains an ID later,
-	// so the ID is read at request time (EA-35).
+	// so the ID is read at request time.
 	authed := auth.Middleware(cfg.Secret, cfg.InsecureNoAuth, func() string {
 		if state == nil {
 			return ""
@@ -179,7 +179,7 @@ func loadOrRegister(cfg *config.Config, serverTLS *tls.Config) *register.State {
 		log.Warn().Err(err).Msg("failed to load registration state")
 	}
 	if state != nil && register.TokenExpired(state.Token, time.Now()) {
-		// EOS-2536: a lapsed token can never be renewed. Re-enrolling is
+		// A lapsed token can never be renewed. Re-enrolling is
 		// running the install command again with a fresh enrollment token, so
 		// when one is configured, use it instead of the dead saved state.
 		if cfg.EnrollToken == "" {

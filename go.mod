@@ -1,4 +1,4 @@
-module github.com/smashingtags/eightly-agent
+module github.com/imogenlabs/eightly-agent
 
 go 1.26.4
 

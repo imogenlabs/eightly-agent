@@ -20,7 +20,7 @@ Examples of unacceptable behavior:
 
 ## Enforcement
 
-Project maintainers are responsible for clarifying and enforcing these standards. Instances of unacceptable behavior may be reported to michael@mjashley.com. All complaints will be reviewed and investigated and will result in a response deemed appropriate to the circumstances.
+Project maintainers are responsible for clarifying and enforcing these standards. Instances of unacceptable behavior may be reported to support@imogenlabs.ai. All complaints will be reviewed and investigated and will result in a response deemed appropriate to the circumstances.
 
 ## Attribution
 

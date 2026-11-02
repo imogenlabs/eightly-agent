@@ -1,8 +1,8 @@
 #!/bin/sh
-# EOS-2533: prove the agent image reaps orphaned processes and that its own
+# Prove the agent image reaps orphaned processes and that its own
 # health check passes.
 #
-# On eightly-ms01 the image's health check (busybox wget) timed out every 10s
+# On a production host the image's health check (busybox wget) timed out every 10s
 # and each time left its ssl_client helper orphaned on PID 1, the agent, which
 # never reaps: 115,420 zombies. The image now runs under tini and the check is
 # in-process. This script runs the built image three ways:

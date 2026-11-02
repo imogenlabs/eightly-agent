@@ -1,12 +1,10 @@
 services:
   eightly-agent:
-    # ghcr.io/imogenlabs/eightly-agent is unreachable while this repo/package is private (403).
-    # smashingtags/eightly-agent on Docker Hub is the only image that pulls publicly today,
-    # though it's stale (last published 2026-05-21) — see README.md Quick Start.
-    image: smashingtags/eightly-agent:latest
+    # Also mirrored on Docker Hub as smashingtags/eightly-agent.
+    image: ghcr.io/imogenlabs/eightly-agent:latest
     container_name: eightly-agent
     restart: unless-stopped
-    # A second reaper for images built before EOS-2533 put tini in the image.
+    # A second reaper for images built before tini was added to the image.
     init: true
     ports:
       - "9001:9001"
@@ -19,7 +17,7 @@ services:
       - EIGHTLY_ENROLL_TOKEN=${EIGHTLY_ENROLL_TOKEN:-}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     # No healthcheck override: the image carries its own. An image built before
-    # EOS-2533 has no `healthcheck` subcommand and would start a second agent
+    # the in-process health check has no `healthcheck` subcommand and would start a second agent
     # on every check if one were named here.
 
 volumes:

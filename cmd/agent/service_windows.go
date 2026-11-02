@@ -1,6 +1,6 @@
 //go:build windows
-// SPDX-License-Identifier: Apache-2.0
 
+// SPDX-License-Identifier: Apache-2.0
 
 package main
 
@@ -14,8 +14,8 @@ import (
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 
-	"github.com/smashingtags/eightly-agent/internal/config"
-	"github.com/smashingtags/eightly-agent/internal/server"
+	"github.com/imogenlabs/eightly-agent/internal/config"
+	"github.com/imogenlabs/eightly-agent/internal/server"
 )
 
 const (

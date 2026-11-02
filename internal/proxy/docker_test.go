@@ -185,7 +185,7 @@ func TestInspectCreateBody_MalformedJSONAllowed(t *testing.T) {
 	}
 }
 
-// --- EA-34: extended deny-list vectors (SecurityOpt/Devices/Sysctls/CgroupParent/Tmpfs) ---
+// --- Extended deny-list vectors (SecurityOpt/Devices/Sysctls/CgroupParent/Tmpfs) ---
 
 func TestProxy_SecurityOpt_Rejected(t *testing.T) {
 	// Each entry disables a runtime sandbox; tolerate '=' and ':' separators,
@@ -214,7 +214,7 @@ func TestProxy_SecurityOpt_SafeProfilePassesThrough(t *testing.T) {
 	cases := map[string]string{
 		"custom seccomp profile": `{"HostConfig":{"SecurityOpt":["seccomp=/path/to/profile.json"]}}`,
 		"no-new-privileges":      `{"HostConfig":{"SecurityOpt":["no-new-privileges"]}}`,
-		"label user":            `{"HostConfig":{"SecurityOpt":["label=user:USER"]}}`,
+		"label user":             `{"HostConfig":{"SecurityOpt":["label=user:USER"]}}`,
 	}
 	for name, body := range cases {
 		rr, sink := postCreate(t, body)
@@ -266,7 +266,7 @@ func TestProxy_Sysctls_Rejected(t *testing.T) {
 
 func TestProxy_SafeSysctls_PassThrough(t *testing.T) {
 	cases := map[string]string{
-		"net":      `{"HostConfig":{"Sysctls":{"net.ipv4.ip_forward":"1"}}}`,
+		"net":        `{"HostConfig":{"Sysctls":{"net.ipv4.ip_forward":"1"}}}`,
 		"kernel shm": `{"HostConfig":{"Sysctls":{"kernel.shmmax":"65536"}}}`,
 		"fs mqueue":  `{"HostConfig":{"Sysctls":{"fs.mqueue.msg_max":"10"}}}`,
 	}
@@ -293,10 +293,10 @@ func TestProxy_CgroupParent_Rejected(t *testing.T) {
 
 func TestProxy_Tmpfs_Rejected(t *testing.T) {
 	cases := map[string]string{
-		"root":  `{"HostConfig":{"Tmpfs":{"/":"rw"}}}`,
-		"proc":  `{"HostConfig":{"Tmpfs":{"/proc":"rw"}}}`,
-		"sys":   `{"HostConfig":{"Tmpfs":{"/sys/fs/cgroup":"rw"}}}`,
-		"etc":   `{"HostConfig":{"Tmpfs":{"/etc":"rw"}}}`,
+		"root": `{"HostConfig":{"Tmpfs":{"/":"rw"}}}`,
+		"proc": `{"HostConfig":{"Tmpfs":{"/proc":"rw"}}}`,
+		"sys":  `{"HostConfig":{"Tmpfs":{"/sys/fs/cgroup":"rw"}}}`,
+		"etc":  `{"HostConfig":{"Tmpfs":{"/etc":"rw"}}}`,
 	}
 	for name, body := range cases {
 		rr, sink := postCreate(t, body)

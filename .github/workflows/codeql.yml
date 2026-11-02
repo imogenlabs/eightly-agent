@@ -8,7 +8,7 @@ on:
   schedule:
     - cron: '0 6 * * 1'
 
-# EOS-2462: a permissions block replaces the default scopes, so contents: read
+# A permissions block replaces the default scopes, so contents: read
 # must be named or checkout of this private repo is refused ("repository not
 # found") -- which is how this scan failed every week from August unseen.
 permissions:
@@ -19,13 +19,13 @@ permissions:
 jobs:
   analyze:
     name: Analyze
-    # The t320 runners (eightly-ci-*) have no `file` program, so CodeQL cannot
+    # Some self-hosted runners have no `file` program, so CodeQL cannot
     # find the Go binary there and extracts nothing ("could not process any
     # code written in Go"). The code-quality runners have it.
     runs-on: [self-hosted, code-quality]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      # EOS-2462: set Go up from go.mod and build explicitly. autobuild used
+      # Set Go up from go.mod and build explicitly. autobuild used
       # whatever Go the runner happened to have, so the scan passed or failed
       # by which machine drew it.
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -38,7 +38,7 @@ jobs:
           build-mode: manual
       - name: Build
         run: go build ./...
-      # EOS-2462: code scanning upload needs GitHub Advanced Security, which a
+      # Code scanning upload needs GitHub Advanced Security, which a
       # private repo on the free plan does not have ("Advanced Security must be
       # enabled"). Keep the results here and fail the job on any finding, so the
       # scan is a real gate instead of a weekly red nobody reads.

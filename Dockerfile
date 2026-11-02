@@ -22,9 +22,9 @@ COPY --from=builder /eightly-agent /app/eightly-agent
 VOLUME /data
 EXPOSE 9001
 USER eightly-agent
-# EOS-2533. The check runs in-process: busybox wget forked an ssl_client
+# The check runs in-process: busybox wget forked an ssl_client
 # helper, and every check Docker timed out left that helper behind as a zombie
-# (115,420 on eightly-ms01). tini is PID 1 so anything orphaned is still reaped.
+# (115,420 on a production host). tini is PID 1 so anything orphaned is still reaped.
 # -s registers it as a subreaper, so under `docker run --init` (where Docker's
 # own init is PID 1) it still reaps and does not warn on every start.
 HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
@@ -34,4 +34,4 @@ ENTRYPOINT ["/sbin/tini", "-s", "--", "/app/eightly-agent"]
 LABEL org.opencontainers.image.title="Eight.ly Agent"
 LABEL org.opencontainers.image.description="Lightweight Docker management agent for Eight.ly OS"
 LABEL org.opencontainers.image.vendor="Imogen Labs"
-LABEL org.opencontainers.image.source="https://github.com/smashingtags/eightly-agent"
+LABEL org.opencontainers.image.source="https://github.com/imogenlabs/eightly-agent"

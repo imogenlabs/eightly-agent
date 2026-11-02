@@ -10,7 +10,7 @@ import (
 )
 
 // clock is what renewal decisions read, a variable so a test can drive an
-// agent through months (EOS-2536).
+// agent through months.
 var clock = time.Now
 
 // legacyTokenLifetime matches the server's grace for a token minted before

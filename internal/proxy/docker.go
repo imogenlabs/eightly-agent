@@ -251,7 +251,7 @@ func isSafeSysctl(key string) bool {
 // This is a deny-list: it blocks the documented container-escape vectors but
 // cannot be exhaustive. An allow-list (or an upstream socket-proxy that only
 // passes vetted requests) is the stronger long-term model and is tracked as the
-// EA-34 follow-up.
+// tracked follow-up.
 func inspectCreateBody(body []byte) string {
 	if len(body) == 0 {
 		return ""

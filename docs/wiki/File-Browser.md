@@ -11,7 +11,7 @@ The file browser operates on Docker volume data stored on disk. All paths are re
 ```
 
 Where:
-- `<data-path>` is the agent's `--data-path` (default `/data`)
+- `<data-path>` is the agent's `--data` (default `/data`)
 - `<volumeID>` is the Docker volume name or ID
 - `_data` is the standard Docker volume subdirectory
 - `<path>` is the user-specified path within the volume
@@ -82,7 +82,7 @@ Accepts a multipart form upload with a `file` field. The file is written to the 
 - Returns `201 Created` with `{"status": "ok"}` on success.
 - Returns `400 Bad Request` if the `file` form field is missing.
 
-There is no explicit file size limit enforced by the agent. The practical limit is determined by available disk space and the HTTP client's timeout settings. The agent's `ReadTimeout` is 120 seconds and `WriteTimeout` is 30 minutes, allowing large uploads.
+Uploads are capped at 100 MB per file; a larger body is rejected. The agent's `ReadTimeout` is 120 seconds and `WriteTimeout` is 30 minutes.
 
 ### Delete (delete)
 
@@ -115,7 +115,7 @@ Renames a file or directory within its current parent directory. The `newName` i
 
 ## Path Format
 
-Paths use forward slashes regardless of the host OS (the agent only runs on Linux). Both absolute and relative paths within the volume work:
+Paths use forward slashes on every host OS (Linux, macOS and Windows). Both absolute and relative paths within the volume work:
 
 - `/config/app.yml` -- absolute from volume root
 - `config/app.yml` -- treated the same way after path joining
@@ -126,13 +126,7 @@ The `volumeID` parameter is the Docker volume name as it appears in `docker volu
 
 ### Path Traversal Protection
 
-Both `volumeID` and `path` parameters are checked for `..` sequences. If either contains `..`, the request is rejected with `400 Bad Request`:
-
-```json
-{"error": "path traversal rejected"}
-```
-
-This prevents accessing files outside the volume data directory.
+Every path is resolved inside the volume's directory and must stay there. `..`, absolute paths, Windows drive letters and network paths, and symlinks that point outside the volume are all rejected with `400 Bad Request`. On Linux and macOS files are opened without following symlinks, so a link swapped in after the check cannot redirect the open.
 
 ### Rename Validation
 
@@ -173,5 +167,5 @@ This maps the host's Docker volume storage into the agent's expected path struct
 
 - [[API-Reference]] -- Full endpoint documentation with curl examples
 - [[Authentication]] -- Token requirements for file browser access
-- [[Configuration]] -- `--data-path` setting
+- [[Configuration]] -- `--data` setting
 - [[Troubleshooting]] -- File browser 403 and permission issues

@@ -18,12 +18,10 @@ env:
 jobs:
   docker:
     name: Build & Push Multi-Arch
-    # EOS-2538 / EOS-2545: this job builds with buildx and signs with cosign on
+    # This job builds with buildx and signs with cosign on
     # the runner itself, so it needs a runner proven to do both: `docker-build`
-    # (builds and runs an image) and `can-sign` (reaches Fulcio; this LAN's
-    # gateway breaks TLS to fulcio.sigstore.dev unless the runner routes it
-    # through the testprox tunnel). Run 37361542748 pushed the image and then
-    # failed to sign on a runner that could not reach Fulcio.
+    # (builds and runs an image) and `can-sign` (can reach Sigstore's Fulcio).
+    # A runner that cannot reach Fulcio pushes the image and then fails to sign.
     runs-on: [self-hosted, docker-build, can-sign]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

@@ -18,8 +18,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/smashingtags/eightly-agent/internal/config"
-	"github.com/smashingtags/eightly-agent/internal/register"
+	"github.com/imogenlabs/eightly-agent/internal/config"
+	"github.com/imogenlabs/eightly-agent/internal/register"
 )
 
 // registerCounter is an EOS server that counts enrollment calls and accepts
@@ -43,7 +43,7 @@ func registerCounter(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	return srv, &calls
 }
 
-// EOS-2534. Docker creates a new volume directory 0755. The agent saved its
+// Docker creates a new volume directory 0755. The agent saved its
 // registration there, and on the next start its own permission guard refused
 // the directory, so it threw the saved identity away and enrolled again with a
 // single-use token that was already spent: "register failed: status 403".
@@ -129,7 +129,7 @@ func tokenExpiringAt(exp time.Time) string {
 	return base64.RawURLEncoding.EncodeToString(claims) + ".sig"
 }
 
-// EOS-2536. Re-enrolling an agent whose token lapsed means running the install
+// Re-enrolling an agent whose token lapsed means running the install
 // command again with a fresh enrollment token. If the saved state survived in
 // the volume, the agent used to load it and never look at the new token, so
 // re-enrolling could not work. A lapsed saved token plus an enrollment token
@@ -178,7 +178,7 @@ func TestLoadOrRegister_ValidSavedTokenIgnoresLeftoverEnrollToken(t *testing.T) 
 	}
 }
 
-// EOS-2536, Codex P1. Re-enrolling a lapsed agent against the SAME server must
+// Re-enrolling a lapsed agent against the SAME server must
 // still hold the server to the pin saved at first enrollment. Before, the
 // expired state was dropped before anything seeded the pin, so in the default
 // pin-only mode re-enrollment trusted whatever certificate answered and sent
@@ -245,7 +245,7 @@ func TestLoadOrRegister_ReEnrollSameServerMatchingSavedPinKeepsPin(t *testing.T)
 	}
 }
 
-// EOS-2544: in the image, /data is both --data and the state folder, so it
+// In the image, /data is both --data and the state folder, so it
 // holds the agent's TLS key pair beside the state file. That is still wholly
 // the agent's folder, so a restart repairs it and resumes.
 func TestLoadOrRegister_VolumeWithTLSPairIsStillRepaired(t *testing.T) {

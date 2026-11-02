@@ -20,7 +20,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/smashingtags/eightly-agent/internal/metrics"
+	"github.com/imogenlabs/eightly-agent/internal/metrics"
 )
 
 const (
@@ -441,7 +441,7 @@ func (h *heartbeater) step(ctx context.Context) {
 	err := sendHeartbeat(ctx, h.state, h.tlsCfg)
 	if err != nil && known && lt.expired(clock()) {
 		metrics.HeartbeatsFailed.WithLabelValues("token_expired").Inc()
-		// EOS-2536: the server refuses an expired token on heartbeat AND on
+		// The server refuses an expired token on heartbeat AND on
 		// register, so re-registering with it can only ever be refused. Say
 		// once what fixes it and wait at the slowest pace; a beat still goes
 		// out in case this host's clock is the thing that is wrong.
@@ -479,7 +479,7 @@ func (h *heartbeater) step(ctx context.Context) {
 	h.toldExpired = false
 	h.log.Debug().Str("agent_id", h.state.AgentID).Msg("heartbeat ok")
 
-	// EOS-2536: tokens live 30 days and the only renewal used to be the
+	// Tokens live 30 days and the only renewal used to be the
 	// re-register after three failed beats, by which time the token had
 	// lapsed and the server refused it. Renew from half-life on, with the
 	// token still valid; a failure is retried on the next beat.

@@ -4,8 +4,7 @@ A CycloneDX SBOM (`compliance/sbom.cdx.json`, CycloneDX spec 1.6) is committed t
 this directory. Regenerate it from the **repo root** with:
 
 ```bash
-GOCACHE=/Volumes/Workspace/.gocache TMPDIR=/Volumes/Workspace/.tmp \
-  go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest \
+go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest \
   mod -json -output compliance/sbom.cdx.json
 ```
 

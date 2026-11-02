@@ -11,7 +11,7 @@ Multiple ways to install Eight.ly Agent: Docker Compose (recommended), Docker co
 ## Homebrew (macOS / Linux)
 
 ```bash
-brew install smashingtags/tap/eightly-agent
+brew install imogenlabs/tap/eightly-agent
 ```
 
 After installation, configure and run:
@@ -19,16 +19,16 @@ After installation, configure and run:
 ```bash
 eightly-agent \
   --secret "your-shared-secret" \
-  --server-url "https://your-eos-server:7001" \
+  --server-url "https://your-eos-server:8080" \
   --enroll-token "your-enrollment-token"
 ```
 
-Or start as a background service via `brew services start smashingtags/tap/eightly-agent`.
+Or start as a background service via `brew services start imogenlabs/tap/eightly-agent`.
 
 ## Scoop (Windows)
 
 ```powershell
-scoop bucket add eightly https://github.com/smashingtags/scoop-bucket
+scoop bucket add eightly https://github.com/imogenlabs/scoop-eightly
 scoop install eightly-agent
 ```
 
@@ -37,7 +37,7 @@ After installation, see the [Windows Service](#windows-service) section below fo
 ```powershell
 eightly-agent.exe `
   --secret "your-shared-secret" `
-  --server-url "https://your-eos-server:7001" `
+  --server-url "https://your-eos-server:8080" `
   --enroll-token "your-enrollment-token"
 ```
 
@@ -89,7 +89,7 @@ docker run -d --init \
   -v eightly-agent-data:/data \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
-  -e EIGHTLY_SERVER_URL="https://your-eos-server:7001" \
+  -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
   -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
   ghcr.io/imogenlabs/eightly-agent:v1.0.0
 ```
@@ -104,9 +104,9 @@ docker run -d --init \
   -v eightly-agent-data:/data \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
-  -e EIGHTLY_SERVER_URL="https://your-eos-server:7001" \
+  -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
   -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
-  smashingtags/eightly-agent:v1.0.0
+  ghcr.io/imogenlabs/eightly-agent:latest
 ```
 
 ### Volume Mounts
@@ -118,11 +118,11 @@ docker run -d --init \
 
 ## Binary Download
 
-Pre-built binaries for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, and windows/amd64 are available on [GitHub Releases](https://github.com/smashingtags/eightly-agent/releases).
+Pre-built binaries for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, and windows/amd64 are available on [GitHub Releases](https://github.com/imogenlabs/eightly-agent/releases).
 
 ```bash
 # Download the latest release (amd64 example)
-curl -Lo eightly-agent https://github.com/smashingtags/eightly-agent/releases/latest/download/eightly-agent-linux-amd64
+curl -Lo eightly-agent https://github.com/imogenlabs/eightly-agent/releases/latest/download/eightly-agent-linux-amd64
 chmod +x eightly-agent
 
 # Create data directory
@@ -131,7 +131,7 @@ sudo mkdir -p /data
 # Run
 ./eightly-agent \
   --secret "your-shared-secret" \
-  --server-url "https://your-eos-server:7001" \
+  --server-url "https://your-eos-server:8080" \
   --enroll-token "your-enrollment-token" \
   --data-path /data
 ```
@@ -150,7 +150,7 @@ Requires=docker.service
 Type=simple
 ExecStart=/usr/local/bin/eightly-agent \
   --secret "your-shared-secret" \
-  --server-url "https://your-eos-server:7001" \
+  --server-url "https://your-eos-server:8080" \
   --data-path /var/lib/eightly-agent
 Restart=always
 RestartSec=5
@@ -181,7 +181,7 @@ eightly-agent.exe start
 
 ```powershell
 [System.Environment]::SetEnvironmentVariable("EIGHTLY_AGENT_SECRET", "your-shared-secret", "Machine")
-[System.Environment]::SetEnvironmentVariable("EIGHTLY_SERVER_URL", "https://your-eos-server:7001", "Machine")
+[System.Environment]::SetEnvironmentVariable("EIGHTLY_SERVER_URL", "https://your-eos-server:8080", "Machine")
 [System.Environment]::SetEnvironmentVariable("EIGHTLY_ENROLL_TOKEN", "your-enrollment-token", "Machine")
 eightly-agent.exe install
 eightly-agent.exe start
@@ -205,7 +205,7 @@ The service runs as `EightlyAgent` in the Windows Services panel. Default paths 
 Requires Go 1.23 or later.
 
 ```bash
-git clone https://github.com/smashingtags/eightly-agent.git
+git clone https://github.com/imogenlabs/eightly-agent.git
 cd eightly-agent
 
 # Build for the current platform
