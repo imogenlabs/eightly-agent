@@ -119,6 +119,9 @@ func dialSession(t *testing.T, handler http.Handler, path, id string) (int, stri
 	conn, resp, err := (&websocket.Dialer{HandshakeTimeout: 5 * time.Second}).Dial(wsURL, hdr)
 	if err == nil {
 		_ = conn.Close()
+		// Wait for the bridge to end: it reads the session limits, which
+		// later tests change.
+		waitSessionsGone(t, 10*time.Second)
 		return http.StatusSwitchingProtocols, ""
 	}
 	if resp == nil {
