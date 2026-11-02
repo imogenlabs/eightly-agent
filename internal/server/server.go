@@ -67,7 +67,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 				}
 				states.Store(state)
 			}
-			register.StartHeartbeat(ctx, states, unsaved, cfg.StatePath, cfg.SocketPath, cfg.Version, cfg.AdvertiseIP, serverTLS, log.Logger)
+			register.StartHeartbeat(ctx, states, unsaved, cfg.StatePath, cfg.SocketPath, cfg.Port, cfg.Version, cfg.AdvertiseIP, serverTLS, log.Logger)
 		}()
 	}
 

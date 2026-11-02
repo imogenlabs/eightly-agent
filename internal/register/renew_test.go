@@ -34,6 +34,8 @@ type fakeEOS struct {
 	serial    int
 	registers int
 	beats     []int
+	// ports are the ports each registration reported.
+	ports []string
 }
 
 func (f *fakeEOS) advance(d time.Duration) { f.mu.Lock(); f.now = f.now.Add(d); f.mu.Unlock() }
@@ -64,6 +66,11 @@ func (f *fakeEOS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/api/agents/register":
 		f.registers++
+		var body struct {
+			Port string `json:"port"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.ports = append(f.ports, body.Port)
 		if !f.valid(r) {
 			w.WriteHeader(http.StatusForbidden)
 			return
@@ -96,7 +103,7 @@ func startFakeEOS(t *testing.T) (*fakeEOS, *StateHolder, *heartbeater) {
 	}
 	states := NewStateHolder(&State{AgentID: "agent-1", Token: f.mint(), ServerURL: srv.URL})
 	statePath := filepath.Join(t.TempDir(), "data", "state.json") // Save creates it 0700
-	h := newHeartbeater(states, statePath, "/nonexistent.sock", "test", "10.0.0.9", tlsCfg, zerolog.Nop())
+	h := newHeartbeater(states, statePath, "/nonexistent.sock", "9443", "test", "10.0.0.9", tlsCfg, zerolog.Nop())
 	return f, states, h
 }
 
@@ -114,6 +121,13 @@ func TestHeartbeat_RenewsBeforeExpiryAndStaysConnectedFor100Days(t *testing.T) {
 	}
 	if f.registers < 3 || f.registers > 8 {
 		t.Errorf("%d renewals over 100 days; renewing at half-life of 30 days should be about 6", f.registers)
+	}
+	// The server records the port each registration reports; an empty one
+	// reset an agent on another port to the default 9001.
+	for i, p := range f.ports {
+		if p != "9443" {
+			t.Errorf("renewal %d reported port %q, want the agent's 9443", i+1, p)
+		}
 	}
 	saved, err := LoadState(h.statePath)
 	if err != nil || saved == nil || saved.Token != states.Load().Token {
