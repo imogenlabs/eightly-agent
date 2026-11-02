@@ -395,6 +395,7 @@ func TestLoadState_AfterSave_ReturnsSameData(t *testing.T) {
 	}
 	if loaded == nil {
 		t.Fatal("loaded state should not be nil")
+		return
 	}
 	if loaded.AgentID != original.AgentID {
 		t.Errorf("AgentID: got %q, want %q", loaded.AgentID, original.AgentID)

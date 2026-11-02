@@ -22,6 +22,28 @@ go test ./... -race
 
 All tests must pass before submitting a PR.
 
+### Coverage floors
+
+CI holds every package under `cmd/` and `internal/`, and the tree as a whole, to a coverage floor in `scripts/coverage-check.sh`:
+
+```bash
+go test ./... -covermode=atomic -coverprofile=coverage.out
+scripts/coverage-check.sh coverage.out   # 0 held, 1 below a floor, 2 could not measure
+scripts/coverage-check.sh --self-test    # proves the gate still tells those apart
+```
+
+A new package needs a floor of its own, or the gate fails. Set it about two points under what CI measures (the gate prints the number), and raise floors when coverage climbs. Floors are measured on Linux; on macOS or Windows the numbers differ and the run is advisory.
+
+### End-to-end test
+
+`test/e2e` builds the agent, enrolls it with a fake Eight.ly OS server and drives its API against the real Docker daemon: containers through the proxy, the refusals, the volume file browser, tokens for other agents and token renewal. It needs a local Docker daemon and takes about a minute:
+
+```bash
+EIGHTLY_E2E=1 go test -tags e2e -count=1 -v -timeout 10m ./test/e2e/
+```
+
+Set `EIGHTLY_E2E_DOCKER_SOCKET` if the socket is not `/var/run/docker.sock` (or `DOCKER_HOST`). It pulls `alpine:3.20` and removes every container and volume it made. CI runs it in the `e2e` job.
+
 ## Code Style
 
 - Run `go vet ./...` and `staticcheck ./...` before committing.

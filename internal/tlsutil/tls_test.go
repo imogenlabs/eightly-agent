@@ -49,6 +49,7 @@ func TestGeneratedCertIsValidX509(t *testing.T) {
 	block, _ := pem.Decode(certData)
 	if block == nil {
 		t.Fatal("failed to decode PEM block from cert")
+		return
 	}
 	if block.Type != "CERTIFICATE" {
 		t.Fatalf("expected PEM type CERTIFICATE, got %s", block.Type)
@@ -71,6 +72,7 @@ func TestGeneratedCertIsValidX509(t *testing.T) {
 	keyBlock, _ := pem.Decode(keyData)
 	if keyBlock == nil {
 		t.Fatal("failed to decode PEM block from key")
+		return
 	}
 	if keyBlock.Type != "RSA PRIVATE KEY" {
 		t.Fatalf("expected PEM type RSA PRIVATE KEY, got %s", keyBlock.Type)

@@ -183,7 +183,29 @@ func TestResume_DoesNotSpendEnrollTokenWhenStateIsNotWritable(t *testing.T) {
 // its own token works and another agent's does not.
 func TestRun_RegistersInBackgroundAndGatesUntilThen(t *testing.T) {
 	fastRetry(t)
-	srv, calls := flakyEOS(t, 3)
+	// The server refuses until the test has seen the gate. A fixed number of
+	// refusals raced the agent's startup: on a loaded runner the certificate
+	// took longer than the retries, the agent was registered before the first
+	// request, and the gate was never observed.
+	var held atomic.Bool
+	held.Store(true)
+	var calls atomic.Int32
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agents/register" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		calls.Add(1)
+		if held.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"data":    map[string]string{"agent_id": "agent-me", "token": "new-token"},
+		})
+	}))
+	t.Cleanup(srv.Close)
 	dir := t.TempDir()
 	port := freePort(t)
 	cfg := &config.Config{
@@ -192,11 +214,6 @@ func TestRun_RegistersInBackgroundAndGatesUntilThen(t *testing.T) {
 		StatePath: filepath.Join(dir, "state", "eightly-agent.json"), DataPath: dir,
 		SocketPath: "/nonexistent.sock", Version: "test",
 	}
-	// Hold registration back until the gate has been seen.
-	pmin := registerRetryMin
-	registerRetryMin = 500 * time.Millisecond
-	t.Cleanup(func() { registerRetryMin = pmin })
-
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() { errCh <- Run(ctx, cfg) }()
@@ -227,6 +244,7 @@ func TestRun_RegistersInBackgroundAndGatesUntilThen(t *testing.T) {
 	if code := get(agentToken("agent-anyone")); code != http.StatusServiceUnavailable {
 		t.Fatalf("before registration /host answered %d, want 503", code)
 	}
+	held.Store(false)
 
 	deadline := time.Now().Add(45 * time.Second)
 	for get(agentToken("agent-me")) != http.StatusOK {
