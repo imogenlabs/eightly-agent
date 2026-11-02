@@ -12,7 +12,11 @@ permissions:
 jobs:
   lint:
     name: Lint
-    runs-on: self-hosted
+    # A pull request from a fork runs on a GitHub-hosted runner, never on the
+    # persistent self-hosted ones: those keep state between jobs and some hold
+    # release signing access. Pull requests from this repo keep the self-hosted
+    # runners (hosted minutes are limited while the repo is private).
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'self-hosted' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -28,27 +32,39 @@ jobs:
       - name: Static check
         uses: dominikh/staticcheck-action@9716614d4101e79b4340dd97b10e54d68234e431 # v1
         with:
-          version: "latest"
+          # Pinned, like every tool here; "latest" changed what this gate checks
+          # without a commit.
+          version: "v0.8.2"
           # The action installs its own Go by default, so gosec below
           # was built by one Go and read another's stdlib ("package context
           # without types"). Use the Go set up above.
           install-go: false
-      - name: Govulncheck
+      # The pinned tools go into a directory of this job's own and run by full
+      # path. A bare name runs whatever copy comes first on PATH, so a runner
+      # with its own golangci-lint ran that one instead, and runners disagreed
+      # on findings (SA5011 on one only).
+      - name: Install pinned lint tools
         run: |
+          echo "TOOLS=$RUNNER_TEMP/tools" >> "$GITHUB_ENV"
+          export GOBIN="$RUNNER_TEMP/tools"
           go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
-          govulncheck ./...
-      - name: Gosec
-        run: |
           go install github.com/securego/gosec/v2/cmd/gosec@v2.22.4
-          gosec ./...
-      - name: golangci-lint
-        run: |
           go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
-          golangci-lint run ./...
+          "$GOBIN/golangci-lint" --version
+      - name: Govulncheck
+        run: '"$TOOLS/govulncheck" ./...'
+      - name: Gosec
+        run: '"$TOOLS/gosec" ./...'
+      - name: golangci-lint
+        run: '"$TOOLS/golangci-lint" run ./...'
 
   test:
     name: Test
-    runs-on: self-hosted
+    # A pull request from a fork runs on a GitHub-hosted runner, never on the
+    # persistent self-hosted ones: those keep state between jobs and some hold
+    # release signing access. Pull requests from this repo keep the self-hosted
+    # runners (hosted minutes are limited while the repo is private).
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'self-hosted' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -66,14 +82,18 @@ jobs:
         run: |
           TOTAL=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
           echo "Total coverage: ${TOTAL}%"
-          if [ $(echo "$TOTAL < 50" | bc) -eq 1 ]; then
+          if [ "$(echo "$TOTAL < 50" | bc)" -eq 1 ]; then
             echo "Coverage below 50% threshold"
             exit 1
           fi
 
   race:
     name: Race Detector
-    runs-on: self-hosted
+    # A pull request from a fork runs on a GitHub-hosted runner, never on the
+    # persistent self-hosted ones: those keep state between jobs and some hold
+    # release signing access. Pull requests from this repo keep the self-hosted
+    # runners (hosted minutes are limited while the repo is private).
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'self-hosted' }}
     needs: [lint]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -94,7 +114,11 @@ jobs:
     # start a container (runc: "open sysctl ... reopen fd 8: permission
     # denied"), so they do not carry it. Which runners do is recorded in
     # deploy-pipeline INFRASTRUCTURE.md, with the probe that decided it.
-    runs-on: [self-hosted, docker-build]
+    # A pull request from a fork runs on a GitHub-hosted runner, never on the
+    # persistent self-hosted ones: those keep state between jobs and some hold
+    # release signing access. Pull requests from this repo keep the self-hosted
+    # runners (hosted minutes are limited while the repo is private).
+    runs-on: ${{ fromJSON((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '"ubuntu-latest"' || '["self-hosted", "docker-build"]') }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Build image
@@ -115,7 +139,11 @@ jobs:
 
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
-    runs-on: self-hosted
+    # A pull request from a fork runs on a GitHub-hosted runner, never on the
+    # persistent self-hosted ones: those keep state between jobs and some hold
+    # release signing access. Pull requests from this repo keep the self-hosted
+    # runners (hosted minutes are limited while the repo is private).
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'self-hosted' }}
     needs: [lint, test, race]
     strategy:
       matrix:

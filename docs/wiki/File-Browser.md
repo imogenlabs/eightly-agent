@@ -1,3 +1,7 @@
+---
+description: "List, download, upload, delete and rename files in Docker volumes through Eight.ly Agent, and how paths are confined."
+---
+
 # File Browser
 
 The file browser provides HTTP endpoints for managing files inside Docker volumes on the agent host. It supports listing directories, downloading files, uploading files, deleting files and directories, and renaming entries.
@@ -134,7 +138,7 @@ The `newName` field in rename requests is additionally checked for both `..` and
 
 ### Authentication
 
-All file browser endpoints require a valid Bearer token (see [[Authentication]]). Without authentication enabled, anyone with network access to the agent can read, write, and delete files on the host.
+All file browser endpoints require a valid Bearer token (see [Authentication](Authentication.md)). Without authentication enabled, anyone with network access to the agent can read, write, and delete files on the host.
 
 ### Volume Scope
 
@@ -165,7 +169,7 @@ This maps the host's Docker volume storage into the agent's expected path struct
 
 ## See Also
 
-- [[API-Reference]] -- Full endpoint documentation with curl examples
-- [[Authentication]] -- Token requirements for file browser access
-- [[Configuration]] -- `--data` setting
-- [[Troubleshooting]] -- File browser 403 and permission issues
+- [API Reference](API-Reference.md) -- Full endpoint documentation with curl examples
+- [Authentication](Authentication.md) -- Token requirements for file browser access
+- [Configuration](Configuration.md) -- `--data` setting
+- [Troubleshooting](Troubleshooting.md) -- File browser 403 and permission issues

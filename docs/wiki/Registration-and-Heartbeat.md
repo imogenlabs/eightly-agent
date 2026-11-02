@@ -1,3 +1,7 @@
+---
+description: "How Eight.ly Agent enrolls with Eight.ly OS, pins its certificate, and sends a heartbeat every 30 seconds."
+---
+
 # Registration and Heartbeat
 
 Eight.ly Agent can register itself with an Eight.ly OS server and maintain connectivity through periodic heartbeats. This enables EOS to discover remote Docker hosts automatically and monitor their availability.
@@ -156,7 +160,7 @@ These counters are useful for alerting on connectivity issues (e.g., alert when 
 
 ## TLS for Registration and Heartbeat
 
-Outbound TLS is **fail-closed by default**. Registration and heartbeat requests verify the EOS server's TLS certificate against the system trust store. If verification fails, the connection is refused. For EOS servers with self-signed or internal CA certificates, use `--server-ca <path>` to pin the CA, or `--insecure-server-tls` as an explicit opt-in for dev environments only. See [[TLS]] for full details.
+Outbound TLS is **fail-closed by default**. Registration and heartbeat requests verify the EOS server's TLS certificate against the system trust store. If verification fails, the connection is refused. For EOS servers with self-signed or internal CA certificates, use `--server-ca <path>` to pin the CA, or `--insecure-server-tls` as an explicit opt-in for dev environments only. See [TLS](TLS.md) for full details.
 
 ## Timeline
 
@@ -189,7 +193,7 @@ Startup
 
 ## See Also
 
-- [[Configuration]] -- `--server-url`, `--enroll-token`, `--state-path` flags
-- [[Authentication]] -- How API tokens differ from enrollment/heartbeat tokens
-- [[TLS]] -- Outbound TLS configuration for registration and heartbeat
-- [[Troubleshooting]] -- Debugging registration and heartbeat failures
+- [Configuration](Configuration.md) -- `--server-url`, `--enroll-token`, `--state-path` flags
+- [Authentication](Authentication.md) -- How API tokens differ from enrollment/heartbeat tokens
+- [TLS](TLS.md) -- Outbound TLS configuration for registration and heartbeat
+- [Troubleshooting](Troubleshooting.md) -- Debugging registration and heartbeat failures

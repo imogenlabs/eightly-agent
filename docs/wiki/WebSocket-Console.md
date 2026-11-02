@@ -1,3 +1,7 @@
+---
+description: "Attach to a running container or exec a command in one over Eight.ly Agent's WebSocket console."
+---
+
 # WebSocket Console
 
 The WebSocket console provides interactive terminal access to Docker containers through the agent. It supports two modes: **attach** (connect to a running container's existing streams) and **exec** (start a new command inside a container).
@@ -162,7 +166,7 @@ curl -k -X POST -H "Authorization: Bearer $TOKEN" \
 
 ## Security Model
 
-- **Authentication**: Both WebSocket endpoints require a valid Bearer token (see [[Authentication]]). The token is validated during the initial HTTP request before the WebSocket upgrade occurs.
+- **Authentication**: Both WebSocket endpoints require a valid Bearer token (see [Authentication](Authentication.md)). The token is validated during the initial HTTP request before the WebSocket upgrade occurs.
 - **Origin checking**: The WebSocket upgrader accepts all origins (`CheckOrigin` returns `true`). Access control is handled entirely by the HMAC token.
 - **No rate limiting**: There is no limit on the number of concurrent WebSocket sessions. Each session holds open a Docker connection and a goroutine pair.
 - **No audit logging**: WebSocket sessions are not logged beyond the initial HTTP request. Commands entered in the terminal are not recorded by the agent.
@@ -180,6 +184,6 @@ curl -k -X POST -H "Authorization: Bearer $TOKEN" \
 
 ## See Also
 
-- [[API-Reference]] -- Endpoint specifications
-- [[Authentication]] -- Token requirements for WebSocket access
-- [[Troubleshooting]] -- WebSocket connection issues
+- [API Reference](API-Reference.md) -- Endpoint specifications
+- [Authentication](Authentication.md) -- Token requirements for WebSocket access
+- [Troubleshooting](Troubleshooting.md) -- WebSocket connection issues

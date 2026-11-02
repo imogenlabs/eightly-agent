@@ -1,3 +1,7 @@
+---
+description: "Every Eight.ly Agent HTTP endpoint: health probes, metrics, host info, file browser, WebSocket console and the Docker API proxy."
+---
+
 # API Reference
 
 All communication with Eight.ly Agent is over HTTPS. Every response includes two custom headers:
@@ -7,7 +11,7 @@ Eightly-Agent: <version>
 Eightly-Agent-API-Version: 2
 ```
 
-All endpoints except `/ping` require a valid Bearer token. See [[Authentication]] for token format.
+All endpoints except `/ping` require a valid Bearer token. See [Authentication](Authentication.md) for token format.
 
 ---
 
@@ -129,7 +133,7 @@ curl -k -H "Authorization: Bearer $TOKEN" https://localhost:9001/host
 
 ## File Browser
 
-All file browser endpoints operate on Docker volume data stored under `<data-path>/volumes/<volumeID>/_data/`. See [[File-Browser]] for full details.
+All file browser endpoints operate on Docker volume data stored under `<data-path>/volumes/<volumeID>/_data/`. See [File Browser](File-Browser.md) for full details.
 
 ### GET /browse/ls
 
@@ -280,7 +284,7 @@ The `newName` must not contain `..` or `/` characters. The file is renamed withi
 
 ## WebSocket Console
 
-Interactive container terminal access over WebSocket. See [[WebSocket-Console]] for protocol details.
+Interactive container terminal access over WebSocket. See [WebSocket Console](WebSocket-Console.md) for protocol details.
 
 ### GET /websocket/attach
 
@@ -395,7 +399,7 @@ Returned for server-side failures (filesystem errors, Docker socket errors).
 
 ## See Also
 
-- [[Authentication]] -- Token format and generation
-- [[File-Browser]] -- Detailed file browser documentation
-- [[WebSocket-Console]] -- WebSocket protocol details
-- [[Troubleshooting]] -- Debugging API issues
+- [Authentication](Authentication.md) -- Token format and generation
+- [File Browser](File-Browser.md) -- Detailed file browser documentation
+- [WebSocket Console](WebSocket-Console.md) -- WebSocket protocol details
+- [Troubleshooting](Troubleshooting.md) -- Debugging API issues

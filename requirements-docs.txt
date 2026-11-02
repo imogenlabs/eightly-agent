@@ -1,0 +1,3 @@
+# Docs site build (mkdocs.yml). Same versions as the Eight.ly wiki.
+mkdocs==1.6.1
+mkdocs-material==9.7.6

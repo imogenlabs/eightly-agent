@@ -1,3 +1,7 @@
+---
+description: "How Eight.ly Agent checks HMAC-SHA256 signed bearer tokens from Eight.ly OS on every request."
+---
+
 # Authentication
 
 Eight.ly Agent uses HMAC-SHA256 signed tokens for request authentication. The EOS server and the agent share a secret key. EOS signs tokens with that key, and the agent validates them on every request.
@@ -177,7 +181,7 @@ There is no grace period or dual-secret support. Both sides must switch at the s
 
 ## See Also
 
-- [[Configuration]] -- Where to set the secret flag and env var
-- [[API-Reference]] -- Which endpoints require auth
-- [[Registration-and-Heartbeat]] -- How the registration token differs from the API token
-- [[Troubleshooting]] -- Debugging 401 errors
+- [Configuration](Configuration.md) -- Where to set the secret flag and env var
+- [API Reference](API-Reference.md) -- Which endpoints require auth
+- [Registration and Heartbeat](Registration-and-Heartbeat.md) -- How the registration token differs from the API token
+- [Troubleshooting](Troubleshooting.md) -- Debugging 401 errors

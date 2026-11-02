@@ -1,3 +1,7 @@
+---
+description: "Fixes for common Eight.ly Agent problems: authentication, TLS, registration, WebSocket and file browser errors."
+---
+
 # Troubleshooting
 
 Common issues with Eight.ly Agent and how to resolve them.
@@ -158,7 +162,7 @@ Outbound TLS to EOS is **fail-closed by default**. The agent verifies the EOS se
 - **Recommended**: Use `--server-ca <path-to-ca.pem>` to pin the CA
 - **Dev only**: Use `--insecure-server-tls` to skip verification
 
-See [[TLS]] for full details.
+See [TLS](TLS.md) for full details.
 
 ### "failed to generate TLS cert"
 
@@ -188,7 +192,7 @@ Auto-generated certificates are valid for 1 year. Check expiration:
 openssl s_client -connect localhost:9001 </dev/null 2>/dev/null | openssl x509 -enddate -noout
 ```
 
-To renew, delete both cert files and restart the agent. Note: this will change the certificate fingerprint, requiring re-acceptance in EOS if TOFU is in use. See [[TLS]].
+To renew, delete both cert files and restart the agent. Note: this will change the certificate fingerprint, requiring re-acceptance in EOS if TOFU is in use. See [TLS](TLS.md).
 
 ---
 
@@ -380,9 +384,9 @@ When reporting an issue, include:
 
 ## See Also
 
-- [[Configuration]] -- All flags and environment variables
-- [[Authentication]] -- Token format and common auth errors
-- [[TLS]] -- Certificate generation and custom cert setup
-- [[Registration-and-Heartbeat]] -- Registration flow and heartbeat recovery
-- [[WebSocket-Console]] -- WebSocket protocol and error codes
-- [[File-Browser]] -- Path resolution and security model
+- [Configuration](Configuration.md) -- All flags and environment variables
+- [Authentication](Authentication.md) -- Token format and common auth errors
+- [TLS](TLS.md) -- Certificate generation and custom cert setup
+- [Registration and Heartbeat](Registration-and-Heartbeat.md) -- Registration flow and heartbeat recovery
+- [WebSocket Console](WebSocket-Console.md) -- WebSocket protocol and error codes
+- [File Browser](File-Browser.md) -- Path resolution and security model

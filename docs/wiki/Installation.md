@@ -1,6 +1,10 @@
+---
+description: "Install Eight.ly Agent with Docker Compose, Docker, Homebrew, Scoop, .deb or .rpm packages, a binary, or from source."
+---
+
 # Installation
 
-Multiple ways to install Eight.ly Agent: Docker Compose (recommended), Docker container, Homebrew (macOS/Linux), Scoop (Windows), pre-built binary, Windows service, or build from source. The current release is **v1.0.0**.
+Multiple ways to install Eight.ly Agent: Docker Compose (recommended), Docker container, Homebrew (macOS/Linux), Scoop (Windows), pre-built binary, Windows service, or build from source. The newest release is on the [Releases](https://github.com/imogenlabs/eightly-agent/releases) page.
 
 ## Prerequisites
 
@@ -49,16 +53,16 @@ The easiest way to deploy. A `docker-compose.yml` and `.env.example` are include
 
 ```bash
 cp .env.example .env
-# Edit .env with your shared secret and EOS server URL
+# Edit .env: your shared secret, EOS server URL and enrollment token
 docker compose up -d
 ```
 
-The compose file contents for reference:
+The compose file for reference:
 
 ```yaml
 services:
   eightly-agent:
-    image: ghcr.io/imogenlabs/eightly-agent:v1.0.0
+    image: ghcr.io/imogenlabs/eightly-agent:latest
     container_name: eightly-agent
     restart: unless-stopped
     init: true  # reaps orphaned processes; the image's own health check needs no override
@@ -67,40 +71,36 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - agent-data:/data
-    env_file: .env
+    group_add:
+      - "${DOCKER_GID:-999}"
+    environment:
+      - EIGHTLY_AGENT_SECRET=${EIGHTLY_AGENT_SECRET}
+      - EIGHTLY_SERVER_URL=${EIGHTLY_SERVER_URL:-}
+      - EIGHTLY_ENROLL_TOKEN=${EIGHTLY_ENROLL_TOKEN:-}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
 
 volumes:
   agent-data:
 ```
 
-See [[Configuration]] for all available environment variables to put in `.env`.
+The agent runs as uid 1000 and reaches Docker through the group that owns the socket. The image assumes GID 999. If your host's socket has another group, put it in `.env`:
+
+```bash
+echo "DOCKER_GID=$(stat -c %g /var/run/docker.sock)" >> .env
+```
+
+See [Configuration](Configuration.md) for all available environment variables to put in `.env`.
 
 ## Docker
 
-The agent is published to both GitHub Container Registry and Docker Hub as a multi-arch image (amd64 and arm64).
-
-### GHCR
+The agent is published to GitHub Container Registry as a multi-arch image (amd64 and arm64). Eight.ly OS writes this command for you, with a one-time enrollment token, under **Environments → Add host**.
 
 ```bash
 docker run -d --init \
   --name eightly-agent \
   --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  -v eightly-agent-data:/data \
-  -p 9001:9001 \
-  -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
-  -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
-  -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
-  ghcr.io/imogenlabs/eightly-agent:v1.0.0
-```
-
-### Docker Hub
-
-```bash
-docker run -d --init \
-  --name eightly-agent \
-  --restart unless-stopped \
-  -v /var/run/docker.sock:/var/run/docker.sock \
+  --group-add "$(stat -c %g /var/run/docker.sock)" \
   -v eightly-agent-data:/data \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
@@ -109,60 +109,63 @@ docker run -d --init \
   ghcr.io/imogenlabs/eightly-agent:latest
 ```
 
+To choose when you upgrade, use a release version in place of `latest`, without the `v` (`ghcr.io/imogenlabs/eightly-agent:X.Y.Z`), or a minor line (`X.Y`). The same image is mirrored on Docker Hub as `smashingtags/eightly-agent`.
+
 ### Volume Mounts
 
 | Mount | Required | Purpose |
 |-------|----------|---------|
 | `/var/run/docker.sock` | Yes | Docker daemon socket -- the agent proxies API requests to this socket |
-| `/data` | Recommended | Persistent storage for TLS certificates (`cert.pem`, `key.pem`) and registration state (`eightly-agent.json`). Without this volume, the agent regenerates certs and re-registers on every restart. |
+| `/data` | Recommended | Persistent storage for TLS certificates (`cert.pem`, `key.pem`) and registration state (`eightly-agent.json`). Without this volume, the agent regenerates certs and re-registers on every restart. Use a named volume: a host directory Docker creates for you is owned by root, and the agent (uid 1000) cannot write its state there. |
+
+!!! warning "A read-only socket mount protects nothing"
+    Mounting the socket with `:ro` marks the socket file read-only, not the Docker API. Anything that can open the socket can still create, start and delete containers, so `:ro` is not a security control. The control is the agent itself: it accepts only signed tokens and refuses Docker requests that would break out of a container (privileged mode, host namespaces, sensitive host mounts and similar). Treat the agent's secret like a root password.
 
 ## Binary Download
 
-Pre-built binaries for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, and windows/amd64 are available on [GitHub Releases](https://github.com/imogenlabs/eightly-agent/releases).
+Pre-built binaries for linux/amd64, linux/arm64, linux/arm (v7), darwin/amd64, darwin/arm64, and windows/amd64 are available on [GitHub Releases](https://github.com/imogenlabs/eightly-agent/releases). On Debian, Ubuntu, RHEL and Fedora, prefer the `.deb` or `.rpm` package from the same page: it installs the binary, a service user and a hardened systemd unit.
 
 ```bash
 # Download the latest release (amd64 example)
 curl -Lo eightly-agent https://github.com/imogenlabs/eightly-agent/releases/latest/download/eightly-agent-linux-amd64
 chmod +x eightly-agent
 
-# Create data directory
-sudo mkdir -p /data
-
 # Run
-./eightly-agent \
-  --secret "your-shared-secret" \
-  --server-url "https://your-eos-server:8080" \
-  --enroll-token "your-enrollment-token" \
-  --data-path /data
+EIGHTLY_AGENT_SECRET="your-shared-secret" \
+EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
+EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
+./eightly-agent --data "$HOME/.eightly-agent"
 ```
+
+The data directory holds the agent's TLS key and saved bearer token, so the agent keeps it private (0700) and refuses one shared with other files.
 
 ### Systemd Service
 
-To run the agent as a system service:
+The `.deb` and `.rpm` packages install this unit for you. For a manual install, use the unit from the repo, which runs the agent as its own user with systemd hardening:
+
+```bash
+sudo install -m 0755 eightly-agent /usr/bin/eightly-agent
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin eightly-agent
+sudo usermod -aG docker eightly-agent
+sudo install -d -m 0700 -o eightly-agent -g eightly-agent /var/lib/eightly-agent
+sudo cp deploy/eightly-agent.service /etc/systemd/system/
+sudo systemctl daemon-reload
+```
+
+Put the secret in a drop-in rather than on the command line, where any user can read it in the process list:
+
+```bash
+sudo systemctl edit eightly-agent
+```
 
 ```ini
-[Unit]
-Description=Eight.ly Agent
-After=network.target docker.service
-Requires=docker.service
-
 [Service]
-Type=simple
-ExecStart=/usr/local/bin/eightly-agent \
-  --secret "your-shared-secret" \
-  --server-url "https://your-eos-server:8080" \
-  --data-path /var/lib/eightly-agent
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
+Environment=EIGHTLY_AGENT_SECRET=your-shared-secret
+Environment=EIGHTLY_SERVER_URL=https://your-eos-server:8080
+Environment=EIGHTLY_ENROLL_TOKEN=your-enrollment-token
 ```
 
 ```bash
-sudo cp eightly-agent /usr/local/bin/
-sudo cp eightly-agent.service /etc/systemd/system/
-sudo systemctl daemon-reload
 sudo systemctl enable --now eightly-agent
 ```
 
@@ -261,10 +264,10 @@ curl -kI https://localhost:9001/ping
 #   Eightly-Agent-API-Version: 2
 ```
 
-The `-k` flag is needed because the agent uses a self-signed TLS certificate by default. See [[TLS]] for details on using custom certificates.
+The `-k` flag is needed because the agent uses a self-signed TLS certificate by default. See [TLS](TLS.md) for details on using custom certificates.
 
 ## Next Steps
 
-- [[Configuration]] -- Tune flags and environment variables
-- [[Authentication]] -- Set up the shared secret between EOS and the agent
-- [[Registration-and-Heartbeat]] -- Understand how the agent connects to EOS
+- [Configuration](Configuration.md) -- Tune flags and environment variables
+- [Authentication](Authentication.md) -- Set up the shared secret between EOS and the agent
+- [Registration and Heartbeat](Registration-and-Heartbeat.md) -- Understand how the agent connects to EOS

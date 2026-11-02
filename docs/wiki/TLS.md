@@ -1,3 +1,7 @@
+---
+description: "How Eight.ly Agent serves HTTPS with a generated certificate, how to supply your own, and how outbound TLS is verified."
+---
+
 # TLS
 
 Eight.ly Agent always serves over HTTPS. There is no plaintext HTTP mode. On first start, the agent generates a self-signed TLS certificate if one is not already present. Custom certificates can be provided by placing them in the data directory.
@@ -150,7 +154,7 @@ Outbound TLS to EOS is **fail-closed by default**. The agent verifies the EOS se
 
 If your EOS server uses a self-signed certificate, you **must** use one of these options or the agent will fail to register. `--server-ca` is the recommended approach; `--insecure-server-tls` should only be used in development environments.
 
-Trust between EOS and the agent is additionally established through the shared secret and enrollment token (see [[Authentication]] and [[Registration-and-Heartbeat]]).
+Trust between EOS and the agent is additionally established through the shared secret and enrollment token (see [Authentication](Authentication.md) and [Registration and Heartbeat](Registration-and-Heartbeat.md)).
 
 ## Server Configuration
 
@@ -161,7 +165,7 @@ The HTTPS server is configured with these timeouts:
 | ReadTimeout | 120 seconds |
 | WriteTimeout | 30 minutes |
 
-The long write timeout accommodates WebSocket console sessions (see [[WebSocket-Console]]) and streaming Docker API responses (logs, events). The read timeout applies to the initial request reading phase.
+The long write timeout accommodates WebSocket console sessions (see [WebSocket Console](WebSocket-Console.md)) and streaming Docker API responses (logs, events). The read timeout applies to the initial request reading phase.
 
 ## Verifying TLS
 
@@ -177,7 +181,7 @@ openssl s_client -connect localhost:9001 </dev/null 2>/dev/null | openssl x509 -
 
 ## See Also
 
-- [[Configuration]] -- `--data-path` flag that controls cert location
-- [[Installation]] -- Custom cert mount examples
-- [[Registration-and-Heartbeat]] -- Outbound TLS configuration for registration and heartbeat
-- [[Troubleshooting]] -- TLS-related errors
+- [Configuration](Configuration.md) -- `--data-path` flag that controls cert location
+- [Installation](Installation.md) -- Custom cert mount examples
+- [Registration and Heartbeat](Registration-and-Heartbeat.md) -- Outbound TLS configuration for registration and heartbeat
+- [Troubleshooting](Troubleshooting.md) -- TLS-related errors

@@ -51,11 +51,18 @@ jobs:
 
       - name: Determine version
         id: version
+        # The dispatch input reaches the shell as data, never as script text.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.version }}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_VERSION"
           else
-            TAG="${GITHUB_REF_NAME}"
+            TAG="$GITHUB_REF_NAME"
+          fi
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "Not a release tag: '$TAG' (expected vX.Y.Z or vX.Y.Z-suffix)" >&2
+            exit 1
           fi
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
@@ -93,11 +100,18 @@ jobs:
 
       - name: Determine version
         id: version
+        # The dispatch input reaches the shell as data, never as script text.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.version }}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_VERSION"
           else
-            TAG="${GITHUB_REF_NAME}"
+            TAG="$GITHUB_REF_NAME"
+          fi
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "Not a release tag: '$TAG' (expected vX.Y.Z or vX.Y.Z-suffix)" >&2
+            exit 1
           fi
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
@@ -116,7 +130,11 @@ jobs:
         run: |
           # sed, not envsubst: gettext's envsubst is missing on some runners
           sed -e "s/\${VERSION}/${VERSION}/g" -e "s/\${GOARCH}/${GOARCH}/g" nfpm.yml > nfpm-resolved.yml
-          ! grep -F '${' nfpm-resolved.yml
+          # A bare `! grep` never fails a step under bash -e; exit on a match.
+          if grep -nF "\${" nfpm-resolved.yml; then
+            echo "nfpm-resolved.yml still has an unexpanded variable" >&2
+            exit 1
+          fi
           nfpm package --config nfpm-resolved.yml --packager deb --target eightly-agent_${{ steps.version.outputs.version }}_${{ matrix.goarch }}.deb
 
       - name: Build .rpm package
@@ -126,7 +144,11 @@ jobs:
         run: |
           # sed, not envsubst: gettext's envsubst is missing on some runners
           sed -e "s/\${VERSION}/${VERSION}/g" -e "s/\${GOARCH}/${GOARCH}/g" nfpm.yml > nfpm-resolved.yml
-          ! grep -F '${' nfpm-resolved.yml
+          # A bare `! grep` never fails a step under bash -e; exit on a match.
+          if grep -nF "\${" nfpm-resolved.yml; then
+            echo "nfpm-resolved.yml still has an unexpanded variable" >&2
+            exit 1
+          fi
           nfpm package --config nfpm-resolved.yml --packager rpm --target eightly-agent-${{ steps.version.outputs.version }}.${{ matrix.goarch }}.rpm
 
       - name: Upload .deb
@@ -152,11 +174,18 @@ jobs:
 
       - name: Determine version
         id: version
+        # The dispatch input reaches the shell as data, never as script text.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.version }}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_VERSION"
           else
-            TAG="${GITHUB_REF_NAME}"
+            TAG="$GITHUB_REF_NAME"
+          fi
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "Not a release tag: '$TAG' (expected vX.Y.Z or vX.Y.Z-suffix)" >&2
+            exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
@@ -180,7 +209,7 @@ jobs:
           cp dist/eightly-agent-rpm-amd64/*.rpm release/
           cp dist/eightly-agent-rpm-arm64/*.rpm release/
           chmod +x release/eightly-agent-linux-* release/eightly-agent-darwin-*
-          cd release && sha256sum * > SHA256SUMS
+          cd release && sha256sum -- * > SHA256SUMS
 
       - name: Install cosign
         uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
@@ -233,17 +262,17 @@ jobs:
             Lightweight Docker management agent for Eight.ly OS.
 
             ### Docker
+            Eight.ly OS writes this command for you, with a one-time enrollment token, under **Environments → Add host**. By hand:
             ```bash
-            docker run -d \
-              -v /var/run/docker.sock:/var/run/docker.sock:ro \
+            docker run -d --init --name eightly-agent --restart unless-stopped \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              --group-add "$(stat -c %g /var/run/docker.sock)" \
+              -v eightly-agent-data:/data \
               -p 9001:9001 \
-              -e EIGHTLY_AGENT_SECRET="$(openssl rand -hex 32)" \
+              -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
+              -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
+              -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
               ghcr.io/imogenlabs/eightly-agent:${{ steps.version.outputs.version }}
-            ```
-
-            Also available on Docker Hub:
-            ```bash
-            docker pull smashingtags/eightly-agent:${{ steps.version.outputs.version }}
             ```
 
             ### Binary Install
