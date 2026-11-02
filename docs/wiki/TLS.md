@@ -13,7 +13,7 @@ When the agent starts, it calls `tlsutil.EnsureCert(<data-path>)` which checks f
 - `<data-path>/cert.pem`
 - `<data-path>/key.pem`
 
-If **both** files exist, they are loaded and used as-is. If **either** file is missing, the agent generates a new self-signed certificate.
+If **both** files exist, they are reused whatever their dates. The key must be readable by the agent only: on Linux and macOS a key with a mode wider than `0600` is tightened to `0600`, and the agent refuses to start if it cannot do that; on Windows the agent sets a protected access list on the key and certificate and refuses them if another account keeps access. If **either** file is missing, the agent generates a new self-signed certificate.
 
 ### Generated Certificate Properties
 
@@ -28,18 +28,18 @@ If **both** files exist, they are loaded and used as-is. If **either** file is m
 | Extended key usage | Server Authentication |
 | SAN DNS names | `localhost` (plus any from `--tls-san`) |
 | SAN IP addresses | `127.0.0.1` (plus any from `--tls-san`) |
-| Key file permissions | `0600` |
+| Key file permissions | `0600` (a protected access list on Windows) |
 
 ### File Locations
 
-With the default `--data-path /data`:
+With the default `--data /data`:
 
 ```
 /data/cert.pem    -- PEM-encoded X.509 certificate
 /data/key.pem     -- PEM-encoded RSA private key (PKCS#1)
 ```
 
-The data directory is created with mode `0755` if it does not exist. The key file is created with mode `0600` (owner read/write only).
+The data directory is created with mode `0700` if it does not exist. The key file is created with mode `0600` (owner read/write only) and the certificate with `0644`. On Windows the folder, key and certificate are closed to everyone but SYSTEM, Administrators and the agent's own account before the key is written.
 
 ### Extra SANs via `--tls-san`
 
@@ -55,14 +55,15 @@ This is useful when the agent is accessed by hostname or LAN IP in addition to l
 
 - The certificate is self-signed, so clients must either trust it explicitly (via `--server-ca` on the EOS side) or use `-k` in curl for debugging only.
 - Without `--tls-san`, the SAN only covers `localhost` and `127.0.0.1`. Connecting via hostname or LAN IP will trigger certificate name mismatch warnings.
-- The certificate expires after 1 year with no automatic renewal.
+- The certificate's validity ends 1 year after generation and it is not renewed. The agent keeps serving it after that date on purpose: Eight.ly OS pins this exact certificate (see below), so a new one would cut the agent off. The container health check (`eightly-agent healthcheck`) also accepts only this exact certificate and ignores its dates, so an agent past the certificate's first year stays healthy.
 
 ## Custom Certificates
 
 To use your own TLS certificates (e.g., from Let's Encrypt, an internal CA, or a manually generated cert):
 
 1. Place `cert.pem` and `key.pem` in the agent's data directory **before starting the agent**.
-2. The agent will find them and use them without generating new ones.
+2. Make the key mode `0600` and owned by the user the agent runs as (uid 1000 in the container image, `eightly-agent` for the packages). The agent refuses a key it cannot tighten to `0600`.
+3. The agent will find them and use them without generating new ones.
 
 ### Docker Mount Example
 
@@ -77,7 +78,7 @@ services:
       - agent-data:/data
 ```
 
-Note: Mount the cert and key files individually as read-only. The agent's data volume is also mounted at `/data` for state file storage. Docker processes bind mounts before volumes, so the individual file mounts take precedence.
+Note: Mount the cert and key files individually as read-only. The agent's data volume is also mounted at `/data` for state file storage; Docker mounts `/data` first and the two files over it. A read-only key cannot be tightened, so it must already be `0600` and owned by uid 1000 on the host.
 
 ### Binary Example
 
@@ -86,7 +87,7 @@ mkdir -p /var/lib/eightly-agent
 cp /path/to/cert.pem /var/lib/eightly-agent/cert.pem
 cp /path/to/key.pem /var/lib/eightly-agent/key.pem
 
-./eightly-agent --data-path /var/lib/eightly-agent
+./eightly-agent --data /var/lib/eightly-agent
 ```
 
 ### Generating a Custom Self-Signed Cert
@@ -143,16 +144,14 @@ This model works with self-signed certificates because trust is established thro
 
 ## Outbound TLS (Registration and Heartbeat)
 
-Outbound TLS to EOS is **fail-closed by default**. The agent verifies the EOS server's TLS certificate against the system trust store. If verification fails, the connection is refused.
-
-**Options for non-public CAs:**
+Outbound TLS to EOS is **fail-closed by default**. `--server-url` must use `https`. On the first successful registration the agent records the server certificate's public key fingerprint in its state file, and every later heartbeat and re-registration must present the same key, so a swapped certificate is refused. This works with a self-signed EOS server and needs no CA.
 
 | Flag | Env Var | Effect |
 |------|---------|--------|
-| `--server-ca <path>` | `EIGHTLY_SERVER_CA` | Pin a custom CA certificate for outbound connections |
-| `--insecure-server-tls` | `EIGHTLY_INSECURE_SERVER_TLS` | Skip TLS verification entirely (explicit opt-in, dev only) |
+| `--server-ca <path>` | `EIGHTLY_SERVER_CA` | Also verify the server's certificate chain against this CA. The first-use pin still applies. |
+| `--insecure-server-tls` | -- (flag only) | Turn off verification **and** pinning and allow a non-`https` URL. Dev only. |
 
-If your EOS server uses a self-signed certificate, you **must** use one of these options or the agent will fail to register. `--server-ca` is the recommended approach; `--insecure-server-tls` should only be used in development environments.
+`--insecure-server-tls` has no environment variable, so an inherited variable can never switch it on.
 
 Trust between EOS and the agent is additionally established through the shared secret and enrollment token (see [Authentication](Authentication.md) and [Registration and Heartbeat](Registration-and-Heartbeat.md)).
 
@@ -162,10 +161,13 @@ The HTTPS server is configured with these timeouts:
 
 | Setting | Value |
 |---------|-------|
-| ReadTimeout | 120 seconds |
+| ReadHeaderTimeout | 10 seconds |
+| ReadTimeout | 30 seconds |
 | WriteTimeout | 30 minutes |
+| IdleTimeout | 120 seconds |
+| MaxHeaderBytes | 1 MiB |
 
-The long write timeout accommodates WebSocket console sessions (see [WebSocket Console](WebSocket-Console.md)) and streaming Docker API responses (logs, events). The read timeout applies to the initial request reading phase.
+The long write timeout accommodates streaming Docker API responses (logs, events). WebSocket console sessions have their own limits (see [WebSocket Console](WebSocket-Console.md)).
 
 ## Verifying TLS
 
@@ -181,7 +183,7 @@ openssl s_client -connect localhost:9001 </dev/null 2>/dev/null | openssl x509 -
 
 ## See Also
 
-- [Configuration](Configuration.md) -- `--data-path` flag that controls cert location
+- [Configuration](Configuration.md) -- `--data` flag that controls cert location
 - [Installation](Installation.md) -- Custom cert mount examples
 - [Registration and Heartbeat](Registration-and-Heartbeat.md) -- Outbound TLS configuration for registration and heartbeat
 - [Troubleshooting](Troubleshooting.md) -- TLS-related errors
