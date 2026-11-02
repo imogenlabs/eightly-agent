@@ -123,6 +123,7 @@ Every flag except `--addr`, `--insecure-server-tls` and `--version` has an equiv
 | `--secret-file` | `EIGHTLY_AGENT_SECRET_FILE` | — | File holding the shared secret, instead of `--secret` (setting both is refused) |
 | `--server-url` | `EIGHTLY_SERVER_URL` | — | EOS server URL for registration (must be `https` unless `--insecure-server-tls`) |
 | `--enroll-token` | `EIGHTLY_ENROLL_TOKEN` | — | One-time enrollment token |
+| `--enroll-token-file` | `EIGHTLY_ENROLL_TOKEN_FILE` | — | File holding the enrollment token, instead of `--enroll-token` (setting both is refused; a missing or empty file means none) |
 | `--state-path` | `EIGHTLY_STATE_PATH` | `eightly-agent.json` in the data directory | Registration state file |
 | `--data` | `DATA_PATH` | `/data` | Data directory (TLS certs, state) |
 | `--volumes-path` | `EIGHTLY_VOLUMES_PATH` | `/var/lib/docker/volumes` where it exists | Docker's named volumes, read by the file browser. On Docker Desktop they are inside its VM and the browser answers `501` |
@@ -149,11 +150,16 @@ On Windows, the agent runs as a native Windows service — no terminal window, s
 ```powershell
 # Install (run as Administrator). This creates C:\ProgramData\eightly-agent,
 # closes it to everyone but SYSTEM and Administrators, and registers the
-# service with --secret-file C:\ProgramData\eightly-agent\secret.
+# service with --secret-file C:\ProgramData\eightly-agent\secret and
+# --enroll-token-file C:\ProgramData\eightly-agent\enroll-token.
 eightly-agent.exe install
 
-# Write the shared secret into that file, then start
+# Write the shared secret and the single-use enrollment token into those
+# files, set the server URL, then start. Delete the token file once the
+# agent has registered.
 Set-Content -NoNewline -Path C:\ProgramData\eightly-agent\secret -Value 'your-shared-secret'
+Set-Content -NoNewline -Path C:\ProgramData\eightly-agent\enroll-token -Value 'your-enrollment-token'
+[System.Environment]::SetEnvironmentVariable("EIGHTLY_SERVER_URL", "https://your-eos-server:8080", "Machine")
 eightly-agent.exe start
 
 # Manage
@@ -164,7 +170,7 @@ eightly-agent.exe uninstall
 
 | Subcommand | Description |
 |:-----------|:------------|
-| `install` | Registers the agent as a Windows service (automatic start) reading its secret from `--secret-file` (default `C:\ProgramData\eightly-agent\secret`) |
+| `install` | Registers the agent as a Windows service (automatic start) reading its secret from `--secret-file` (default `C:\ProgramData\eightly-agent\secret`) and its enrollment token from `--enroll-token-file` (default `C:\ProgramData\eightly-agent\enroll-token`) |
 | `uninstall` | Stops and removes the service |
 | `start` | Starts the service |
 | `stop` | Sends a stop signal to the running service |

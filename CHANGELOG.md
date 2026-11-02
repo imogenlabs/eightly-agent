@@ -19,7 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The file browser reads volumes from `--volumes-path` / `EIGHTLY_VOLUMES_PATH`, by default `/var/lib/docker/volumes`, instead of `<data>/volumes`. The data directory is the agent's own state folder, so real volumes answered `404`. `docker-compose.yml` now binds `/var/lib/docker/volumes` at the same path; an install that bound it at `/data/volumes` as the old instructions said keeps working. Where no volumes folder exists the browser says so: `501` on Docker Desktop (volumes live inside its VM), `503` naming the folder on Linux.
 
+- The Windows service reads the enrollment token from a file, `C:\ProgramData\eightly-agent\enroll-token` by default (`eightly-agent.exe install --enroll-token-file <path>` picks another), instead of the `EIGHTLY_ENROLL_TOKEN` Machine variable, which every local user could read. Reinstall the service; it refuses to start while the variable is set alongside the file.
+
 ### Added
+- `--enroll-token-file` / `EIGHTLY_ENROLL_TOKEN_FILE` read the enrollment token from a file on any platform, closed to other users on Windows as the secret file is. A missing or empty file means no token, so the file can be deleted once the agent has registered. Setting it together with `--enroll-token` or `EIGHTLY_ENROLL_TOKEN` is refused.
 - `--secret-file` / `EIGHTLY_AGENT_SECRET_FILE` read the shared secret from a file on any platform. Setting it together with `--secret` or `EIGHTLY_AGENT_SECRET` is refused.
 - Documentation site at https://imogenlabs.github.io/eightly-agent/, published once the repository is public.
 

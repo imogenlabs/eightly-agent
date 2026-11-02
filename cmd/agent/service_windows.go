@@ -139,17 +139,23 @@ func handleServiceCommand(cmd string) {
 	}
 }
 
-// installService registers the service to read its secret from a file rather
-// than a Machine environment variable, which every local user can read. The
-// folder is created and locked down first, so a secret file written into it
-// afterwards inherits SYSTEM and Administrators access only.
+// installService registers the service to read its secret and enrollment
+// token from files rather than Machine environment variables, which every
+// local user can read. The folders are created and locked down first, so
+// files written into them afterwards inherit SYSTEM and Administrators access
+// only.
 func installService() error {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	secretFile := fs.String("secret-file", config.DefaultSecretPath, "file the service reads the HMAC shared secret from")
+	tokenFile := fs.String("enroll-token-file", config.DefaultEnrollTokenPath, "file the service reads the single-use enrollment token from")
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		return err
 	}
 	path, err := filepath.Abs(*secretFile)
+	if err != nil {
+		return err
+	}
+	tokenPath, err := filepath.Abs(*tokenFile)
 	if err != nil {
 		return err
 	}
@@ -166,6 +172,14 @@ func installService() error {
 	protected, err := winacl.ProtectDir(dir)
 	if err != nil {
 		return fmt.Errorf("failed to restrict access to %s: %w", dir, err)
+	}
+	if tokenDir := filepath.Dir(tokenPath); tokenDir != dir {
+		if err := os.MkdirAll(tokenDir, 0o700); err != nil {
+			return fmt.Errorf("failed to create %s: %w", tokenDir, err)
+		}
+		if _, err := winacl.ProtectDir(tokenDir); err != nil {
+			return fmt.Errorf("failed to restrict access to %s: %w", tokenDir, err)
+		}
 	}
 	haveSecret := false
 	if _, err := os.Stat(path); err == nil {
@@ -191,19 +205,25 @@ func installService() error {
 		DisplayName: serviceDisplay,
 		Description: serviceDesc,
 		StartType:   mgr.StartAutomatic,
-	}, "--secret-file", path)
+	}, "--secret-file", path, "--enroll-token-file", tokenPath)
 	if err != nil {
 		return fmt.Errorf("failed to create service: %w", err)
 	}
 	defer func() { _ = s.Close() }()
 
-	fmt.Printf("service %s installed; it reads its secret from %s\n", serviceName, path)
+	fmt.Printf("service %s installed; it reads its secret from %s and its enrollment token from %s\n", serviceName, path, tokenPath)
 	if !protected {
 		fmt.Printf("WARNING: %s holds files that are not the agent's, so its access list was left alone. The secret file itself is locked down when the service reads it.\n", dir)
 	}
 	if !haveSecret {
 		fmt.Println("Write the shared secret to that file before starting the service (the folder is already closed to other users):")
 		fmt.Printf("  Set-Content -NoNewline -Path '%s' -Value 'your-shared-secret'\n", path)
+	}
+	fmt.Println("Write the enrollment token from Eight.ly OS to its file before the first start, and delete the file once the agent has registered (the token is single-use):")
+	fmt.Printf("  Set-Content -NoNewline -Path '%s' -Value 'your-enrollment-token'\n", tokenPath)
+	if os.Getenv("EIGHTLY_ENROLL_TOKEN") != "" {
+		fmt.Println("WARNING: EIGHTLY_ENROLL_TOKEN is set in the environment, where every local user can read it, and the service refuses to start while it is set alongside the file. Remove it:")
+		fmt.Println("  [Environment]::SetEnvironmentVariable('EIGHTLY_ENROLL_TOKEN', $null, 'Machine')")
 	}
 	if os.Getenv("EIGHTLY_AGENT_SECRET") != "" {
 		fmt.Println("WARNING: EIGHTLY_AGENT_SECRET is set in the environment. Every local user can read a Machine variable, and the service refuses to start while it is set alongside the file. Remove it:")

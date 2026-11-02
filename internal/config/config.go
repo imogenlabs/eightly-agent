@@ -22,6 +22,7 @@ type Config struct {
 	SecretFile        string
 	ServerURL         string
 	EnrollToken       string
+	EnrollTokenFile   string
 	StatePath         string
 	DataPath          string
 	VolumesPath       string
@@ -56,6 +57,7 @@ func ParseArgs(fs *flag.FlagSet, args []string, version string) (*Config, error)
 	fs.StringVar(&c.SecretFile, "secret-file", "", "file holding the HMAC shared secret (instead of --secret)")
 	fs.StringVar(&c.ServerURL, "server-url", "", "EOS server URL for registration")
 	fs.StringVar(&c.EnrollToken, "enroll-token", "", "first-time registration token")
+	fs.StringVar(&c.EnrollTokenFile, "enroll-token-file", "", "file holding the first-time registration token (instead of --enroll-token); a missing or empty file means none")
 	fs.StringVar(&c.StatePath, "state-path", "", "agent state file (default: "+filepath.Base(DefaultStatePath)+" in the data directory)")
 	fs.StringVar(&c.DataPath, "data", DefaultDataPath, "data directory")
 	fs.StringVar(&c.VolumesPath, "volumes-path", "", "folder holding Docker's named volumes, for the file browser (default: "+dockerVolumesPath+" where it exists)")
@@ -81,6 +83,7 @@ func ParseArgs(fs *flag.FlagSet, args []string, version string) (*Config, error)
 	envOverride(&c.SecretFile, "EIGHTLY_AGENT_SECRET_FILE")
 	envOverride(&c.ServerURL, "EIGHTLY_SERVER_URL")
 	envOverride(&c.EnrollToken, "EIGHTLY_ENROLL_TOKEN")
+	envOverride(&c.EnrollTokenFile, "EIGHTLY_ENROLL_TOKEN_FILE")
 	envOverride(&c.StatePath, "EIGHTLY_STATE_PATH")
 	envOverride(&c.DataPath, "DATA_PATH")
 	envOverride(&c.VolumesPath, "EIGHTLY_VOLUMES_PATH")
@@ -205,6 +208,9 @@ func (c *Config) Validate() error {
 		return errors.Join(c.envErrs...)
 	}
 	if err := c.loadSecretFile(); err != nil {
+		return err
+	}
+	if err := c.loadEnrollTokenFile(); err != nil {
 		return err
 	}
 	if _, err := c.BindRoots(); err != nil {

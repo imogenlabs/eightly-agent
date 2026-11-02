@@ -69,7 +69,7 @@ func ownerVerdict(path, owner string, trusted map[string]bool) error {
 }
 
 // OnlyAgentFiles reports whether dir holds nothing but the agent's own files:
-// its TLS pair, its secret, and its state (*.json and the *.json.tmp written
+// its TLS pair, its secret, its enrollment token, and its state (*.json and the *.json.tmp written
 // beside it). A protected DACL on a folder is pushed down to everything in it,
 // so a folder holding anything else (a volume, a home directory) is not
 // re-permissioned. A missing folder holds nothing.
@@ -91,7 +91,7 @@ func OnlyAgentFiles(dir string) (bool, error) {
 
 func isAgentFile(name string) bool {
 	switch strings.ToLower(name) {
-	case "cert.pem", "key.pem", "secret":
+	case "cert.pem", "key.pem", "secret", "enroll-token":
 		return true
 	}
 	ext := strings.ToLower(filepath.Ext(name))

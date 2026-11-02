@@ -183,10 +183,12 @@ The agent binary has built-in Windows service support via the Service Control Ma
 ```powershell
 eightly-agent.exe install
 Set-Content -NoNewline -Path C:\ProgramData\eightly-agent\secret -Value 'your-shared-secret'
+Set-Content -NoNewline -Path C:\ProgramData\eightly-agent\enroll-token -Value 'your-enrollment-token'
+[System.Environment]::SetEnvironmentVariable("EIGHTLY_SERVER_URL", "https://your-eos-server:8080", "Machine")
 eightly-agent.exe start
 ```
 
-`install` creates `C:\ProgramData\eightly-agent`, replaces its access list with SYSTEM and Administrators only (nothing inherited from ProgramData, where every local user can read), and registers the service with `--secret-file C:\ProgramData\eightly-agent\secret`. Because the folder is locked down first, the secret file you write into it afterwards is closed to other users too. To keep the secret elsewhere, pass `eightly-agent.exe install --secret-file D:\path\secret`.
+`install` creates `C:\ProgramData\eightly-agent`, replaces its access list with SYSTEM and Administrators only (nothing inherited from ProgramData, where every local user can read), and registers the service with `--secret-file C:\ProgramData\eightly-agent\secret --enroll-token-file C:\ProgramData\eightly-agent\enroll-token`. Because the folder is locked down first, the files you write into it afterwards are closed to other users too, and the agent checks each one again when it reads it. To keep them elsewhere, pass `eightly-agent.exe install --secret-file D:\path\secret --enroll-token-file D:\path\enroll-token`.
 
 **Do not put the secret in a Machine environment variable.** Every local user can read those. The service refuses to start while `EIGHTLY_AGENT_SECRET` is set alongside the secret file. When upgrading an install that used one, run `eightly-agent.exe uninstall`, then `install`, write the file, and remove the variable:
 
@@ -194,16 +196,12 @@ eightly-agent.exe start
 [System.Environment]::SetEnvironmentVariable("EIGHTLY_AGENT_SECRET", $null, "Machine")
 ```
 
-The service takes no other settings on its command line, so the server URL and the single-use enrollment token are read from Machine environment variables:
+The service takes no other settings on its command line, so the server URL is read from the `EIGHTLY_SERVER_URL` Machine variable, as above. It is not a secret.
+
+The enrollment token is single-use. Delete its file once the agent has registered; a missing or empty token file is not an error, and the agent starts from its saved registration. **Do not put the token in a Machine variable** either: every local user can read it until the agent spends it, and the service refuses to start while `EIGHTLY_ENROLL_TOKEN` is set alongside the token file. An install that used one should remove it:
 
 ```powershell
-[System.Environment]::SetEnvironmentVariable("EIGHTLY_SERVER_URL", "https://your-eos-server:8080", "Machine")
-[System.Environment]::SetEnvironmentVariable("EIGHTLY_ENROLL_TOKEN", "your-enrollment-token", "Machine")
-```
-
-Like any Machine variable, the enrollment token is readable by every local user until the agent spends it. Start the service right after setting it, and remove it once the agent has registered (the token is single-use and the agent no longer needs it):
-
-```powershell
+Remove-Item C:\ProgramData\eightly-agent\enroll-token   # after the agent has registered
 [System.Environment]::SetEnvironmentVariable("EIGHTLY_ENROLL_TOKEN", $null, "Machine")
 ```
 
