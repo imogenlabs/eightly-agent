@@ -246,18 +246,41 @@ func TestHealthcheck_ExpiredOwnCertificatePasses(t *testing.T) {
 	}
 }
 
-// The probe dials a specific --addr the certificate may not name (a supplied
-// certificate, or a host address added later). The pin is the certificate
-// itself, so the name does not matter.
-func TestHealthcheck_AddressTheCertificateDoesNotName(t *testing.T) {
-	_, port, certPath := agentTarget(t, t.TempDir())
-	cfg, err := pinnedTLSConfig(certPath, "10.9.9.9")
+// A specific --addr the certificate does not name (a reused or supplied cert)
+// is verified against a name the certificate does carry, not refused forever.
+func TestCertServerName_FallsBackToANameTheCertCarries(t *testing.T) {
+	certPath, _, err := tlsutil.EnsureCert(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	conn, err := tls.Dial("tcp", net.JoinHostPort("127.0.0.1", port), cfg)
+	data, _ := os.ReadFile(certPath)
+	block, _ := pem.Decode(data)
+	leaf, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		t.Fatalf("a certificate that does not name the dialled address was refused: %v", err)
+		t.Fatal(err)
 	}
-	_ = conn.Close()
+	for host, want := range map[string]string{"127.0.0.1": "127.0.0.1", "localhost": "localhost", "10.9.9.9": "localhost"} {
+		got, err := certServerName(leaf, host)
+		if err != nil || got != want {
+			t.Errorf("certServerName(%q) = %q, %v; want %q", host, got, err, want)
+		}
+	}
+	if _, err := certServerName(&x509.Certificate{}, "127.0.0.1"); err == nil {
+		t.Error("a certificate with no names was given a server name")
+	}
+}
+
+func TestWithinValidity(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	leaf := &x509.Certificate{NotBefore: start, NotAfter: start.AddDate(1, 0, 0)}
+	mid := start.AddDate(0, 6, 0)
+	for now, want := range map[time.Time]time.Time{
+		mid:                     mid,
+		start.AddDate(3, 0, 0):  leaf.NotAfter,
+		start.AddDate(-1, 0, 0): leaf.NotBefore,
+	} {
+		if got := withinValidity(leaf, now); !got.Equal(want) {
+			t.Errorf("withinValidity(%v) = %v, want %v", now, got, want)
+		}
+	}
 }

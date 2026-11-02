@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // Healthcheck asks this agent's own HTTPS listener for /healthz and returns nil
@@ -59,13 +60,22 @@ func Healthcheck(ctx context.Context, addr, port, certPath string) error {
 }
 
 // pinnedTLSConfig accepts exactly the certificate in certPath and nothing else.
+// The agent's generated certificate is self-signed and not a CA; Go accepts such
+// a leaf when that exact certificate is in RootCAs, so chain verification stays
+// on, and VerifyConnection also requires the presented leaf to be byte-for-byte
+// the agent's own.
 //
-// It compares the bytes the listener presents with the bytes on disk instead of
-// building a chain, because a chain check also checks the validity dates. The
-// agent's certificate is self-signed for a year and reused for good (Eight.ly OS
-// pins the whole certificate, so the agent must never swap it), and a dated
-// check would turn a healthy agent unhealthy on its first birthday. A byte match
-// is the stronger pin anyway: only the certificate the agent loads passes.
+// The certificate's dates are deliberately not checked. It is issued for a year
+// and reused for good, because Eight.ly OS pins the whole certificate and a new
+// one would cut the agent off. Verifying at the real time would turn a healthy
+// agent unhealthy on the certificate's first birthday, so verification runs at
+// a moment inside its validity window instead. The pin is the certificate, not
+// the calendar.
+//
+// ServerName must be a name the certificate carries or verification fails on
+// the name, not the key. The dialled host is used when the certificate covers
+// it; otherwise the certificate's first SAN is. Trust is already pinned to this
+// one certificate, so choosing the name from it gives nothing away.
 func pinnedTLSConfig(certPath, host string) (*tls.Config, error) {
 	data, err := os.ReadFile(certPath) // #nosec G304 -- the agent's own certificate under its configured data directory
 	if err != nil {
@@ -75,23 +85,54 @@ func pinnedTLSConfig(certPath, host string) (*tls.Config, error) {
 	if block == nil || block.Type != "CERTIFICATE" {
 		return nil, fmt.Errorf("%s holds no PEM certificate", certPath)
 	}
-	if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+	leaf, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
 		return nil, fmt.Errorf("cannot parse the agent's certificate %s: %w", certPath, err)
 	}
-	want := block.Bytes
+	pool := x509.NewCertPool()
+	pool.AddCert(leaf)
+
+	serverName, err := certServerName(leaf, host)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", certPath, err)
+	}
 	return &tls.Config{
-		// Go's chain and hostname checks are replaced, not dropped: the
-		// presented leaf must be byte-for-byte the agent's own certificate.
-		InsecureSkipVerify: true, // #nosec G402 -- verification is the exact byte match in VerifyPeerCertificate below
-		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-			if len(rawCerts) == 0 || !bytes.Equal(rawCerts[0], want) {
+		RootCAs:    pool,
+		ServerName: serverName,
+		MinVersion: tls.VersionTLS12,
+		Time:       func() time.Time { return withinValidity(leaf, time.Now()) },
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			if len(cs.PeerCertificates) == 0 || !bytes.Equal(cs.PeerCertificates[0].Raw, leaf.Raw) {
 				return errors.New("the listener presented a certificate that is not this agent's")
 			}
 			return nil
 		},
-		ServerName: host,
-		MinVersion: tls.VersionTLS12,
 	}, nil
+}
+
+// withinValidity returns now, moved inside leaf's validity window when it falls
+// outside it.
+func withinValidity(leaf *x509.Certificate, now time.Time) time.Time {
+	if now.After(leaf.NotAfter) {
+		return leaf.NotAfter
+	}
+	if now.Before(leaf.NotBefore) {
+		return leaf.NotBefore
+	}
+	return now
+}
+
+func certServerName(leaf *x509.Certificate, host string) (string, error) {
+	if leaf.VerifyHostname(host) == nil {
+		return host, nil
+	}
+	if len(leaf.DNSNames) > 0 {
+		return leaf.DNSNames[0], nil
+	}
+	if len(leaf.IPAddresses) > 0 {
+		return leaf.IPAddresses[0].String(), nil
+	}
+	return "", errors.New("certificate names no host or IP address to verify it against")
 }
 
 // healthcheckHost turns the listen address into one a client can dial: a
