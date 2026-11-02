@@ -10,15 +10,66 @@ on:
         required: true
         type: string
 
+# Write access only where the release is signed and published.
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 jobs:
+  # Every later job builds from the commit this job resolves, never from the
+  # ref the workflow happened to be dispatched from. A dispatch for v2.1.0 from
+  # some branch still ships exactly what the v2.1.0 tag points at.
+  resolve:
+    name: Resolve release commit
+    # Org self-hosted runners do not serve public repositories.
+    runs-on: ${{ github.event.repository.private == false && 'ubuntu-latest' || 'self-hosted' }}
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve tag to a commit on main
+        id: resolve
+        # The dispatch input reaches the shell as data, never as script text.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_VERSION"
+          else
+            TAG="$GITHUB_REF_NAME"
+          fi
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "Not a release tag: '$TAG' (expected vX.Y.Z or vX.Y.Z-suffix)" >&2
+            exit 1
+          fi
+          if ! SHA=$(git rev-parse -q --verify "refs/tags/$TAG^{commit}"); then
+            echo "Tag $TAG does not exist (or does not point at a commit). Push the tag first." >&2
+            exit 1
+          fi
+          if ! git rev-parse -q --verify refs/remotes/origin/main >/dev/null; then
+            echo "origin/main is missing from the checkout" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$SHA" refs/remotes/origin/main; then
+            echo "Tag $TAG points at $SHA, which is not on main. Releases ship from main only." >&2
+            exit 1
+          fi
+          echo "Releasing $TAG from $SHA"
+          {
+            echo "tag=$TAG"
+            echo "version=${TAG#v}"
+            echo "sha=$SHA"
+          } >> "$GITHUB_OUTPUT"
+
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
-    runs-on: self-hosted
+    runs-on: ${{ github.event.repository.private == false && 'ubuntu-latest' || 'self-hosted' }}
+    needs: resolve
     strategy:
       matrix:
         include:
@@ -43,35 +94,21 @@ jobs:
             suffix: ".exe"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           cache: false  # Persistent self-hosted runners keep the Go cache on disk
           go-version: '1.26.10'
 
-      - name: Determine version
-        id: version
-        # The dispatch input reaches the shell as data, never as script text.
-        env:
-          INPUT_VERSION: ${{ github.event.inputs.version }}
-        run: |
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            TAG="$INPUT_VERSION"
-          else
-            TAG="$GITHUB_REF_NAME"
-          fi
-          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "Not a release tag: '$TAG' (expected vX.Y.Z or vX.Y.Z-suffix)" >&2
-            exit 1
-          fi
-          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
-
       - name: Build binary
         env:
           GOARM: ${{ matrix.goarm || '' }}
         run: |
           CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
-            go build -ldflags="-s -w -X main.version=${{ steps.version.outputs.version }}" \
+            go build -ldflags="-s -w -X main.version=${{ needs.resolve.outputs.version }}" \
             -o eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }} ./cmd/agent/
 
       - name: Upload artifact
@@ -82,13 +119,16 @@ jobs:
 
   package:
     name: Package (${{ matrix.goarch }})
-    runs-on: self-hosted
-    needs: build
+    runs-on: ${{ github.event.repository.private == false && 'ubuntu-latest' || 'self-hosted' }}
+    needs: [resolve, build]
     strategy:
       matrix:
         goarch: [amd64, arm64]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -97,23 +137,6 @@ jobs:
 
       - name: Install nfpm
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.41.3
-
-      - name: Determine version
-        id: version
-        # The dispatch input reaches the shell as data, never as script text.
-        env:
-          INPUT_VERSION: ${{ github.event.inputs.version }}
-        run: |
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            TAG="$INPUT_VERSION"
-          else
-            TAG="$GITHUB_REF_NAME"
-          fi
-          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "Not a release tag: '$TAG' (expected vX.Y.Z or vX.Y.Z-suffix)" >&2
-            exit 1
-          fi
-          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Download linux binary
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -125,7 +148,7 @@ jobs:
 
       - name: Build .deb package
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.resolve.outputs.version }}
           GOARCH: ${{ matrix.goarch }}
         run: |
           # sed, not envsubst: gettext's envsubst is missing on some runners
@@ -135,11 +158,11 @@ jobs:
             echo "nfpm-resolved.yml still has an unexpanded variable" >&2
             exit 1
           fi
-          nfpm package --config nfpm-resolved.yml --packager deb --target eightly-agent_${{ steps.version.outputs.version }}_${{ matrix.goarch }}.deb
+          nfpm package --config nfpm-resolved.yml --packager deb --target eightly-agent_${{ needs.resolve.outputs.version }}_${{ matrix.goarch }}.deb
 
       - name: Build .rpm package
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.resolve.outputs.version }}
           GOARCH: ${{ matrix.goarch }}
         run: |
           # sed, not envsubst: gettext's envsubst is missing on some runners
@@ -149,46 +172,37 @@ jobs:
             echo "nfpm-resolved.yml still has an unexpanded variable" >&2
             exit 1
           fi
-          nfpm package --config nfpm-resolved.yml --packager rpm --target eightly-agent-${{ steps.version.outputs.version }}.${{ matrix.goarch }}.rpm
+          nfpm package --config nfpm-resolved.yml --packager rpm --target eightly-agent-${{ needs.resolve.outputs.version }}.${{ matrix.goarch }}.rpm
 
       - name: Upload .deb
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: eightly-agent-deb-${{ matrix.goarch }}
-          path: eightly-agent_${{ steps.version.outputs.version }}_${{ matrix.goarch }}.deb
+          path: eightly-agent_${{ needs.resolve.outputs.version }}_${{ matrix.goarch }}.deb
 
       - name: Upload .rpm
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: eightly-agent-rpm-${{ matrix.goarch }}
-          path: eightly-agent-${{ steps.version.outputs.version }}.${{ matrix.goarch }}.rpm
+          path: eightly-agent-${{ needs.resolve.outputs.version }}.${{ matrix.goarch }}.rpm
 
   release:
     name: Create Release
     # Signs every artifact with cosign on the runner, so it needs a
-    # runner proven to reach Fulcio (see docker-publish.yml).
-    runs-on: [self-hosted, can-sign]
-    needs: [build, package]
+    # runner proven to reach Fulcio (see docker-publish.yml). GitHub-hosted
+    # runners reach Fulcio and the OIDC token endpoint, so keyless signing
+    # works there too.
+    runs-on: ${{ github.event.repository.private == false && 'ubuntu-latest' || fromJSON('["self-hosted","can-sign"]') }}
+    needs: [resolve, build, package]
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Determine version
-        id: version
-        # The dispatch input reaches the shell as data, never as script text.
-        env:
-          INPUT_VERSION: ${{ github.event.inputs.version }}
-        run: |
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            TAG="$INPUT_VERSION"
-          else
-            TAG="$GITHUB_REF_NAME"
-          fi
-          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "Not a release tag: '$TAG' (expected vX.Y.Z or vX.Y.Z-suffix)" >&2
-            exit 1
-          fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
 
       - name: Download all artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -253,11 +267,11 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Eight.ly Agent ${{ steps.version.outputs.tag }}
+          tag_name: ${{ needs.resolve.outputs.tag }}
+          name: Eight.ly Agent ${{ needs.resolve.outputs.tag }}
           files: release/*
           body: |
-            ## Eight.ly Agent ${{ steps.version.outputs.tag }}
+            ## Eight.ly Agent ${{ needs.resolve.outputs.tag }}
 
             Lightweight Docker management agent for Eight.ly OS.
 
@@ -272,55 +286,55 @@ jobs:
               -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
               -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
               -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
-              ghcr.io/imogenlabs/eightly-agent:${{ steps.version.outputs.version }}
+              ghcr.io/imogenlabs/eightly-agent:${{ needs.resolve.outputs.version }}
             ```
 
             ### Binary Install
 
             **Linux (amd64):**
             ```bash
-            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-linux-amd64
+            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ needs.resolve.outputs.tag }}/eightly-agent-linux-amd64
             chmod +x eightly-agent-linux-amd64
             sudo mv eightly-agent-linux-amd64 /usr/bin/eightly-agent
             ```
 
             **Linux (arm64):**
             ```bash
-            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-linux-arm64
+            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ needs.resolve.outputs.tag }}/eightly-agent-linux-arm64
             chmod +x eightly-agent-linux-arm64
             sudo mv eightly-agent-linux-arm64 /usr/bin/eightly-agent
             ```
 
             **macOS (Apple Silicon):**
             ```bash
-            curl -Lo eightly-agent https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-darwin-arm64
+            curl -Lo eightly-agent https://github.com/imogenlabs/eightly-agent/releases/download/${{ needs.resolve.outputs.tag }}/eightly-agent-darwin-arm64
             chmod +x eightly-agent
             sudo mv eightly-agent /usr/local/bin/eightly-agent
             ```
 
             **macOS (Intel):**
             ```bash
-            curl -Lo eightly-agent https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-darwin-amd64
+            curl -Lo eightly-agent https://github.com/imogenlabs/eightly-agent/releases/download/${{ needs.resolve.outputs.tag }}/eightly-agent-darwin-amd64
             chmod +x eightly-agent
             sudo mv eightly-agent /usr/local/bin/eightly-agent
             ```
 
             **Windows (amd64):**
             ```powershell
-            Invoke-WebRequest -Uri https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-windows-amd64.exe -OutFile eightly-agent.exe
+            Invoke-WebRequest -Uri https://github.com/imogenlabs/eightly-agent/releases/download/${{ needs.resolve.outputs.tag }}/eightly-agent-windows-amd64.exe -OutFile eightly-agent.exe
             ```
 
             ### Debian / Ubuntu (.deb)
             ```bash
-            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent_${{ steps.version.outputs.version }}_amd64.deb
-            sudo dpkg -i eightly-agent_${{ steps.version.outputs.version }}_amd64.deb
+            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ needs.resolve.outputs.tag }}/eightly-agent_${{ needs.resolve.outputs.version }}_amd64.deb
+            sudo dpkg -i eightly-agent_${{ needs.resolve.outputs.version }}_amd64.deb
             sudo systemctl enable --now eightly-agent
             ```
 
             ### RHEL / Fedora (.rpm)
             ```bash
-            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-${{ steps.version.outputs.version }}.amd64.rpm
-            sudo rpm -i eightly-agent-${{ steps.version.outputs.version }}.amd64.rpm
+            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ needs.resolve.outputs.tag }}/eightly-agent-${{ needs.resolve.outputs.version }}.amd64.rpm
+            sudo rpm -i eightly-agent-${{ needs.resolve.outputs.version }}.amd64.rpm
             sudo systemctl enable --now eightly-agent
             ```
 
@@ -335,5 +349,5 @@ jobs:
             scoop install eightly-agent
             ```
           draft: false
-          prerelease: ${{ contains(steps.version.outputs.tag, 'beta') || contains(steps.version.outputs.tag, 'rc') }}
+          prerelease: ${{ contains(needs.resolve.outputs.tag, 'beta') || contains(needs.resolve.outputs.tag, 'rc') }}
           generate_release_notes: true
