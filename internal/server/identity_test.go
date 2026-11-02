@@ -166,7 +166,7 @@ func TestResume_DoesNotSpendEnrollTokenWhenStateIsNotWritable(t *testing.T) {
 	cfg := &config.Config{ServerURL: srv.URL, EnrollToken: "eos_enroll_once", StatePath: filepath.Join(ro, "eightly-agent.json"), SocketPath: "/nonexistent.sock"}
 	tlsCfg, _ := register.BuildServerTLSConfig("", true, zerolog.Nop())
 
-	if state, _ := resume(cfg, tlsCfg); state != nil {
+	if state, _, _ := resume(cfg, tlsCfg); state != nil {
 		t.Fatalf("registered without a writable state file: %+v", state)
 	}
 	if n := calls.Load(); n != 0 {
@@ -243,7 +243,7 @@ func TestResume_IgnoresSavedStateWithoutIdentity(t *testing.T) {
 	}
 	cfg := &config.Config{ServerURL: srv.URL, EnrollToken: "eos_enroll_x", StatePath: statePath, SocketPath: "/nonexistent.sock"}
 	tlsCfg, _ := register.BuildServerTLSConfig("", true, zerolog.Nop())
-	state, _ := resume(cfg, tlsCfg)
+	state, _, _ := resume(cfg, tlsCfg)
 	if state == nil || state.AgentID != "agent-me" || calls.Load() != 1 {
 		t.Fatalf("got %+v after %d register calls; want a fresh enrollment", state, calls.Load())
 	}
