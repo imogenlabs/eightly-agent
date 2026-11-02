@@ -89,6 +89,9 @@ func checkStatePerms(path string) error {
 	if err != nil {
 		return err
 	}
+	if err := secureState(path); err != nil {
+		return fmt.Errorf("refusing to load registration state: %w", err)
+	}
 	if err := assertPerm(path, fi, 0o600); err != nil {
 		return err
 	}
@@ -121,6 +124,9 @@ func (s *State) Save(path string) error {
 		return err
 	}
 	tmp := path + ".tmp"
+	if err := prepareStateWrite(tmp); err != nil {
+		return err
+	}
 	if err := os.WriteFile(tmp, data, 0600); err != nil {
 		return err
 	}

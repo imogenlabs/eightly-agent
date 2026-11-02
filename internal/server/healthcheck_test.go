@@ -4,9 +4,14 @@ package server
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -186,6 +191,61 @@ func TestHealthcheck_UnreadableCertificateFails(t *testing.T) {
 	}
 }
 
+// The agent reuses its self-signed certificate after it expires (Eight.ly OS
+// pins it, so it is never reissued). An expired certificate the agent serves
+// must still pass, and an expired one it does not serve must still fail.
+func TestHealthcheck_ExpiredOwnCertificatePasses(t *testing.T) {
+	expired := func() (*x509.Certificate, tls.Certificate) {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tmpl := &x509.Certificate{
+			SerialNumber: big.NewInt(1),
+			Subject:      pkix.Name{CommonName: "eightly-agent"},
+			NotBefore:    time.Now().Add(-2 * 365 * 24 * time.Hour),
+			NotAfter:     time.Now().Add(-365 * 24 * time.Hour),
+			KeyUsage:     x509.KeyUsageDigitalSignature,
+			ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+			DNSNames:     []string{"localhost"},
+			IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		}
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		leaf, err := x509.ParseCertificate(der)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return leaf, tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}
+	}
+	serve := func(pair tls.Certificate) (string, string) {
+		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		srv.TLS = &tls.Config{Certificates: []tls.Certificate{pair}}
+		srv.StartTLS()
+		t.Cleanup(srv.Close)
+		host, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+		return host, port
+	}
+
+	ours, pair := expired()
+	if !time.Now().After(ours.NotAfter) {
+		t.Fatal("test certificate is not expired")
+	}
+	host, port := serve(pair)
+	if err := Healthcheck(context.Background(), host, port, writeCertPEM(t, t.TempDir(), ours)); err != nil {
+		t.Fatalf("the agent's own expired certificate was rejected: %v", err)
+	}
+
+	other, _ := expired()
+	if err := Healthcheck(context.Background(), host, port, writeCertPEM(t, t.TempDir(), other)); err == nil {
+		t.Fatal("a listener presenting another expired certificate was reported healthy")
+	}
+}
+
 // A specific --addr the certificate does not name (a reused or supplied cert)
 // is verified against a name the certificate does carry, not refused forever.
 func TestCertServerName_FallsBackToANameTheCertCarries(t *testing.T) {
@@ -207,5 +267,20 @@ func TestCertServerName_FallsBackToANameTheCertCarries(t *testing.T) {
 	}
 	if _, err := certServerName(&x509.Certificate{}, "127.0.0.1"); err == nil {
 		t.Error("a certificate with no names was given a server name")
+	}
+}
+
+func TestWithinValidity(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	leaf := &x509.Certificate{NotBefore: start, NotAfter: start.AddDate(1, 0, 0)}
+	mid := start.AddDate(0, 6, 0)
+	for now, want := range map[time.Time]time.Time{
+		mid:                     mid,
+		start.AddDate(3, 0, 0):  leaf.NotAfter,
+		start.AddDate(-1, 0, 0): leaf.NotBefore,
+	} {
+		if got := withinValidity(leaf, now); !got.Equal(want) {
+			t.Errorf("withinValidity(%v) = %v, want %v", now, got, want)
+		}
 	}
 }

@@ -3,6 +3,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // Healthcheck asks this agent's own HTTPS listener for /healthz and returns nil
@@ -26,9 +28,10 @@ import (
 // on a production host. This check starts no child process, so there is nothing to
 // orphan, and it gives up on ctx's deadline rather than waiting to be killed.
 //
-// It trusts exactly the certificate at certPath, the one the listener loads, so
-// it answers whether THIS agent is healthy rather than whether something on the
-// port speaks TLS. A certificate it cannot read makes the check fail.
+// It accepts exactly the certificate at certPath, the one the listener loads,
+// so it answers whether THIS agent is healthy rather than whether something on
+// the port speaks TLS. The certificate's dates are not checked. A certificate
+// it cannot read makes the check fail.
 func Healthcheck(ctx context.Context, addr, port, certPath string) error {
 	host := healthcheckHost(addr)
 	tlsConfig, err := pinnedTLSConfig(certPath, host)
@@ -56,9 +59,18 @@ func Healthcheck(ctx context.Context, addr, port, certPath string) error {
 	return nil
 }
 
-// pinnedTLSConfig trusts only the certificate(s) in certPath. The agent's
-// generated certificate is self-signed and not a CA; Go accepts such a leaf
-// when that exact certificate is in RootCAs, so chain verification stays on.
+// pinnedTLSConfig accepts exactly the certificate in certPath and nothing else.
+// The agent's generated certificate is self-signed and not a CA; Go accepts such
+// a leaf when that exact certificate is in RootCAs, so chain verification stays
+// on, and VerifyConnection also requires the presented leaf to be byte-for-byte
+// the agent's own.
+//
+// The certificate's dates are deliberately not checked. It is issued for a year
+// and reused for good, because Eight.ly OS pins the whole certificate and a new
+// one would cut the agent off. Verifying at the real time would turn a healthy
+// agent unhealthy on the certificate's first birthday, so verification runs at
+// a moment inside its validity window instead. The pin is the certificate, not
+// the calendar.
 //
 // ServerName must be a name the certificate carries or verification fails on
 // the name, not the key. The dialled host is used when the certificate covers
@@ -78,13 +90,36 @@ func pinnedTLSConfig(certPath, host string) (*tls.Config, error) {
 		return nil, fmt.Errorf("cannot parse the agent's certificate %s: %w", certPath, err)
 	}
 	pool := x509.NewCertPool()
-	pool.AppendCertsFromPEM(data)
+	pool.AddCert(leaf)
 
 	serverName, err := certServerName(leaf, host)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", certPath, err)
 	}
-	return &tls.Config{RootCAs: pool, ServerName: serverName, MinVersion: tls.VersionTLS12}, nil
+	return &tls.Config{
+		RootCAs:    pool,
+		ServerName: serverName,
+		MinVersion: tls.VersionTLS12,
+		Time:       func() time.Time { return withinValidity(leaf, time.Now()) },
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			if len(cs.PeerCertificates) == 0 || !bytes.Equal(cs.PeerCertificates[0].Raw, leaf.Raw) {
+				return errors.New("the listener presented a certificate that is not this agent's")
+			}
+			return nil
+		},
+	}, nil
+}
+
+// withinValidity returns now, moved inside leaf's validity window when it falls
+// outside it.
+func withinValidity(leaf *x509.Certificate, now time.Time) time.Time {
+	if now.After(leaf.NotAfter) {
+		return leaf.NotAfter
+	}
+	if now.Before(leaf.NotBefore) {
+		return leaf.NotBefore
+	}
+	return now
 }
 
 func certServerName(leaf *x509.Certificate, host string) (string, error) {

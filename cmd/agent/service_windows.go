@@ -6,8 +6,10 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/imogenlabs/eightly-agent/internal/config"
 	"github.com/imogenlabs/eightly-agent/internal/server"
+	"github.com/imogenlabs/eightly-agent/internal/winacl"
 )
 
 const (
@@ -86,8 +89,30 @@ func isWindowsService() bool {
 
 func runAsService(cfg *config.Config) {
 	log.Info().Msg("starting as windows service")
+	protectDataDirs(cfg)
 	if err := svc.Run(serviceName, &agentService{cfg: cfg}); err != nil {
 		log.Fatal().Err(err).Msg("service failed")
+	}
+}
+
+// protectDataDirs closes the data and state folders to everyone but SYSTEM and
+// Administrators before the agent writes anything into them. Under ProgramData
+// a new folder otherwise lets every local user read what is put there, and
+// State.Save runs before EnsureCert. The files themselves are protected one by
+// one as they are written or loaded, so a folder that is skipped because it
+// holds other things leaves no secret open.
+func protectDataDirs(cfg *config.Config) {
+	if err := os.MkdirAll(cfg.DataPath, 0o700); err != nil {
+		log.Warn().Err(err).Str("dir", cfg.DataPath).Msg("cannot create the data folder")
+	}
+	for _, dir := range []string{cfg.DataPath, filepath.Dir(cfg.StatePath)} {
+		done, err := winacl.ProtectDir(dir)
+		switch {
+		case err != nil:
+			log.Warn().Err(err).Str("dir", dir).Msg("cannot restrict access to folder")
+		case !done:
+			log.Info().Str("dir", dir).Msg("folder holds files that are not the agent's; leaving its access list alone and protecting the agent's files one by one")
+		}
 	}
 }
 
@@ -114,21 +139,51 @@ func handleServiceCommand(cmd string) {
 	}
 }
 
+// installService registers the service to read its secret from a file rather
+// than a Machine environment variable, which every local user can read. The
+// folder is created and locked down first, so a secret file written into it
+// afterwards inherits SYSTEM and Administrators access only.
 func installService() error {
+	fs := flag.NewFlagSet("install", flag.ContinueOnError)
+	secretFile := fs.String("secret-file", config.DefaultSecretPath, "file the service reads the HMAC shared secret from")
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		return err
+	}
+	path, err := filepath.Abs(*secretFile)
+	if err != nil {
+		return err
+	}
+
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("failed to create %s: %w", dir, err)
+	}
+	protected, err := winacl.ProtectDir(dir)
+	if err != nil {
+		return fmt.Errorf("failed to restrict access to %s: %w", dir, err)
+	}
+	haveSecret := false
+	if _, err := os.Stat(path); err == nil {
+		if _, err := config.ReadSecretFile(path); err != nil {
+			return err
+		}
+		haveSecret = true
 	}
 
 	m, err := mgr.Connect()
 	if err != nil {
 		return fmt.Errorf("failed to connect to service manager: %w", err)
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 
 	s, err := m.OpenService(serviceName)
 	if err == nil {
-		s.Close()
+		_ = s.Close()
 		return fmt.Errorf("service %s already exists", serviceName)
 	}
 
@@ -136,14 +191,24 @@ func installService() error {
 		DisplayName: serviceDisplay,
 		Description: serviceDesc,
 		StartType:   mgr.StartAutomatic,
-	})
+	}, "--secret-file", path)
 	if err != nil {
 		return fmt.Errorf("failed to create service: %w", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
-	fmt.Printf("service %s installed\n", serviceName)
-	fmt.Println("WARNING: Set EIGHTLY_AGENT_SECRET as a system environment variable before starting the service.")
+	fmt.Printf("service %s installed; it reads its secret from %s\n", serviceName, path)
+	if !protected {
+		fmt.Printf("WARNING: %s holds files that are not the agent's, so its access list was left alone. The secret file itself is locked down when the service reads it.\n", dir)
+	}
+	if !haveSecret {
+		fmt.Println("Write the shared secret to that file before starting the service (the folder is already closed to other users):")
+		fmt.Printf("  Set-Content -NoNewline -Path '%s' -Value 'your-shared-secret'\n", path)
+	}
+	if os.Getenv("EIGHTLY_AGENT_SECRET") != "" {
+		fmt.Println("WARNING: EIGHTLY_AGENT_SECRET is set in the environment. Every local user can read a Machine variable, and the service refuses to start while it is set alongside the file. Remove it:")
+		fmt.Println("  [Environment]::SetEnvironmentVariable('EIGHTLY_AGENT_SECRET', $null, 'Machine')")
+	}
 	return nil
 }
 
@@ -152,13 +217,13 @@ func uninstallService() error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to service manager: %w", err)
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 
 	s, err := m.OpenService(serviceName)
 	if err != nil {
 		return fmt.Errorf("service %s not found: %w", serviceName, err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	status, err := s.Query()
 	if err == nil && status.State != svc.Stopped {
@@ -179,13 +244,13 @@ func startService() error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to service manager: %w", err)
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 
 	s, err := m.OpenService(serviceName)
 	if err != nil {
 		return fmt.Errorf("service %s not found: %w", serviceName, err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	if err := s.Start(); err != nil {
 		return fmt.Errorf("failed to start service: %w", err)
@@ -200,13 +265,13 @@ func stopService() error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to service manager: %w", err)
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 
 	s, err := m.OpenService(serviceName)
 	if err != nil {
 		return fmt.Errorf("service %s not found: %w", serviceName, err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	_, err = s.Control(svc.Stop)
 	if err != nil {
@@ -222,13 +287,13 @@ func queryStatus() error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to service manager: %w", err)
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 
 	s, err := m.OpenService(serviceName)
 	if err != nil {
 		return fmt.Errorf("service %s not found: %w", serviceName, err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	status, err := s.Query()
 	if err != nil {
