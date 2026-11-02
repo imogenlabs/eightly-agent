@@ -29,7 +29,7 @@ var okHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 func TestValidToken(t *testing.T) {
 	secret := "test-secret-key"
-	token := makeToken(Claims{Sub: "admin", Iss: "eightly-server", Type: "api", Iat: 1700000000}, secret)
+	token := makeToken(serverClaims("admin"), secret)
 
 	mw := Middleware(secret, false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -85,7 +85,7 @@ func TestMalformedTokenNoDot(t *testing.T) {
 }
 
 func TestInvalidSignature(t *testing.T) {
-	token := makeToken(Claims{Sub: "admin", Iss: "eightly-server", Type: "api", Iat: 1700000000}, "correct-secret")
+	token := makeToken(serverClaims("admin"), "correct-secret")
 
 	mw := Middleware("wrong-secret", false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -120,7 +120,7 @@ func TestInvalidPayloadNotJSON(t *testing.T) {
 
 func TestWrongIssuer(t *testing.T) {
 	secret := "secret"
-	token := makeToken(Claims{Sub: "admin", Iss: "wrong-issuer", Type: "api", Iat: 1700000000}, secret)
+	token := makeToken(withIssuer(serverClaims("admin"), "wrong-issuer"), secret)
 
 	mw := Middleware(secret, false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -189,7 +189,7 @@ func TestEmptySecretWithoutOptInFailsClosed(t *testing.T) {
 // ignores any presented credential — there is no secret to validate against,
 // so nothing can authenticate.
 func TestEmptySecretWithoutOptInRejectsEvenWithToken(t *testing.T) {
-	token := makeToken(Claims{Sub: "admin", Iss: "eightly-server", Type: "api", Iat: 1700000000}, "whatever")
+	token := makeToken(serverClaims("admin"), "whatever")
 	mw := Middleware("", false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -210,7 +210,7 @@ func TestMiddlewareCallsNextHandler(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 	})
 
-	token := makeToken(Claims{Sub: "user", Iss: "eightly-server", Type: "api", Iat: 1700000000}, secret)
+	token := makeToken(serverClaims("user"), secret)
 	mw := Middleware(secret, false, nil)(handler)
 
 	req := httptest.NewRequest(http.MethodPost, "/action", nil)
@@ -244,7 +244,7 @@ func TestUnauthorizedResponseBody(t *testing.T) {
 }
 
 func TestCorruptedSignatureBase64(t *testing.T) {
-	claims := Claims{Sub: "admin", Iss: "eightly-server", Type: "api", Iat: 1700000000}
+	claims := serverClaims("admin")
 	payload, _ := json.Marshal(claims)
 	encoded := base64.RawURLEncoding.EncodeToString(payload)
 	token := encoded + ".!!!invalid-base64!!!"
@@ -263,13 +263,9 @@ func TestCorruptedSignatureBase64(t *testing.T) {
 
 func TestExpiredToken(t *testing.T) {
 	secret := "test-secret"
-	expired := Claims{
-		Sub:  "admin",
-		Iss:  "eightly-server",
-		Type: "api",
-		Iat:  1700000000,
-		Exp:  time.Now().Unix() - 3600, // expired 1 hour ago
-	}
+	expired := serverClaims("admin")
+	expired.Iat = time.Now().Add(-maxTokenLifetime - time.Hour).Unix()
+	expired.Exp = time.Now().Add(-time.Hour).Unix()
 	token := makeToken(expired, secret)
 
 	mw := Middleware(secret, false, nil)(okHandler)
@@ -284,25 +280,87 @@ func TestExpiredToken(t *testing.T) {
 	}
 }
 
-func TestTokenWithoutExpStillWorks(t *testing.T) {
+// serverClaims is what the Eight.ly OS server signs for an agent: type
+// "agent", exp exactly 30 days after iat (internal/agent/token.go there).
+func serverClaims(sub string) Claims {
+	now := time.Now()
+	return Claims{Sub: sub, Iss: "eightly-server", Type: "agent", Iat: now.Unix(), Exp: now.Add(30 * 24 * time.Hour).Unix()}
+}
+
+func withIssuer(c Claims, iss string) Claims {
+	c.Iss = iss
+	return c
+}
+
+func statusFor(t *testing.T, c Claims) int {
+	t.Helper()
 	secret := "test-secret"
-	noExp := Claims{
-		Sub:  "admin",
-		Iss:  "eightly-server",
-		Type: "api",
-		Iat:  1700000000,
-		// Exp is zero (omitted) — backwards compatible
-	}
-	token := makeToken(noExp, secret)
-
-	mw := Middleware(secret, false, nil)(okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-
+	req.Header.Set("Authorization", "Bearer "+makeToken(c, secret))
 	rr := httptest.NewRecorder()
-	mw.ServeHTTP(rr, req)
+	Middleware(secret, false, nil)(okHandler).ServeHTTP(rr, req)
+	return rr.Code
+}
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for token without exp, got %d", rr.Code)
+// The token the current server issues must keep working.
+func TestServerIssuedTokenIsAccepted(t *testing.T) {
+	if code := statusFor(t, serverClaims("agent-1")); code != http.StatusOK {
+		t.Fatalf("a token shaped like the server's got %d, want 200", code)
+	}
+}
+
+// A token without exp never lapses. The server has put exp in every agent
+// token for a long time, so one without it was not minted as an agent token.
+func TestTokenWithoutExpIsRejected(t *testing.T) {
+	c := serverClaims("agent-1")
+	c.Exp = 0
+	if code := statusFor(t, c); code != http.StatusUnauthorized {
+		t.Fatalf("token without exp got %d, want 401", code)
+	}
+}
+
+func TestTokenWithoutIatIsRejected(t *testing.T) {
+	c := serverClaims("agent-1")
+	c.Iat = 0
+	if code := statusFor(t, c); code != http.StatusUnauthorized {
+		t.Fatalf("token without iat got %d, want 401", code)
+	}
+}
+
+func TestTokenLongerThan30DaysIsRejected(t *testing.T) {
+	c := serverClaims("agent-1")
+	c.Exp = time.Unix(c.Iat, 0).Add(maxTokenLifetime + time.Second).Unix()
+	if code := statusFor(t, c); code != http.StatusUnauthorized {
+		t.Fatalf("token living 30 days and a second got %d, want 401", code)
+	}
+}
+
+func TestTokenExpiringBeforeIssueIsRejected(t *testing.T) {
+	c := serverClaims("agent-1")
+	c.Exp = c.Iat
+	if code := statusFor(t, c); code != http.StatusUnauthorized {
+		t.Fatalf("token with exp == iat got %d, want 401", code)
+	}
+}
+
+func TestTokenOfAnotherTypeIsRejected(t *testing.T) {
+	for _, typ := range []string{"", "api", "enroll", "Agent"} {
+		c := serverClaims("agent-1")
+		c.Type = typ
+		if code := statusFor(t, c); code != http.StatusUnauthorized {
+			t.Errorf("token of type %q got %d, want 401", typ, code)
+		}
+	}
+}
+
+// The server treats a token as dead from its exp second on; so does the agent.
+func TestLifetimeProblemAtExactExpiry(t *testing.T) {
+	c := serverClaims("agent-1")
+	at := time.Unix(c.Exp, 0)
+	if lifetimeProblem(c, at) == "" {
+		t.Error("a token was accepted at its exp second")
+	}
+	if p := lifetimeProblem(c, at.Add(-time.Second)); p != "" {
+		t.Errorf("a token was refused a second before exp: %s", p)
 	}
 }

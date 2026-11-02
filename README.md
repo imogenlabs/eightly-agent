@@ -155,25 +155,37 @@ Configure via environment variables set in the system environment or the service
 
 ## Linux Service
 
-The `.deb` and `.rpm` packages install a systemd unit automatically. For manual installs, copy the service file from the repo:
+The `.deb` and `.rpm` packages install a systemd unit and create `/etc/eightly-agent/agent.env`, owned by root with mode `0600`. Put the agent's settings there, not in a `systemctl edit` drop-in: a drop-in is readable by every user on the host and `systemctl show` prints its values, secret included.
 
 ```bash
+sudoedit /etc/eightly-agent/agent.env
+```
+
+```ini
+EIGHTLY_AGENT_SECRET=your-shared-secret
+EIGHTLY_SERVER_URL=https://your-eos-server:8080
+EIGHTLY_ENROLL_TOKEN=eos_enroll_...
+```
+
+```bash
+sudo systemctl enable --now eightly-agent
+```
+
+Values in `agent.env` override the unit's own `Environment=` lines. The package never overwrites an existing `agent.env`. If you set the secret in a drop-in before, move it into `agent.env` and delete the drop-in.
+
+For a manual install, create the user, the data directory and the settings file yourself, then copy the unit from the repo:
+
+```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin -G docker eightly-agent
+sudo install -d -m 0700 -o eightly-agent -g eightly-agent /var/lib/eightly-agent
+sudo install -d -m 0700 /etc/eightly-agent
+sudo install -m 0600 /dev/null /etc/eightly-agent/agent.env   # then add the settings above
 sudo cp deploy/eightly-agent.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now eightly-agent
 ```
 
-Override defaults with a drop-in:
-
-```bash
-sudo systemctl edit eightly-agent
-```
-
-```ini
-[Service]
-Environment=EIGHTLY_AGENT_SECRET=your-shared-secret
-Environment=EIGHTLY_SERVER_URL=https://your-eos-server:8080
-```
+The service keeps its TLS certificate and registration state in `/var/lib/eightly-agent` (`DATA_PATH`; the state file is `eightly-agent.json` there). Unless `EIGHTLY_STATE_PATH` is set, the state file goes in the data directory, and the agent does not use its enrollment token while it cannot save the result.
 
 The service restarts automatically on failure (5-second delay) and starts after `docker.service`.
 

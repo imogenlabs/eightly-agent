@@ -13,6 +13,12 @@ RestartSec=5
 Environment=AGENT_PORT=9001
 Environment=LOG_LEVEL=info
 Environment=DATA_PATH=/var/lib/eightly-agent
+Environment=EIGHTLY_STATE_PATH=/var/lib/eightly-agent/eightly-agent.json
+# Secret, server URL and enrollment token. Root-owned, mode 0600: systemd
+# reads it before dropping to the agent user, and unlike Environment= in a
+# drop-in its values do not show in `systemctl show` or a world-readable file.
+# Values here override the Environment= lines above.
+EnvironmentFile=/etc/eightly-agent/agent.env
 
 NoNewPrivileges=true
 ProtectSystem=strict

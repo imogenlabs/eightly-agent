@@ -41,9 +41,24 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("failed to build server TLS config: %w", err)
 	}
 
-	state := loadOrRegister(cfg, serverTLS)
-	if state != nil && cfg.ServerURL != "" {
-		go register.StartHeartbeat(ctx, state, cfg.StatePath, cfg.SocketPath, cfg.Version, cfg.AdvertiseIP, serverTLS, log.Logger)
+	states := register.NewStateHolder(nil)
+	state, unsaved := resume(cfg, serverTLS)
+	if state != nil {
+		states.Store(state)
+	}
+	if cfg.ServerURL != "" {
+		// Started here, not after a successful registration: an agent that
+		// could not register at startup keeps trying in the background, and
+		// until it does its authenticated routes answer 503.
+		go func() {
+			if state == nil {
+				if state, unsaved = registerWithRetry(ctx, cfg, serverTLS); state == nil {
+					return
+				}
+				states.Store(state)
+			}
+			register.StartHeartbeat(ctx, states, unsaved, cfg.StatePath, cfg.SocketPath, cfg.Version, cfg.AdvertiseIP, serverTLS, log.Logger)
+		}()
 	}
 
 	certSANs := detectCertSANs(cfg)
@@ -54,14 +69,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	}
 
 	mux := http.NewServeMux()
-	// The registration state pointer can still be nil here and gains an ID later,
-	// so the ID is read at request time.
-	authed := auth.Middleware(cfg.Secret, cfg.InsecureNoAuth, func() string {
-		if state == nil {
-			return ""
-		}
-		return state.AgentID
-	})
+	authed := authMiddleware(cfg, states)
 	authEnabled := cfg.Secret != ""
 
 	var allowedOrigins []string
@@ -164,11 +172,72 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-// loadOrRegister resumes from the saved registration when there is one and
-// only enrolls when there is not. Enrolling again on every start is not a
-// harmless retry: the enrollment token is single-use, so a second register with
-// it is refused and the agent is left with no identity at all.
+// authMiddleware checks tokens on every route that needs one. The agent ID is
+// read per request from states, because the agent learns it only once
+// registration succeeds and the heartbeat swaps the state when it renews.
+//
+// An agent that is meant to register (a server URL is set) and enforces
+// tokens answers 503 on those routes until it knows its own ID: without it the
+// token subject cannot be checked, and any agent's token would open this one.
+// Local-only mode (no server URL) never has an ID and checks only the
+// signature, and --insecure-no-auth without a secret checks nothing, both as
+// documented.
+func authMiddleware(cfg *config.Config, states *register.StateHolder) func(http.Handler) http.Handler {
+	check := auth.Middleware(cfg.Secret, cfg.InsecureNoAuth, states.AgentID)
+	if cfg.Secret == "" || cfg.ServerURL == "" {
+		return check
+	}
+	return func(next http.Handler) http.Handler {
+		checked := check(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if states.AgentID() == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Retry-After", "30")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"message":"service unavailable: agent is not registered with the server yet"}`)) // #nosec G104 -- HTTP response write
+				return
+			}
+			checked.ServeHTTP(w, r)
+		})
+	}
+}
+
+// Registration retry pacing, variables so a test need not wait minutes.
+var (
+	registerRetryMin = 5 * time.Second
+	registerRetryMax = 5 * time.Minute
+)
+
+// registerWithRetry repeats resume with a growing pause until it yields a
+// registration or ctx ends, in which case it returns nil.
+func registerWithRetry(ctx context.Context, cfg *config.Config, serverTLS *tls.Config) (*register.State, bool) {
+	wait := registerRetryMin
+	for {
+		log.Warn().Dur("retry_in", wait).Msg("agent is not registered; authenticated routes answer 503 until it is")
+		select {
+		case <-ctx.Done():
+			return nil, false
+		case <-time.After(wait):
+		}
+		if state, unsaved := resume(cfg, serverTLS); state != nil {
+			return state, unsaved
+		}
+		wait = min(wait*2, registerRetryMax)
+	}
+}
+
+// loadOrRegister is resume without the saved flag.
 func loadOrRegister(cfg *config.Config, serverTLS *tls.Config) *register.State {
+	state, _ := resume(cfg, serverTLS)
+	return state
+}
+
+// resume resumes from the saved registration when there is one and only
+// enrolls when there is not. Enrolling again on every start is not a harmless
+// retry: the enrollment token is single-use, so a second register with it is
+// refused and the agent is left with no identity at all. unsaved is true when
+// a new registration could not be written to disk; the heartbeat retries it.
+func resume(cfg *config.Config, serverTLS *tls.Config) (state *register.State, unsaved bool) {
 	if tightened, err := register.PrepareStateDir(cfg.StatePath, cfg.DataPath); err != nil {
 		log.Warn().Err(err).Msg("registration state directory is too open and could not be tightened; saved state will be refused")
 	} else if tightened {
@@ -178,13 +247,20 @@ func loadOrRegister(cfg *config.Config, serverTLS *tls.Config) *register.State {
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to load registration state")
 	}
+	if state != nil && (state.AgentID == "" || state.Token == "") {
+		// Older agents saved whatever a successful register returned, even
+		// an empty identity. An agent with no ID cannot check whose token it
+		// was handed, so the saved state is as good as none.
+		log.Error().Str("state_path", cfg.StatePath).Msg("saved registration has no agent ID or token; ignoring it and enrolling again")
+		state = nil
+	}
 	if state != nil && register.TokenExpired(state.Token, time.Now()) {
 		// A lapsed token can never be renewed. Re-enrolling is
 		// running the install command again with a fresh enrollment token, so
 		// when one is configured, use it instead of the dead saved state.
 		if cfg.EnrollToken == "" {
 			log.Error().Msg("saved agent token has expired, so this agent must be re-enrolled: generate an install command on the Agents page and run it on this host")
-			return state
+			return state, false
 		}
 		log.Warn().Msg("saved agent token has expired; enrolling again with the configured enrollment token")
 		if sameServer(state.ServerURL, cfg.ServerURL) {
@@ -195,19 +271,27 @@ func loadOrRegister(cfg *config.Config, serverTLS *tls.Config) *register.State {
 		state = nil
 	}
 	if state != nil || cfg.ServerURL == "" {
-		return state
+		return state, false
+	}
+	// A registration that cannot be saved is lost on the next restart, and
+	// the single-use enrollment token with it, so it is not spent until the
+	// state file is known to be writable.
+	if err := register.CheckWritable(cfg.StatePath); err != nil {
+		log.Error().Err(err).Str("state_path", cfg.StatePath).Msg("not registering: the registration state cannot be saved; set EIGHTLY_STATE_PATH to a writable file")
+		return nil, false
 	}
 	info := register.DetectInfo(cfg.SocketPath, cfg.Port, cfg.Version, cfg.AdvertiseIP)
 	state, err = register.Register(cfg.ServerURL, cfg.EnrollToken, info, serverTLS)
 	if err != nil {
-		log.Warn().Err(err).Msg("registration failed, will retry via heartbeat")
-		return nil
+		log.Warn().Err(err).Msg("registration failed")
+		return nil, false
 	}
 	if err := state.Save(cfg.StatePath); err != nil {
-		log.Error().Err(err).Msg("failed to save registration state")
+		log.Error().Err(err).Msg("failed to save registration state; will retry")
+		unsaved = true
 	}
-	log.Info().Msg("registered with server")
-	return state
+	log.Info().Str("agent_id", state.AgentID).Msg("registered with server")
+	return state, unsaved
 }
 
 func sameServer(a, b string) bool {

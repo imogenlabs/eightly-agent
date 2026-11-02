@@ -283,7 +283,7 @@ func testToken(sub, secret string, exp int64) string {
 		Iat  int64  `json:"iat"`
 		Exp  int64  `json:"exp,omitempty"`
 	}
-	c := claims{Sub: sub, Iss: "eightly-server", Type: "api", Iat: time.Now().Unix(), Exp: exp}
+	c := claims{Sub: sub, Iss: "eightly-server", Type: "agent", Iat: time.Now().Unix(), Exp: exp}
 	payload, _ := json.Marshal(c)
 	encoded := base64.RawURLEncoding.EncodeToString(payload)
 

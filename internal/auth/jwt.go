@@ -14,6 +14,15 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// What the Eight.ly OS server puts in every agent token it signs
+// (internal/agent/token.go there): this issuer, this type, an iat and an exp
+// exactly AgentTokenTTL (30 days) after it.
+const (
+	tokenIssuer      = "eightly-server"
+	tokenType        = "agent"
+	maxTokenLifetime = 30 * 24 * time.Hour
+)
+
 // Claims represents the payload of an HMAC-signed agent token.
 type Claims struct {
 	Sub  string `json:"sub"`
@@ -35,10 +44,15 @@ type Claims struct {
 //     socket — i.e. host root — unauthenticated, we FAIL CLOSED and reject every
 //     request with 503. "No auth" must always be a deliberate choice.
 //
+// A token must carry the issuer and type the server sets, an iat and an exp
+// no more than 30 days after it, and must not have expired. A token without an
+// exp never lapses, so it is refused.
+//
 // agentID reports this agent's own registered ID and is called on every request,
-// because an agent learns its ID only once registration succeeds — which can be
-// long after the middleware is built. "" means "identity not known yet", which
-// keeps the behaviour from before tokens were bound to one agent instead of locking the agent out of itself.
+// because an agent learns its ID only once registration succeeds and the
+// heartbeat replaces it on renewal. "" means the agent has no ID, which is only
+// the case in local-only mode (no server URL): the caller must not route
+// requests here while an agent that registers is still waiting for its ID.
 func Middleware(secret string, insecureNoAuth bool, agentID func() string) func(http.Handler) http.Handler {
 	if agentID == nil {
 		agentID = func() string { return "" }
@@ -88,14 +102,18 @@ func Middleware(secret string, insecureNoAuth bool, agentID func() string) func(
 				return
 			}
 			var claims Claims
-			if err := json.Unmarshal(payload, &claims); err != nil || claims.Iss != "eightly-server" {
+			if err := json.Unmarshal(payload, &claims); err != nil || claims.Iss != tokenIssuer {
 				logSecurityEvent(r, "auth.unauthorized", "bad payload or wrong issuer")
 				unauthorized(w)
 				return
 			}
-
-			if claims.Exp > 0 && time.Now().Unix() > claims.Exp {
-				logSecurityEvent(r, "auth.unauthorized", "expired token")
+			if claims.Type != tokenType {
+				logSecurityEvent(r, "auth.unauthorized", "wrong token type")
+				unauthorized(w)
+				return
+			}
+			if reason := lifetimeProblem(claims, time.Now()); reason != "" {
+				logSecurityEvent(r, "auth.unauthorized", reason)
 				unauthorized(w)
 				return
 			}
@@ -106,10 +124,8 @@ func Middleware(secret string, insecureNoAuth bool, agentID func() string) func(
 			// pasted into install commands — opened every other agent's API, and
 			// this API fronts the Docker socket.
 			//
-			// The identity is read per request, not captured at startup: an agent
-			// that has not registered yet has none. An unknown identity keeps the
-			// old behaviour rather than locking the agent out of its own API; only
-			// a positive mismatch is refused.
+			// The identity is read per request, not captured at startup: the
+			// agent learns it on registration and it can change on renewal.
 			if id := agentID(); id != "" && claims.Sub != id {
 				logSecurityEvent(r, "auth.unauthorized", "token issued for a different agent")
 				unauthorized(w)
@@ -119,6 +135,25 @@ func Middleware(secret string, insecureNoAuth bool, agentID func() string) func(
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// lifetimeProblem says why the token's lifetime is unacceptable at now, or ""
+// when it is fine. The server sets exp exactly 30 days after iat, so a longer
+// span was not minted by it as an agent token.
+func lifetimeProblem(c Claims, now time.Time) string {
+	switch {
+	case c.Exp <= 0:
+		return "token has no expiry"
+	case c.Iat <= 0:
+		return "token has no issue time"
+	case c.Exp <= c.Iat:
+		return "token expires before it was issued"
+	case time.Duration(c.Exp-c.Iat)*time.Second > maxTokenLifetime:
+		return "token lifetime is longer than 30 days"
+	case !now.Before(time.Unix(c.Exp, 0)):
+		return "expired token"
+	}
+	return ""
 }
 
 // logSecurityEvent writes a single, greppable [SECURITY] detection line for an

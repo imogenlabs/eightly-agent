@@ -331,7 +331,9 @@ func TestEnvOverrideBoolValues(t *testing.T) {
 		t.Run(tc.env, func(t *testing.T) {
 			val := !tc.want // start opposite
 			t.Setenv("TEST_BOOL", tc.env)
-			envOverrideBool(&val, "TEST_BOOL")
+			if err := envOverrideBool(&val, "TEST_BOOL"); err != nil {
+				t.Fatalf("envOverrideBool(%q): %v", tc.env, err)
+			}
 			if val != tc.want {
 				t.Errorf("envOverrideBool(%q): expected %v, got %v", tc.env, tc.want, val)
 			}
@@ -342,7 +344,9 @@ func TestEnvOverrideBoolValues(t *testing.T) {
 func TestEnvOverrideBoolEmpty(t *testing.T) {
 	val := true
 	os.Unsetenv("TEST_BOOL_EMPTY")
-	envOverrideBool(&val, "TEST_BOOL_EMPTY")
+	if err := envOverrideBool(&val, "TEST_BOOL_EMPTY"); err != nil {
+		t.Fatal(err)
+	}
 	if !val {
 		t.Error("envOverrideBool should not change value when env is unset")
 	}
@@ -425,4 +429,74 @@ func FuzzParseArgs(f *testing.F) {
 			t.Errorf("port: got %q, want %q", cfg.Port, port)
 		}
 	})
+}
+
+// A value that is neither yes nor no used to be ignored, so
+// EIGHTLY_BROWSE_READ_ONLY=yes please left the file browser writable without a
+// word. It now stops the agent at validation, naming the variable.
+func TestInvalidBoolEnvFailsValidation(t *testing.T) {
+	for _, key := range []string{"EIGHTLY_BROWSE_READ_ONLY", "EIGHTLY_METRICS_ENABLED", "EIGHTLY_INSECURE_NO_AUTH"} {
+		t.Run(key, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv(key, "yes please")
+			c := parseTestArgs(t, []string{"--secret", "s"}, "v1")
+			err := c.Validate()
+			if err == nil {
+				t.Fatalf("%s=yes please passed validation", key)
+			}
+			if !strings.Contains(err.Error(), key) {
+				t.Errorf("error %q does not name %s", err, key)
+			}
+		})
+	}
+}
+
+func TestBoolEnvToleratesSurroundingSpace(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("EIGHTLY_BROWSE_READ_ONLY", " true ")
+	c := parseTestArgs(t, []string{"--secret", "s"}, "v1")
+	if err := c.Validate(); err != nil || !c.BrowseReadOnly {
+		t.Fatalf("got BrowseReadOnly=%v, err %v", c.BrowseReadOnly, err)
+	}
+}
+
+// The packaged service sets DATA_PATH=/var/lib/eightly-agent and makes /data
+// read-only. The state file has to follow the data directory, or the agent
+// registers, cannot save, and has spent its single-use enrollment token.
+func TestStatePathFollowsDataPath(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("DATA_PATH", "/var/lib/eightly-agent")
+	c := parseTestArgs(t, nil, "v1")
+	if want := DefaultStatePathFor("/var/lib/eightly-agent"); c.StatePath != want {
+		t.Fatalf("StatePath %q, want %q", c.StatePath, want)
+	}
+
+	clearEnv(t)
+	c = parseTestArgs(t, []string{"--data", "/srv/agent"}, "v1")
+	if want := DefaultStatePathFor("/srv/agent"); c.StatePath != want {
+		t.Fatalf("StatePath %q with --data, want %q", c.StatePath, want)
+	}
+}
+
+// The container keeps its state where it always was.
+func TestStatePathDefaultUnchangedForDefaultDataPath(t *testing.T) {
+	clearEnv(t)
+	c := parseTestArgs(t, nil, "v1")
+	if c.StatePath != DefaultStatePath {
+		t.Fatalf("StatePath %q, want %q", c.StatePath, DefaultStatePath)
+	}
+}
+
+func TestExplicitStatePathWins(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("DATA_PATH", "/var/lib/eightly-agent")
+	t.Setenv("EIGHTLY_STATE_PATH", "/elsewhere/state.json")
+	if c := parseTestArgs(t, nil, "v1"); c.StatePath != "/elsewhere/state.json" {
+		t.Fatalf("env StatePath ignored: %q", c.StatePath)
+	}
+	clearEnv(t)
+	t.Setenv("DATA_PATH", "/var/lib/eightly-agent")
+	if c := parseTestArgs(t, []string{"--state-path", "/flag/state.json"}, "v1"); c.StatePath != "/flag/state.json" {
+		t.Fatalf("flag StatePath ignored: %q", c.StatePath)
+	}
 }

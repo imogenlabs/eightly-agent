@@ -539,3 +539,64 @@ func TestBuildServerTLSConfig_InvalidPEM_ReturnsError(t *testing.T) {
 		t.Fatal("expected error for invalid PEM content")
 	}
 }
+
+// A 200 with success=true but no agent ID or token used to be taken as a
+// registration: the agent saved an empty identity, and with no ID the token
+// subject check was off.
+func TestRegisterAndReRegister_RejectEmptyIdentity(t *testing.T) {
+	for _, data := range []map[string]string{
+		{"agent_id": "", "token": "tok"},
+		{"agent_id": "agent-1", "token": ""},
+		{},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": data})
+		}))
+		if st, err := Register(srv.URL, "", AgentInfo{Hostname: "h"}, nil); err == nil || st != nil {
+			t.Errorf("Register accepted %v: state %+v, err %v", data, st, err)
+		}
+		old := &State{AgentID: "agent-1", Token: "old", ServerURL: srv.URL}
+		if st, err := ReRegister(old, AgentInfo{Hostname: "h"}, nil); err == nil || st != nil {
+			t.Errorf("ReRegister accepted %v: state %+v, err %v", data, st, err)
+		}
+		srv.Close()
+	}
+}
+
+func TestCheckWritable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "new", "state.json")
+	if err := CheckWritable(path); err != nil {
+		t.Fatalf("writable path refused: %v", err)
+	}
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Errorf("probe file left behind: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("CheckWritable created the state file: %v", err)
+	}
+
+	// The probe must not touch an existing state file.
+	if err := os.WriteFile(path, []byte(`{"agent_id":"keep"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckWritable(path); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != `{"agent_id":"keep"}` {
+		t.Errorf("state file changed to %q", b)
+	}
+}
+
+func TestCheckWritable_ReadOnlyDir(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can write a read-only directory")
+	}
+	dir := filepath.Join(t.TempDir(), "ro")
+	if err := os.Mkdir(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	if err := CheckWritable(filepath.Join(dir, "state.json")); err == nil {
+		t.Fatal("a read-only directory was reported writable")
+	}
+}
