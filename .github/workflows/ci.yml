@@ -12,13 +12,18 @@ permissions:
 jobs:
   lint:
     name: Lint
-    # A pull request from a fork runs on a GitHub-hosted runner, never on the
-    # persistent self-hosted ones: those keep state between jobs and some hold
-    # release signing access. Pull requests from this repo keep the self-hosted
-    # runners (hosted minutes are limited while the repo is private).
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || fromJSON('["self-hosted","linux"]') }}
+    # GitHub-hosted when the repo is public (org self-hosted runners do not
+    # serve public repos; `!= true` so an event without the field still gets a
+    # runner) and for every pull request from a fork, which must never reach
+    # the persistent self-hosted runners: those keep state between jobs and
+    # some hold release signing access. While the repo is private, its own
+    # pushes and pull requests use the self-hosted runners (hosted minutes are
+    # limited).
+    runs-on: ${{ (github.event.repository.private != true || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'ubuntu-latest' || fromJSON('["self-hosted","linux"]') }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           cache: false  # Persistent self-hosted runners keep the Go cache on disk
@@ -60,13 +65,18 @@ jobs:
 
   test:
     name: Test
-    # A pull request from a fork runs on a GitHub-hosted runner, never on the
-    # persistent self-hosted ones: those keep state between jobs and some hold
-    # release signing access. Pull requests from this repo keep the self-hosted
-    # runners (hosted minutes are limited while the repo is private).
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || fromJSON('["self-hosted","linux"]') }}
+    # GitHub-hosted when the repo is public (org self-hosted runners do not
+    # serve public repos; `!= true` so an event without the field still gets a
+    # runner) and for every pull request from a fork, which must never reach
+    # the persistent self-hosted runners: those keep state between jobs and
+    # some hold release signing access. While the repo is private, its own
+    # pushes and pull requests use the self-hosted runners (hosted minutes are
+    # limited).
+    runs-on: ${{ (github.event.repository.private != true || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'ubuntu-latest' || fromJSON('["self-hosted","linux"]') }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           cache: false  # Persistent self-hosted runners keep the Go cache on disk
@@ -76,6 +86,11 @@ jobs:
       # its verdict is trusted.
       - name: Coverage gate self-test
         run: scripts/coverage-check.sh --self-test
+      # The tag and image-alias rules release.yml and docker-publish.yml share,
+      # proven on a scratch repo here so a change to them is checked before a
+      # tag ever runs them.
+      - name: Release tag resolver self-test
+        run: scripts/release-tag.sh --self-test
       - name: Run tests
         run: go test ./... -count=1 -race -timeout 60s -coverprofile=coverage.out -covermode=atomic
       - name: Upload coverage
@@ -109,7 +124,9 @@ jobs:
     # checks for real. The runner is elevated, so the owner tests run.
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.26.10'
@@ -122,14 +139,19 @@ jobs:
 
   race:
     name: Race Detector
-    # A pull request from a fork runs on a GitHub-hosted runner, never on the
-    # persistent self-hosted ones: those keep state between jobs and some hold
-    # release signing access. Pull requests from this repo keep the self-hosted
-    # runners (hosted minutes are limited while the repo is private).
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || fromJSON('["self-hosted","linux"]') }}
+    # GitHub-hosted when the repo is public (org self-hosted runners do not
+    # serve public repos; `!= true` so an event without the field still gets a
+    # runner) and for every pull request from a fork, which must never reach
+    # the persistent self-hosted runners: those keep state between jobs and
+    # some hold release signing access. While the repo is private, its own
+    # pushes and pull requests use the self-hosted runners (hosted minutes are
+    # limited).
+    runs-on: ${{ (github.event.repository.private != true || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'ubuntu-latest' || fromJSON('["self-hosted","linux"]') }}
     needs: [lint]
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           cache: false  # Persistent self-hosted runners keep the Go cache on disk
@@ -147,13 +169,18 @@ jobs:
     # start a container (runc: "open sysctl ... reopen fd 8: permission
     # denied"), so they do not carry it. Which runners do is recorded in
     # deploy-pipeline INFRASTRUCTURE.md, with the probe that decided it.
-    # A pull request from a fork runs on a GitHub-hosted runner, never on the
-    # persistent self-hosted ones: those keep state between jobs and some hold
-    # release signing access. Pull requests from this repo keep the self-hosted
-    # runners (hosted minutes are limited while the repo is private).
-    runs-on: ${{ fromJSON((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '"ubuntu-latest"' || '["self-hosted", "docker-build"]') }}
+    # GitHub-hosted when the repo is public (org self-hosted runners do not
+    # serve public repos; `!= true` so an event without the field still gets a
+    # runner) and for every pull request from a fork, which must never reach
+    # the persistent self-hosted runners: those keep state between jobs and
+    # some hold release signing access. While the repo is private, its own
+    # pushes and pull requests use the self-hosted runners (hosted minutes are
+    # limited).
+    runs-on: ${{ fromJSON((github.event.repository.private != true || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && '"ubuntu-latest"' || '["self-hosted", "docker-build"]') }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
       - name: Build image
         # The Dockerfile uses BuildKit's $BUILDPLATFORM, which the legacy
         # builder cannot parse. A runner without buildx cannot build it at all,
@@ -176,14 +203,19 @@ jobs:
     # volume file browser and token renewal (test/e2e). Needs a runner that
     # can run containers, so the same `docker-build` label as image-reaps.
     name: End-to-end
-    # A pull request from a fork runs on a GitHub-hosted runner, never on the
-    # persistent self-hosted ones: those keep state between jobs and some hold
-    # release signing access. Pull requests from this repo keep the self-hosted
-    # runners (hosted minutes are limited while the repo is private).
-    runs-on: ${{ fromJSON((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '"ubuntu-latest"' || '["self-hosted", "docker-build"]') }}
+    # GitHub-hosted when the repo is public (org self-hosted runners do not
+    # serve public repos; `!= true` so an event without the field still gets a
+    # runner) and for every pull request from a fork, which must never reach
+    # the persistent self-hosted runners: those keep state between jobs and
+    # some hold release signing access. While the repo is private, its own
+    # pushes and pull requests use the self-hosted runners (hosted minutes are
+    # limited).
+    runs-on: ${{ fromJSON((github.event.repository.private != true || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && '"ubuntu-latest"' || '["self-hosted", "docker-build"]') }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           cache: false  # Persistent self-hosted runners keep the Go cache on disk
@@ -197,11 +229,14 @@ jobs:
 
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
-    # A pull request from a fork runs on a GitHub-hosted runner, never on the
-    # persistent self-hosted ones: those keep state between jobs and some hold
-    # release signing access. Pull requests from this repo keep the self-hosted
-    # runners (hosted minutes are limited while the repo is private).
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || fromJSON('["self-hosted","linux"]') }}
+    # GitHub-hosted when the repo is public (org self-hosted runners do not
+    # serve public repos; `!= true` so an event without the field still gets a
+    # runner) and for every pull request from a fork, which must never reach
+    # the persistent self-hosted runners: those keep state between jobs and
+    # some hold release signing access. While the repo is private, its own
+    # pushes and pull requests use the self-hosted runners (hosted minutes are
+    # limited).
+    runs-on: ${{ (github.event.repository.private != true || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'ubuntu-latest' || fromJSON('["self-hosted","linux"]') }}
     needs: [lint, test, race]
     strategy:
       matrix:
@@ -226,7 +261,9 @@ jobs:
             goarch: amd64
             suffix: ".exe"
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           cache: false  # Persistent self-hosted runners keep the Go cache on disk

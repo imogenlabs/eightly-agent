@@ -353,11 +353,18 @@ internal/winacl/      — Windows access lists for the data folder, state, secre
 | **Pentest Gate** | Push/PR to `main`, `dev` | Security regression tests for auth, proxy, browse, register and websocket; govulncheck and gosec gates |
 | **CodeQL** | Push/PR to `main`, weekly | Go analysis; any finding fails the job |
 | **Docs** | Push/PR touching the docs | `mkdocs build --strict`; on `main` publishes the [docs site](https://imogenlabs.github.io/eightly-agent/) to GitHub Pages once the repo is public |
-| **Docker Publish** | Push to `main`, tags | Multi-arch build → GHCR + Docker Hub, signed with cosign; `latest` moves only for the newest released version |
-| **Release** | Tags (`v*`) or manual dispatch | Builds the exact commit the tag points to: 6 platform binaries + `.deb`/`.rpm` packages (amd64, arm64) → GitHub Release with SHA256 checksums, cosign signatures and an SBOM |
-| **OpenSSF Scorecard** | Push to `main`, weekly | Supply-chain checks |
+| **Docker Publish** | Push to `main`, tags | Multi-arch build → GHCR + Docker Hub, signed with cosign; `latest`, `MAJOR.MINOR` and `MAJOR` move only for the newest stable release in their line |
+| **Release** | Tags (`v*`), or a manual run from the tag | Builds the exact commit the tag points to: 6 platform binaries + `.deb`/`.rpm` packages (amd64, arm64) → GitHub Release with SHA256 checksums, cosign signatures and an SBOM |
+| **OpenSSF Scorecard** | Push to `main`, weekly (public repo only) | Supply-chain checks |
 
-A pull request from a fork runs on GitHub-hosted runners only. The self-hosted runners, which keep state between jobs and can sign releases, take pushes, tags, manual runs and pull requests from branches of this repo. Signing and publishing run only on pushes, tags and manual runs here, never for a pull request.
+**Runners.** Once the repository is public, every job runs on GitHub-hosted runners: the organization's self-hosted runners do not serve public repositories. While it is private, pushes, tags, manual runs and pull requests from branches of this repo use the self-hosted runners, which keep state between jobs and can sign releases. A pull request from a fork always runs on GitHub-hosted runners. Signing and publishing run only on pushes, tags and manual runs here, never for a pull request.
+
+**Release tags.** `release.yml` and `docker-publish.yml` check a tag with the same script, `scripts/release-tag.sh`, and its self-test runs in CI and before every release:
+
+- The tag must be `vMAJOR.MINOR.PATCH`, optionally with a `-prerelease` suffix (`v2.2.0-alpha.1`), and point at a commit on `main`. Anything else is refused before anything is built, signed or pushed.
+- A tag with a suffix is published as a prerelease, and its image gets only its exact version tag.
+- The image aliases `latest`, `MAJOR.MINOR` and `MAJOR` move only for the highest stable tag on `main` in their line, so publishing an older release again never moves one backwards.
+- A manual release must be run from the tag itself (`gh workflow run release.yml --ref v2.1.0 -f version=v2.1.0`, or pick the tag under "Use workflow from"). A run from a branch is refused, because its signatures would name the branch and fail the verification below.
 
 ### Install Methods
 
@@ -384,13 +391,19 @@ Every release file is signed with [Sigstore cosign](https://sigstore.dev) by the
 sha256sum --ignore-missing -c SHA256SUMS
 ```
 
+Every signature is made by a workflow running at the release tag, so the certificate names that workflow file at that exact tag. Set `TAG` to the release you downloaded:
+
+```bash
+TAG=v2.1.0
+```
+
 ### Verify a binary
 
 ```bash
 cosign verify-blob \
   --certificate eightly-agent-linux-amd64.crt \
   --signature eightly-agent-linux-amd64.sig \
-  --certificate-identity-regexp '^https://github\.com/imogenlabs/eightly-agent/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-identity "https://github.com/imogenlabs/eightly-agent/.github/workflows/release.yml@refs/tags/$TAG" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   eightly-agent-linux-amd64
 ```
@@ -399,12 +412,14 @@ cosign verify-blob \
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp '^https://github\.com/imogenlabs/eightly-agent/\.github/workflows/docker-publish\.yml@refs/(heads/main|tags/v)' \
+  --certificate-identity "https://github.com/imogenlabs/eightly-agent/.github/workflows/docker-publish.yml@refs/tags/$TAG" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/imogenlabs/eightly-agent:latest
+  "ghcr.io/imogenlabs/eightly-agent:${TAG#v}"
 ```
 
-The anchored identity accepts only signatures made by this repo's own workflows, not by a fork or a similarly named repo.
+`latest`, `MAJOR.MINOR` and `MAJOR` point at the image of the release they were last moved by, so verify them with that release's tag. Images built from `main` (`:main` and `:<sha>`) are development builds, signed by `docker-publish.yml@refs/heads/main`.
+
+The exact identity accepts only signatures made by this repo's own workflow at that tag, not by a fork, a similarly named repo or another branch.
 
 ### Verify build provenance and the SBOM attestation
 

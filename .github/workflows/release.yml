@@ -15,22 +15,28 @@ permissions:
   contents: read
 
 jobs:
-  # Every later job builds from the commit this job resolves, never from the
-  # ref the workflow happened to be dispatched from. A dispatch for v2.1.0 from
-  # some branch still ships exactly what the v2.1.0 tag points at.
+  # Every later job builds from the commit this job resolves. The checks are
+  # scripts/release-tag.sh, shared with docker-publish.yml: semver tag, exists,
+  # on main.
   resolve:
     name: Resolve release commit
-    # Org self-hosted runners do not serve public repositories.
-    runs-on: ${{ github.event.repository.private == false && 'ubuntu-latest' || 'self-hosted' }}
+    # Org self-hosted runners do not serve public repositories. `!= true`
+    # rather than `== false`, so an event without the field goes to a runner
+    # that exists.
+    runs-on: ${{ github.event.repository.private != true && 'ubuntu-latest' || 'self-hosted' }}
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.resolve.outputs.version }}
       sha: ${{ steps.resolve.outputs.sha }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Resolver self-test
+        run: scripts/release-tag.sh --self-test
 
       - name: Resolve tag to a commit on main
         id: resolve
@@ -40,35 +46,23 @@ jobs:
         run: |
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             TAG="$INPUT_VERSION"
+            # The signing certificate names the ref the workflow ran from, and
+            # the documented verification accepts only release.yml at a tag.
+            # A dispatch from a branch would sign with a branch identity.
+            if [ "$GITHUB_REF" != "refs/tags/$TAG" ]; then
+              echo "Run this from the tag itself: pick $TAG under \"Use workflow from\", or: gh workflow run release.yml --ref $TAG -f version=$TAG. This run is from $GITHUB_REF." >&2
+              exit 1
+            fi
           else
             TAG="$GITHUB_REF_NAME"
           fi
-          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "Not a release tag: '$TAG' (expected vX.Y.Z or vX.Y.Z-suffix)" >&2
-            exit 1
-          fi
-          if ! SHA=$(git rev-parse -q --verify "refs/tags/$TAG^{commit}"); then
-            echo "Tag $TAG does not exist (or does not point at a commit). Push the tag first." >&2
-            exit 1
-          fi
-          if ! git rev-parse -q --verify refs/remotes/origin/main >/dev/null; then
-            echo "origin/main is missing from the checkout" >&2
-            exit 1
-          fi
-          if ! git merge-base --is-ancestor "$SHA" refs/remotes/origin/main; then
-            echo "Tag $TAG points at $SHA, which is not on main. Releases ship from main only." >&2
-            exit 1
-          fi
-          echo "Releasing $TAG from $SHA"
-          {
-            echo "tag=$TAG"
-            echo "version=${TAG#v}"
-            echo "sha=$SHA"
-          } >> "$GITHUB_OUTPUT"
+          scripts/release-tag.sh resolve "$TAG" > resolved.txt
+          cat resolved.txt
+          cat resolved.txt >> "$GITHUB_OUTPUT"
 
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
-    runs-on: ${{ github.event.repository.private == false && 'ubuntu-latest' || 'self-hosted' }}
+    runs-on: ${{ github.event.repository.private != true && 'ubuntu-latest' || 'self-hosted' }}
     needs: resolve
     strategy:
       matrix:
@@ -93,7 +87,7 @@ jobs:
             goarch: amd64
             suffix: ".exe"
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.resolve.outputs.sha }}
           persist-credentials: false
@@ -106,10 +100,14 @@ jobs:
       - name: Build binary
         env:
           GOARM: ${{ matrix.goarm || '' }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          TARGET_OS: ${{ matrix.goos }}
+          TARGET_ARCH: ${{ matrix.goarch }}
+          SUFFIX: ${{ matrix.suffix }}
         run: |
-          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
-            go build -ldflags="-s -w -X main.version=${{ needs.resolve.outputs.version }}" \
-            -o eightly-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }} ./cmd/agent/
+          CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
+            go build -ldflags="-s -w -X main.version=$VERSION" \
+            -o "eightly-agent-$TARGET_OS-$TARGET_ARCH$SUFFIX" ./cmd/agent/
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -119,13 +117,13 @@ jobs:
 
   package:
     name: Package (${{ matrix.goarch }})
-    runs-on: ${{ github.event.repository.private == false && 'ubuntu-latest' || 'self-hosted' }}
+    runs-on: ${{ github.event.repository.private != true && 'ubuntu-latest' || 'self-hosted' }}
     needs: [resolve, build]
     strategy:
       matrix:
         goarch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.resolve.outputs.sha }}
           persist-credentials: false
@@ -158,7 +156,7 @@ jobs:
             echo "nfpm-resolved.yml still has an unexpanded variable" >&2
             exit 1
           fi
-          nfpm package --config nfpm-resolved.yml --packager deb --target eightly-agent_${{ needs.resolve.outputs.version }}_${{ matrix.goarch }}.deb
+          nfpm package --config nfpm-resolved.yml --packager deb --target "eightly-agent_${VERSION}_${GOARCH}.deb"
 
       - name: Build .rpm package
         env:
@@ -172,7 +170,7 @@ jobs:
             echo "nfpm-resolved.yml still has an unexpanded variable" >&2
             exit 1
           fi
-          nfpm package --config nfpm-resolved.yml --packager rpm --target eightly-agent-${{ needs.resolve.outputs.version }}.${{ matrix.goarch }}.rpm
+          nfpm package --config nfpm-resolved.yml --packager rpm --target "eightly-agent-${VERSION}.${GOARCH}.rpm"
 
       - name: Upload .deb
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -192,14 +190,14 @@ jobs:
     # runner proven to reach Fulcio (see docker-publish.yml). GitHub-hosted
     # runners reach Fulcio and the OIDC token endpoint, so keyless signing
     # works there too.
-    runs-on: ${{ github.event.repository.private == false && 'ubuntu-latest' || fromJSON('["self-hosted","can-sign"]') }}
+    runs-on: ${{ github.event.repository.private != true && 'ubuntu-latest' || fromJSON('["self-hosted","can-sign"]') }}
     needs: [resolve, build, package]
     permissions:
       contents: write
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.resolve.outputs.sha }}
           persist-credentials: false
@@ -349,5 +347,6 @@ jobs:
             scoop install eightly-agent
             ```
           draft: false
-          prerelease: ${{ contains(needs.resolve.outputs.tag, 'beta') || contains(needs.resolve.outputs.tag, 'rc') }}
+          # From the parsed semver suffix: any -prerelease is a prerelease.
+          prerelease: ${{ needs.resolve.outputs.prerelease == 'true' }}
           generate_release_notes: true

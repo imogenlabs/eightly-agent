@@ -136,4 +136,4 @@ For the Windows service, run the agent by hand as shown above; the service disca
 
 ## Platform testing limitations
 
-CI runs on Linux: self-hosted runners for this repository's own branches, GitHub-hosted runners for pull requests from forks. Windows and macOS builds are verified via cross-compilation but not executed in CI. Community testing on Windows and macOS is encouraged. If you encounter platform-specific issues, please file a bug report with your platform details.
+Linux CI runs on GitHub-hosted runners once the repository is public and for pull requests from forks, and on self-hosted runners for this repository's own branches while it is private. The test suite also runs on a GitHub-hosted Windows runner; macOS builds are verified by cross-compilation only. Community testing on Windows and macOS is encouraged. If you encounter platform-specific issues, please file a bug report with your platform details.
