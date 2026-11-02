@@ -3,16 +3,16 @@
 package hostinfo
 
 import (
+	"context"
 	"encoding/json"
-	"os/exec"
 	"strconv"
 	"strings"
 
 	"github.com/rs/zerolog/log"
 )
 
-func readPCIDevices() []PCIDevice {
-	out, err := exec.Command("system_profiler", "SPPCIDataType", "-json").Output()
+func readPCIDevices(ctx context.Context) []PCIDevice {
+	out, err := runCommand(ctx, "system_profiler", "SPPCIDataType", "-json")
 	if err != nil {
 		log.Debug().Err(err).Msg("system_profiler SPPCIDataType failed")
 		return []PCIDevice{}
@@ -40,20 +40,37 @@ func readPCIDevices() []PCIDevice {
 	return devs
 }
 
-func readDisks() []PhysicalDisk {
-	out, err := exec.Command("diskutil", "list").Output()
+func readDisks(ctx context.Context) []PhysicalDisk {
+	out, err := runCommand(ctx, "diskutil", "list")
 	if err != nil {
 		log.Debug().Err(err).Msg("diskutil list failed")
 		return []PhysicalDisk{}
 	}
 
-	var disks []PhysicalDisk
-	for _, line := range strings.Split(string(out), "\n") {
+	disks := []PhysicalDisk{}
+	for _, name := range parseDiskList(string(out)) {
+		// One diskutil info per disk gives both size and vendor.
+		info, err := runCommand(ctx, "diskutil", "info", name)
+		if err != nil {
+			log.Debug().Err(err).Str("disk", name).Msg("diskutil info failed")
+			disks = append(disks, PhysicalDisk{Name: name})
+			continue
+		}
+		sizeGB, vendor := parseDiskInfo(string(info))
+		disks = append(disks, PhysicalDisk{Name: name, SizeGB: sizeGB, Vendor: vendor})
+	}
+	return disks
+}
+
+// parseDiskList returns the physical disk names (disk0, disk1, ...) from
+// `diskutil list`, skipping synthesized and virtual disks.
+func parseDiskList(out string) []string {
+	var names []string
+	for _, line := range strings.Split(out, "\n") {
 		// Lines like: /dev/disk0 (internal, physical):
 		if !strings.HasPrefix(line, "/dev/disk") {
 			continue
 		}
-		// Skip synthesized/virtual disks
 		if strings.Contains(line, "synthesized") || strings.Contains(line, "virtual") {
 			continue
 		}
@@ -61,60 +78,34 @@ func readDisks() []PhysicalDisk {
 		if len(parts) == 0 {
 			continue
 		}
-		name := parts[0]
-		name = strings.TrimPrefix(name, "/dev/")
-
-		sizeGB := diskSizeGB(name)
-		disks = append(disks, PhysicalDisk{
-			Name:   name,
-			SizeGB: sizeGB,
-			Vendor: diskVendor(name),
-		})
+		names = append(names, strings.TrimPrefix(parts[0], "/dev/"))
 	}
-	if disks == nil {
-		return []PhysicalDisk{}
-	}
-	return disks
+	return names
 }
 
-func diskSizeGB(name string) int64 {
-	out, err := exec.Command("diskutil", "info", name).Output() // #nosec G204 -- name from diskutil output, not request input
-	if err != nil {
-		log.Debug().Err(err).Str("disk", name).Msg("diskutil info failed (size)")
-		return 0
-	}
-	for _, line := range strings.Split(string(out), "\n") {
+// parseDiskInfo reads the size in GiB and the media name from `diskutil info`.
+func parseDiskInfo(out string) (sizeGB int64, vendor string) {
+	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Disk Size:") || strings.HasPrefix(line, "Total Size:") {
+		switch {
+		case strings.HasPrefix(line, "Disk Size:"), strings.HasPrefix(line, "Total Size:"):
 			// Format: "Disk Size:  500.1 GB (500107862016 Bytes)..."
-			// Extract bytes from parentheses
+			if sizeGB != 0 {
+				continue
+			}
 			if start := strings.Index(line, "("); start != -1 {
 				rest := line[start+1:]
 				if end := strings.Index(rest, " Bytes"); end != -1 {
-					bytes, err := strconv.ParseInt(rest[:end], 10, 64)
-					if err == nil {
-						return bytes / (1024 * 1024 * 1024)
+					if bytes, err := strconv.ParseInt(rest[:end], 10, 64); err == nil {
+						sizeGB = bytes / (1024 * 1024 * 1024)
 					}
 				}
 			}
+		case strings.HasPrefix(line, "Device / Media Name:"):
+			vendor = strings.TrimSpace(strings.TrimPrefix(line, "Device / Media Name:"))
 		}
 	}
-	return 0
-}
-
-func diskVendor(name string) string {
-	out, err := exec.Command("diskutil", "info", name).Output() // #nosec G204 -- name from diskutil output, not request input
-	if err != nil {
-		log.Debug().Err(err).Str("disk", name).Msg("diskutil info failed (vendor)")
-		return ""
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Device / Media Name:") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "Device / Media Name:"))
-		}
-	}
-	return ""
+	return sizeGB, vendor
 }
 
 func strVal(m map[string]interface{}, key string) string {
