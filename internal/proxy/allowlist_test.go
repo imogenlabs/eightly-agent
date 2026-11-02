@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 )
@@ -216,6 +217,9 @@ func TestCreate_HostPathsOutsideRootsRefused(t *testing.T) {
 }
 
 func TestCreate_SymlinkUnderRootRefused(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("host bind paths and the symlink check apply to Linux hosts")
+	}
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "app", "real"), 0o750); err != nil {
 		t.Fatal(err)
