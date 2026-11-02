@@ -231,6 +231,9 @@ func TestAgentEndToEnd(t *testing.T) {
 		"--addr", "127.0.0.1",
 		"--port", port,
 		"--data", data,
+		// The browse check binds a volume under the agent's data folder, so that folder
+		// must be an allowed bind root; nothing else on the host is.
+		"--allowed-bind-roots", data,
 		"--state-path", statePath,
 		"--socket", dockerSocket(),
 		"--server-url", srv.URL,

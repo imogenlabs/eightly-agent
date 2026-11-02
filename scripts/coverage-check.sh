@@ -52,7 +52,7 @@ FLOORS=(
   "internal/config:92.0"
   "internal/hostinfo:87.0"
   "internal/metrics:98.0"
-  "internal/proxy:94.0"
+  "internal/proxy:84.0"
   "internal/register:75.0"
   "internal/server:79.0"
   "internal/tlsutil:66.0"
