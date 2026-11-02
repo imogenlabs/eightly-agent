@@ -9,8 +9,16 @@ services:
     ports:
       - "9001:9001"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # No `:ro`: it marks the socket file, not the Docker API, so a read-only
+      # mount still lets anything that can open it create and start containers.
+      # The control is the agent's own filter on the requests it forwards.
+      - /var/run/docker.sock:/var/run/docker.sock
       - agent-data:/data
+    # The agent needs the group that owns the socket on this host. The image
+    # assumes 999; if yours differs, set DOCKER_GID=$(stat -c %g /var/run/docker.sock)
+    # in .env.
+    group_add:
+      - "${DOCKER_GID:-999}"
     environment:
       - EIGHTLY_AGENT_SECRET=${EIGHTLY_AGENT_SECRET}
       - EIGHTLY_SERVER_URL=${EIGHTLY_SERVER_URL:-}

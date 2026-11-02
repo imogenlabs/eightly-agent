@@ -12,6 +12,9 @@ RUN export GOARM="${TARGETVARIANT#v}" && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOARM=${GOARM} \
     go build -ldflags="-s -w -X main.version=${VERSION}" -o /eightly-agent ./cmd/agent
 
+# The agent runs as uid 1000 in a group with GID 999, the usual docker group on
+# Debian and Ubuntu. Hosts differ, so a host whose socket has another group
+# needs `--group-add "$(stat -c %g /var/run/docker.sock)"` (compose: DOCKER_GID).
 FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
 RUN apk add --no-cache ca-certificates tzdata tini && \
     if ! awk -F: '$3==999' /etc/group | grep -q .; then addgroup -g 999 docker; fi && \
