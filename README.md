@@ -5,8 +5,11 @@
 **Cross-platform Docker management daemon for [Eight.ly OS](https://eight.ly)**
 
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
-[![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?style=flat-square&logo=docker&logoColor=white)](https://hub.docker.com/r/smashingtags/eightly-agent)
+[![Docker](https://img.shields.io/badge/Docker-GHCR-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/imogenlabs/eightly-agent/pkgs/container/eightly-agent)
+[![Docs](https://img.shields.io/badge/Docs-site-3b82f6?style=flat-square&logo=materialformkdocs&logoColor=white)](https://imogenlabs.github.io/eightly-agent/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
+
+**[Documentation](https://imogenlabs.github.io/eightly-agent/)** · [Releases](https://github.com/imogenlabs/eightly-agent/releases) · [Eight.ly OS](https://eight.ly)
 
 Run on every Docker host. Manage them all from one dashboard.
 
@@ -61,14 +64,20 @@ Switch between local and remote hosts from the environment dropdown. Every conta
 ### Docker
 
 ```bash
-docker run -d --init \
-  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+docker run -d --init --name eightly-agent --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  --group-add "$(stat -c %g /var/run/docker.sock)" \
+  -v eightly-agent-data:/data \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
   -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
   ghcr.io/imogenlabs/eightly-agent:latest
 ```
+
+The agent runs as uid 1000 and reaches Docker through the group that owns the socket. The image assumes GID 999; `--group-add` gives it your host's group, whatever its number.
+
+The socket is mounted read-write on purpose. `:ro` only marks the socket file read-only, not the Docker API: anything that can open the socket can still create and start containers, so it protects nothing. The controls are the agent's signed-token check and its filter on the Docker requests it forwards, which refuses privileged containers, host namespaces and sensitive host mounts.
 
 `--init` gives the container a process reaper. Images from this release on carry tini for the same job, and their health check is `eightly-agent healthcheck`. That is an in-process HTTPS GET of the agent's own `/healthz` that exits 0 or 1 and starts no child process. Do not override the health check with that command on an older image: before the subcommand existed, the agent ignored the extra word and would start a second agent.
 
@@ -80,11 +89,12 @@ The same image is mirrored on Docker Hub as `smashingtags/eightly-agent`.
 
 ```bash
 cp .env.example .env
-# Edit .env with your shared secret and EOS server URL
+# Edit .env: your shared secret, EOS server URL and enrollment token
+echo "DOCKER_GID=$(stat -c %g /var/run/docker.sock)" >> .env
 docker compose up -d
 ```
 
-A `docker-compose.yml` and `.env.example` are included in the repo.
+A `docker-compose.yml` and `.env.example` are included in the repo. `DOCKER_GID` defaults to 999 when unset.
 
 ### Homebrew, Scoop, packages and binaries
 
@@ -94,7 +104,7 @@ scoop bucket add eightly https://github.com/imogenlabs/scoop-eightly
 scoop install eightly-agent                                   # Windows
 ```
 
-`.deb` and `.rpm` packages (amd64, arm64) and binaries for five platforms are on the
+`.deb` and `.rpm` packages (amd64, arm64) and binaries for six platforms are on the
 [Releases](https://github.com/imogenlabs/eightly-agent/releases) page. Every method is listed under
 [Install Methods](#install-methods).
 
@@ -299,26 +309,40 @@ internal/websocket/websocket.go  — WebSocket attach + exec handlers
 
 | Workflow | Trigger | What it does |
 |:---------|:--------|:-------------|
-| **CI** | Push/PR to `main`, `dev` | Lint (vet + staticcheck) → Test (race) → Build matrix (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64) |
-| **Docker Publish** | Push to `main`, tags | Multi-arch build → GHCR + Docker Hub |
-| **Release** | Tags (`v*`) or manual dispatch | Build 5 platform binaries + `.deb`/`.rpm` packages (amd64 + arm64) → GitHub Release with SHA256 checksums |
+| **CI** | Push/PR to `main`, `dev` | Lint (vet, staticcheck, govulncheck, gosec, golangci-lint, all pinned) → Test (race, 50% coverage floor) → image reaps orphans → Build matrix (linux/amd64, linux/arm64, linux/arm, darwin/amd64, darwin/arm64, windows/amd64) |
+| **Pentest Gate** | Push/PR to `main`, `dev` | Security regression tests for auth, proxy, browse, register and websocket; govulncheck and gosec gates |
+| **CodeQL** | Push/PR to `main`, weekly | Go analysis; any finding fails the job |
+| **Docs** | Push/PR touching the docs | `mkdocs build --strict`; on `main` publishes the [docs site](https://imogenlabs.github.io/eightly-agent/) to GitHub Pages once the repo is public |
+| **Docker Publish** | Push to `main`, tags | Multi-arch build → GHCR + Docker Hub, signed with cosign |
+| **Release** | Tags (`v*`) or manual dispatch | 6 platform binaries + `.deb`/`.rpm` packages (amd64, arm64) → GitHub Release with SHA256 checksums, cosign signatures and an SBOM |
+| **OpenSSF Scorecard** | Push to `main`, weekly | Supply-chain checks |
+
+A pull request from a fork runs on GitHub-hosted runners only. The self-hosted runners, which keep state between jobs and can sign releases, take pushes, tags, manual runs and pull requests from branches of this repo. Signing and publishing run only on pushes, tags and manual runs here, never for a pull request.
 
 ### Install Methods
 
 | Method | Platform | Command / Source |
 |:-------|:---------|:-----------------|
-| Docker (GHCR) | Linux, macOS | `docker pull ghcr.io/imogenlabs/eightly-agent:latest` |
-| Docker (Hub) | Linux, macOS | `docker pull smashingtags/eightly-agent:latest` (mirror) |
+| Docker (GHCR) | Linux | `docker pull ghcr.io/imogenlabs/eightly-agent:latest` |
+| Docker (Hub) | Linux | `docker pull smashingtags/eightly-agent:latest` (mirror) |
 | Homebrew | macOS, Linux | `brew install imogenlabs/tap/eightly-agent` |
 | Scoop | Windows | `scoop bucket add eightly https://github.com/imogenlabs/scoop-eightly && scoop install eightly-agent` |
-| .deb package | Debian, Ubuntu | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (amd64, arm64) |
-| .rpm package | RHEL, Fedora | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (amd64, arm64) |
+| .deb package | Debian, Ubuntu | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (amd64, arm64); installs a hardened systemd unit |
+| .rpm package | RHEL, Fedora | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (amd64, arm64); installs a hardened systemd unit |
 | Windows service | Windows | Download `.exe` from [Releases](https://github.com/imogenlabs/eightly-agent/releases), then `eightly-agent.exe install && eightly-agent.exe start` |
-| Binary | Linux, macOS, Windows | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (5 platform builds) |
+| Binary | Linux, macOS, Windows | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (6 platform builds) |
+
+Full instructions for each are in the [installation guide](https://imogenlabs.github.io/eightly-agent/Installation/).
 
 ## Verifying Releases
 
-All release binaries are signed with [Sigstore cosign](https://sigstore.dev) and include SLSA build provenance.
+Every release file is signed with [Sigstore cosign](https://sigstore.dev) by the release workflow, and every image by the Docker publish workflow. Each release also carries `SHA256SUMS` and an SPDX SBOM (`sbom.spdx.json`).
+
+### Check a download against the checksums
+
+```bash
+sha256sum --ignore-missing -c SHA256SUMS
+```
 
 ### Verify a binary
 
@@ -326,7 +350,7 @@ All release binaries are signed with [Sigstore cosign](https://sigstore.dev) and
 cosign verify-blob \
   --certificate eightly-agent-linux-amd64.crt \
   --signature eightly-agent-linux-amd64.sig \
-  --certificate-identity-regexp 'https://github.com/imogenlabs/eightly-agent' \
+  --certificate-identity-regexp '^https://github\.com/imogenlabs/eightly-agent/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   eightly-agent-linux-amd64
 ```
@@ -335,24 +359,21 @@ cosign verify-blob \
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp 'https://github.com/imogenlabs/eightly-agent' \
+  --certificate-identity-regexp '^https://github\.com/imogenlabs/eightly-agent/\.github/workflows/docker-publish\.yml@refs/(heads/main|tags/v)' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   ghcr.io/imogenlabs/eightly-agent:latest
 ```
 
-### Verify SBOM
+The anchored identity accepts only signatures made by this repo's own workflows, not by a fork or a similarly named repo.
+
+### Verify build provenance and the SBOM attestation
+
+GitHub artifact attestations are made for releases published after the repository went public; earlier releases have the cosign signatures and `sbom.spdx.json` only.
 
 ```bash
-gh attestation verify eightly-agent-linux-amd64 \
-  --owner imogenlabs \
+gh attestation verify eightly-agent-linux-amd64 --owner imogenlabs
+gh attestation verify eightly-agent-linux-amd64 --owner imogenlabs \
   --predicate-type https://spdx.dev/Document
-```
-
-### Verify build provenance
-
-```bash
-gh attestation verify eightly-agent-linux-amd64 \
-  --owner imogenlabs
 ```
 
 ---
