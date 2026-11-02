@@ -67,7 +67,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 				}
 				states.Store(state)
 			}
-			register.StartHeartbeat(ctx, states, unsaved, cfg.StatePath, cfg.SocketPath, cfg.Version, cfg.AdvertiseIP, serverTLS, log.Logger)
+			register.StartHeartbeat(ctx, states, unsaved, cfg.StatePath, cfg.SocketPath, cfg.Port, cfg.Version, cfg.AdvertiseIP, serverTLS, log.Logger)
 		}()
 	}
 
@@ -130,9 +130,16 @@ func Run(ctx context.Context, cfg *config.Config) error {
 			"api_version": "2",
 		})
 	})
-	mux.Handle("/websocket/attach", authed(websocket.AttachHandler(cfg.SocketPath, authEnabled, allowedOrigins)))
-	mux.Handle("/websocket/exec", authed(websocket.ExecHandler(cfg.SocketPath, authEnabled, allowedOrigins)))
-	mux.Handle("/browse/", authed(browse.Handler(cfg.DataPath, browse.ReadOnly(cfg.BrowseReadOnly))))
+	targets := proxy.NewTargetChecker(cfg.SocketPath, bindRoots)
+	mux.Handle("/websocket/attach", authed(websocket.AttachHandler(cfg.SocketPath, targets, authEnabled, allowedOrigins)))
+	mux.Handle("/websocket/exec", authed(websocket.ExecHandler(cfg.SocketPath, targets, authEnabled, allowedOrigins)))
+	volumes := cfg.VolumesRoot()
+	if volumes == "" {
+		log.Info().Msg("file browser unavailable: Docker keeps its volumes out of the agent's reach on this host; set --volumes-path if they can be reached")
+	} else {
+		log.Info().Str("path", volumes).Msg("file browser reads volumes from here")
+	}
+	mux.Handle("/browse/", authed(browse.Handler(volumes, browse.ReadOnly(cfg.BrowseReadOnly))))
 	mux.Handle("/host", authed(hostinfo.Handler()))
 	mux.Handle("/", authed(proxy.NewDockerProxy(cfg.SocketPath, bindRoots)))
 

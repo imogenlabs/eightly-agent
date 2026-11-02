@@ -68,7 +68,7 @@ func TestOnlyAgentFiles(t *testing.T) {
 	if ok, err := OnlyAgentFiles(missing); !ok || err != nil {
 		t.Errorf("missing folder: %v %v, want true", ok, err)
 	}
-	for _, name := range []string{"cert.pem", "key.pem", "secret", "state.json", "state.json.tmp", "eightly-agent.json"} {
+	for _, name := range []string{"cert.pem", "key.pem", "secret", "enroll-token", "state.json", "state.json.tmp", "eightly-agent.json"} {
 		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
 			t.Fatal(err)
 		}

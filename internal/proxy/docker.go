@@ -23,13 +23,7 @@ var versionPrefix = regexp.MustCompile(`^/v[0-9]+\.[0-9]+`)
 // Docker daemon via a Unix socket. Only the endpoints on the allow-list pass,
 // and containers may bind-mount host paths only under bindRoots.
 func NewDockerProxy(socketPath string, bindRoots []string) http.Handler {
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return dockerdial.DialContext(ctx, socketPath)
-		},
-		DisableCompression: true,
-	}
-
+	transport := dockerTransport(socketPath)
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			// Rewrite strips Forwarded and X-Forwarded-* from the outbound request
@@ -68,6 +62,16 @@ func NewDockerProxy(socketPath string, bindRoots []string) http.Handler {
 	f := newFilter(proxy, bindRoots, &dockerAPI{client: &http.Client{Transport: transport.Clone()}})
 	proxy.ModifyResponse = f.redactInspect
 	return f
+}
+
+// dockerTransport reaches the daemon on socketPath.
+func dockerTransport(socketPath string) *http.Transport {
+	return &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return dockerdial.DialContext(ctx, socketPath)
+		},
+		DisableCompression: true,
+	}
 }
 
 // dockerPath is the path the daemon will route on. The filter and the proxy

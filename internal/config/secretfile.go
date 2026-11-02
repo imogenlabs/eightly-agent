@@ -5,6 +5,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 
@@ -55,4 +56,31 @@ func ReadSecretFile(path string) (string, error) {
 		return "", fmt.Errorf("the secret file %s is empty", path)
 	}
 	return secret, nil
+}
+
+// loadEnrollTokenFile fills EnrollToken from --enroll-token-file /
+// EIGHTLY_ENROLL_TOKEN_FILE, for the reason loadSecretFile exists: on Windows
+// the token otherwise sat in a Machine variable every local user can read.
+// The token is spent at the first registration, and the operator should
+// delete the file then, so a missing or empty file is no token rather than an
+// error: the agent resumes from its saved state and does not need one.
+func (c *Config) loadEnrollTokenFile() error {
+	if c.EnrollTokenFile == "" {
+		return nil
+	}
+	if c.EnrollToken != "" {
+		return errors.New("both an enrollment token (--enroll-token or EIGHTLY_ENROLL_TOKEN) and a token file (--enroll-token-file or EIGHTLY_ENROLL_TOKEN_FILE) are set; keep only the file. On Windows remove the machine variable: [Environment]::SetEnvironmentVariable('EIGHTLY_ENROLL_TOKEN', $null, 'Machine')")
+	}
+	if _, err := os.Stat(c.EnrollTokenFile); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err := winacl.Secure(c.EnrollTokenFile); err != nil {
+		return fmt.Errorf("refusing the enrollment token file: %w", err)
+	}
+	data, err := os.ReadFile(c.EnrollTokenFile)
+	if err != nil {
+		return fmt.Errorf("cannot read the enrollment token file: %w", err)
+	}
+	c.EnrollToken = strings.TrimSpace(string(data))
+	return nil
 }

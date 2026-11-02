@@ -68,6 +68,7 @@ docker run -d --init --name eightly-agent --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock \
   --group-add "$(stat -c %g /var/run/docker.sock)" \
   -v eightly-agent-data:/data \
+  -v /var/lib/docker/volumes:/var/lib/docker/volumes \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
@@ -122,8 +123,10 @@ Every flag except `--addr`, `--insecure-server-tls` and `--version` has an equiv
 | `--secret-file` | `EIGHTLY_AGENT_SECRET_FILE` | — | File holding the shared secret, instead of `--secret` (setting both is refused) |
 | `--server-url` | `EIGHTLY_SERVER_URL` | — | EOS server URL for registration (must be `https` unless `--insecure-server-tls`) |
 | `--enroll-token` | `EIGHTLY_ENROLL_TOKEN` | — | One-time enrollment token |
+| `--enroll-token-file` | `EIGHTLY_ENROLL_TOKEN_FILE` | — | File holding the enrollment token, instead of `--enroll-token` (setting both is refused; a missing or empty file means none) |
 | `--state-path` | `EIGHTLY_STATE_PATH` | `eightly-agent.json` in the data directory | Registration state file |
 | `--data` | `DATA_PATH` | `/data` | Data directory (TLS certs, state) |
+| `--volumes-path` | `EIGHTLY_VOLUMES_PATH` | `/var/lib/docker/volumes` where it exists | Docker's named volumes, read by the file browser. On Docker Desktop they are inside its VM and the browser answers `501` |
 | `--socket` | `DOCKER_SOCKET` | `/var/run/docker.sock` (`//./pipe/docker_engine` on Windows) | Docker socket path |
 | `--log-level` | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
 | `--metrics` | `EIGHTLY_METRICS_ENABLED` | `false` | Enable Prometheus `/metrics` endpoint |
@@ -147,11 +150,16 @@ On Windows, the agent runs as a native Windows service — no terminal window, s
 ```powershell
 # Install (run as Administrator). This creates C:\ProgramData\eightly-agent,
 # closes it to everyone but SYSTEM and Administrators, and registers the
-# service with --secret-file C:\ProgramData\eightly-agent\secret.
+# service with --secret-file C:\ProgramData\eightly-agent\secret and
+# --enroll-token-file C:\ProgramData\eightly-agent\enroll-token.
 eightly-agent.exe install
 
-# Write the shared secret into that file, then start
+# Write the shared secret and the single-use enrollment token into those
+# files, set the server URL, then start. Delete the token file once the
+# agent has registered.
 Set-Content -NoNewline -Path C:\ProgramData\eightly-agent\secret -Value 'your-shared-secret'
+Set-Content -NoNewline -Path C:\ProgramData\eightly-agent\enroll-token -Value 'your-enrollment-token'
+[System.Environment]::SetEnvironmentVariable("EIGHTLY_SERVER_URL", "https://your-eos-server:8080", "Machine")
 eightly-agent.exe start
 
 # Manage
@@ -162,7 +170,7 @@ eightly-agent.exe uninstall
 
 | Subcommand | Description |
 |:-----------|:------------|
-| `install` | Registers the agent as a Windows service (automatic start) reading its secret from `--secret-file` (default `C:\ProgramData\eightly-agent\secret`) |
+| `install` | Registers the agent as a Windows service (automatic start) reading its secret from `--secret-file` (default `C:\ProgramData\eightly-agent\secret`) and its enrollment token from `--enroll-token-file` (default `C:\ProgramData\eightly-agent\enroll-token`) |
 | `uninstall` | Stops and removes the service |
 | `start` | Starts the service |
 | `stop` | Sends a stop signal to the running service |
@@ -419,7 +427,7 @@ Eight.ly Agent mediates access to the Docker daemon. Understanding the trust mod
 - The agent pins the EOS server's TLS certificate on first use (TOFU). The leaf SPKI fingerprint observed during the first successful registration is persisted in the agent state file and enforced on every later heartbeat and re-registration — a self-signed appliance server is trusted without a CA, but a swapped cert trips the pin. Pass `--server-ca` to *additionally* verify the server chain against a custom CA (the leaf pin still applies). `--insecure-server-tls` disables both verification and pinning — never use it in production.
 - Place the agent behind a firewall that restricts access to your EOS server's IP.
 - The agent's bearer token lasts 30 days, and the agent renews it on its own from day 15. If an agent was off long enough for its token to lapse, the Agents page marks it **Re-enroll needed**: generate an install command there and run it on the host. The agent uses the new enrollment token in place of the lapsed saved one.
-- The state file holds the agent's bearer token, so the agent refuses to load it unless the file is 0600 and its directory 0700, both owned by the agent's uid. A new Docker volume directory starts at 0755; on start the agent tightens a directory it owns to 0700 and logs it. If it cannot (another owner, a read-only mount) it says so and keeps refusing, and the fix is `chown` the directory to the agent's uid (1000 in the image) and `chmod 700` it. The tightened directory is the state file's own, which by default is `/data`, the same directory as `--data` and the file browser root. The agent only does this when the directory holds nothing but its own files (the state file, and its TLS key pair when the directory is also `--data`). In a shared directory, such as a home directory, it changes nothing, logs which other files are there, and keeps refusing the saved state, so point `--state-path` at a private directory instead. A bind mount Docker creates for you (`-v $(pwd)/data:/data`) is owned by root, so the agent can neither tighten it nor save its state there; use a named volume or a directory owned by uid 1000.
+- The state file holds the agent's bearer token, so the agent refuses to load it unless the file is 0600 and its directory 0700, both owned by the agent's uid. A new Docker volume directory starts at 0755; on start the agent tightens a directory it owns to 0700 and logs it. If it cannot (another owner, a read-only mount) it says so and keeps refusing, and the fix is `chown` the directory to the agent's uid (1000 in the image) and `chmod 700` it. The tightened directory is the state file's own, which by default is `/data`, the same directory as `--data`. The agent only does this when the directory holds nothing but its own files (the state file, and its TLS key pair when the directory is also `--data`). In a shared directory, such as a home directory, it changes nothing, logs which other files are there, and keeps refusing the saved state, so point `--state-path` at a private directory instead. A bind mount Docker creates for you (`-v $(pwd)/data:/data`) is owned by root, so the agent can neither tighten it nor save its state there; use a named volume or a directory owned by uid 1000.
 
 For vulnerability reporting, see [SECURITY.md](SECURITY.md).
 

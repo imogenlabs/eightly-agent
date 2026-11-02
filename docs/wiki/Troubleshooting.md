@@ -240,11 +240,12 @@ Docker rejected the attach or exec request. Common causes:
 
 **Fixes**:
 
-1. **Volume mount for file browser**: The agent resolves file paths as `<data-path>/volumes/<volumeID>/_data/<path>`. Ensure Docker volume data is accessible at this path. For Docker deployments:
+1. **Volume mount for file browser**: The agent resolves file paths as `<volumes-path>/<volumeID>/_data/<path>`, with `--volumes-path` defaulting to `/var/lib/docker/volumes`. A `503` naming that folder means it is not there: bind it in at the same path, as `docker-compose.yml` does:
    ```yaml
    volumes:
-     - /var/lib/docker/volumes:/data/volumes:rw
+     - /var/lib/docker/volumes:/var/lib/docker/volumes
    ```
+   A `501` means the agent found no volumes folder at all: on Docker Desktop (macOS, Windows) volumes live inside its virtual machine and the file browser is not available.
 
 2. **File ownership**: Docker volumes may be owned by different UIDs inside containers. The agent runs as uid 1000 in the image and needs read (and, for uploads, write) access. `{"error":"volume is not readable by the agent"}` (403) means it has none.
 

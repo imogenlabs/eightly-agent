@@ -6,10 +6,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -21,8 +23,10 @@ type Config struct {
 	SecretFile        string
 	ServerURL         string
 	EnrollToken       string
+	EnrollTokenFile   string
 	StatePath         string
 	DataPath          string
+	VolumesPath       string
 	LogLevel          string
 	SocketPath        string
 	Version           string
@@ -54,8 +58,10 @@ func ParseArgs(fs *flag.FlagSet, args []string, version string) (*Config, error)
 	fs.StringVar(&c.SecretFile, "secret-file", "", "file holding the HMAC shared secret (instead of --secret)")
 	fs.StringVar(&c.ServerURL, "server-url", "", "EOS server URL for registration")
 	fs.StringVar(&c.EnrollToken, "enroll-token", "", "first-time registration token")
+	fs.StringVar(&c.EnrollTokenFile, "enroll-token-file", "", "file holding the first-time registration token (instead of --enroll-token); a missing or empty file means none")
 	fs.StringVar(&c.StatePath, "state-path", "", "agent state file (default: "+filepath.Base(DefaultStatePath)+" in the data directory)")
 	fs.StringVar(&c.DataPath, "data", DefaultDataPath, "data directory")
+	fs.StringVar(&c.VolumesPath, "volumes-path", "", "folder holding Docker's named volumes, for the file browser (default: "+dockerVolumesPath+" where it exists)")
 	fs.StringVar(&c.LogLevel, "log-level", "info", "log level")
 	fs.StringVar(&c.SocketPath, "socket", DefaultSocketPath, "Docker socket path")
 	fs.StringVar(&c.ServerCA, "server-ca", "", "path to CA cert file for validating EOS server TLS")
@@ -78,8 +84,10 @@ func ParseArgs(fs *flag.FlagSet, args []string, version string) (*Config, error)
 	envOverride(&c.SecretFile, "EIGHTLY_AGENT_SECRET_FILE")
 	envOverride(&c.ServerURL, "EIGHTLY_SERVER_URL")
 	envOverride(&c.EnrollToken, "EIGHTLY_ENROLL_TOKEN")
+	envOverride(&c.EnrollTokenFile, "EIGHTLY_ENROLL_TOKEN_FILE")
 	envOverride(&c.StatePath, "EIGHTLY_STATE_PATH")
 	envOverride(&c.DataPath, "DATA_PATH")
+	envOverride(&c.VolumesPath, "EIGHTLY_VOLUMES_PATH")
 	envOverride(&c.LogLevel, "LOG_LEVEL")
 	envOverride(&c.SocketPath, "DOCKER_SOCKET")
 	envOverride(&c.ServerCA, "EIGHTLY_SERVER_CA")
@@ -141,6 +149,45 @@ func DefaultStatePathFor(dataPath string) string {
 	return filepath.Join(dataPath, filepath.Base(DefaultStatePath))
 }
 
+// VolumesRoot is the folder the file browser reads Docker's named volumes
+// from, laid out as Docker keeps it: <root>/<name>/_data. "" means there is
+// none the agent can see, which is the case on Docker Desktop, where volumes
+// live inside its virtual machine.
+func (c *Config) VolumesRoot() string {
+	return volumesRoot(c.VolumesPath, c.DataPath, dockerVolumesPath, dirExists)
+}
+
+// volumesRoot picks the volumes folder. A set path wins. Otherwise Docker's
+// own folder where it exists, which is where docker-compose.yml binds it.
+// Otherwise <data>/volumes when it exists: before --volumes-path the browser
+// read only there, and the documented compose file bound the volumes there.
+// Otherwise, on Linux, Docker's folder anyway, so a missing bind is reported
+// by name; elsewhere none.
+func volumesRoot(set, dataPath, dockerDefault string, exists func(string) bool) string {
+	if set != "" {
+		return set
+	}
+	if dockerDefault != "" && exists(dockerDefault) {
+		return dockerDefault
+	}
+	if legacy := filepath.Join(dataPath, "volumes"); exists(legacy) {
+		return legacy
+	}
+	if runtime.GOOS == "linux" {
+		return dockerDefault
+	}
+	return ""
+}
+
+// dirExists reports whether p is a directory. One the agent may not look into
+// still exists: Docker's own folder is root-only on a host, and an agent
+// running there as another user is answered 403 by name rather than pointed
+// somewhere else.
+func dirExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir() || errors.Is(err, fs.ErrPermission)
+}
+
 // envOverrideBool sets *target from the environment variable key when it is
 // set. A value that is not a recognised yes or no is an error and leaves
 // *target as it was.
@@ -166,6 +213,9 @@ func (c *Config) Validate() error {
 		return errors.Join(c.envErrs...)
 	}
 	if err := c.loadSecretFile(); err != nil {
+		return err
+	}
+	if err := c.loadEnrollTokenFile(); err != nil {
 		return err
 	}
 	if _, err := c.BindRoots(); err != nil {

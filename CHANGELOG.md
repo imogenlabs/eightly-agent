@@ -17,12 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Windows service reads the shared secret from a file, `C:\ProgramData\eightly-agent\secret` by default (`eightly-agent.exe install --secret-file <path>` picks another). Reinstall the service, write the file, and remove the old `EIGHTLY_AGENT_SECRET` Machine variable, which every local user could read; the agent refuses to start while both are set.
 - Docker instructions and `docker-compose.yml` no longer mount the socket `:ro`: that marks the socket file, not the Docker API, so it never protected anything. Compose takes the socket's group from `DOCKER_GID` (default 999); with `docker run`, pass `--group-add "$(stat -c %g /var/run/docker.sock)"`.
 
+- The file browser reads volumes from `--volumes-path` / `EIGHTLY_VOLUMES_PATH`, by default `/var/lib/docker/volumes`, instead of `<data>/volumes`. The data directory is the agent's own state folder, so real volumes answered `404`. `docker-compose.yml` now binds `/var/lib/docker/volumes` at the same path; an install that bound it at `/data/volumes` as the old instructions said keeps working. Where no volumes folder exists the browser says so: `501` on Docker Desktop (volumes live inside its VM), `503` naming the folder on Linux.
+
+- The Windows service reads the enrollment token from a file, `C:\ProgramData\eightly-agent\enroll-token` by default (`eightly-agent.exe install --enroll-token-file <path>` picks another), instead of the `EIGHTLY_ENROLL_TOKEN` Machine variable, which every local user could read. Reinstall the service; it refuses to start while the variable is set alongside the file.
+
 ### Added
+- `--enroll-token-file` / `EIGHTLY_ENROLL_TOKEN_FILE` read the enrollment token from a file on any platform, closed to other users on Windows as the secret file is. A missing or empty file means no token, so the file can be deleted once the agent has registered. Setting it together with `--enroll-token` or `EIGHTLY_ENROLL_TOKEN` is refused.
 - `--secret-file` / `EIGHTLY_AGENT_SECRET_FILE` read the shared secret from a file on any platform. Setting it together with `--secret` or `EIGHTLY_AGENT_SECRET` is refused.
 - Documentation site at https://imogenlabs.github.io/eightly-agent/, published once the repository is public.
 
 ### Security
 - The Docker proxy refuses more ways out of a container. On top of privileged mode, host PID/IPC/network namespaces, dangerous capabilities and sensitive bind mounts, it now refuses: host user, UTS and cgroup namespaces; the Swarm API; changes through the plugin, service, config, secret and node APIs; exec and container update bodies that ask for any of these; volume driver options that bind a host path or device; `SecurityOpt` values outside the default profiles and `no-new-privileges`; `MaskedPaths` and `ReadonlyPaths` overrides; host devices and device cgroup rules; non-namespaced sysctls; `CgroupParent`; and tmpfs over `/`, `/proc`, `/sys` or `/etc`. Paths are cleaned and every `/vX.Y` prefix removed before the check, so the filter sees what Docker will route.
+- WebSocket attach and exec sessions (`/websocket/attach`, `/websocket/exec`) are held to the proxy's rules for the container they reach. They went to Docker directly, so a session could attach to or start an exec in the agent's own container, one holding the Docker socket, or a privileged or host-namespace one. Such a session is now refused with `403` before the upgrade, and attach uses the full ID that was checked.
 - A Docker request body the proxy must inspect is refused with `413` when it is over 1 MiB. Before, only the first 1 MiB was read and that cut-short body was forwarded. A body the proxy cannot parse is refused with `403`.
 - On Windows the agent sets a protected access list (SYSTEM, Administrators and its own account) on its data folder, state file, secret file, TLS key and certificate, and refuses to load the state, secret or key while any other account has access.
 - The file browser refuses any path with a segment starting with `.` (`.ssh`, `.env`, `.git`) with `403` on every route, not only downloads, and refuses pipes, sockets and devices with `400`.
@@ -31,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pull requests from forks run only on GitHub-hosted runners.
 
 ### Fixed
+- An unknown first argument, or a stray word after the flags, stops the agent with the usage and exit status 2. Before, the agent started and dropped every flag after the word, so `eightly-agent strat --port 9002` ran on 9001. `eightly-agent help` prints the usage and exits 0, as `-h` does.
+- Token renewal and re-registration report the agent's port. They sent none, so Eight.ly OS reset an agent listening on another port to 9001 at its first renewal and could no longer reach it.
 - A WebSocket console client that stopped reading could hold its session open past the idle and 8-hour limits. Every write now has a 10-second deadline, and the limits are enforced separately from the writes.
 - `/host` could hang on a stuck `system_profiler`, `diskutil` or PowerShell command. Each one now stops after 15 seconds, and the summary is cached for 30 seconds so polling does not start new commands each time.
 

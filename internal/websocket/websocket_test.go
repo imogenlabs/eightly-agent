@@ -176,7 +176,7 @@ func TestCheckOrigin_RejectsNonWebScheme(t *testing.T) {
 }
 
 func TestAttachHandler_CrossOriginRejectedWithoutAuth(t *testing.T) {
-	handler := AttachHandler("/nonexistent.sock", false, nil)
+	handler := AttachHandler("/nonexistent.sock", allowAll{}, false, nil)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handler.ServeHTTP(w, r)
@@ -237,7 +237,7 @@ func TestBridge_ReadLimitClosesOnOversizedFrame(t *testing.T) {
 		_, _ = io.Copy(io.Discard, c) // drain until close
 	}()
 
-	handler := AttachHandler(sock, false, nil)
+	handler := AttachHandler(sock, allowAll{}, false, nil)
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
 

@@ -29,7 +29,7 @@ func specialFixture(t *testing.T) (dataDir string, srv *httptest.Server, volID s
 	if err := os.WriteFile(filepath.Join(dataDir, "plain.txt"), []byte("plain"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	srv = httptest.NewServer(Handler(dataPath))
+	srv = httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	t.Cleanup(srv.Close)
 	return dataDir, srv, volID
 }

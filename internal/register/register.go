@@ -493,17 +493,18 @@ func ReRegister(state *State, info AgentInfo, tlsCfg *tls.Config) (*State, error
 }
 
 // StartHeartbeat sends periodic heartbeats to the EOS server, re-registering on
-// repeated failures and renewing the token. states must already hold a State;
+// repeated failures and renewing the token. port is the one the agent listens
+// on, reported again on every renewal. states must already hold a State;
 // a renewal stores a new one there. unsaved says the state in states has not
 // reached disk yet, so the first beat tries to save it.
-func StartHeartbeat(ctx context.Context, states *StateHolder, unsaved bool, statePath, socketPath, version, advertiseIP string, tlsCfg *tls.Config, log zerolog.Logger) {
+func StartHeartbeat(ctx context.Context, states *StateHolder, unsaved bool, statePath, socketPath, port, version, advertiseIP string, tlsCfg *tls.Config, log zerolog.Logger) {
 	// Seed the TOFU pin from persisted state so that, across a process restart,
 	// the very first heartbeat/re-register dial enforces the saved pin instead
 	// of blindly re-capturing whatever cert is presented. server.go builds the
 	// tls.Config before loading state, so this is where the two meet.
 	seedPin(tlsCfg, states.Load().ServerPin)
 
-	h := newHeartbeater(states, statePath, socketPath, version, advertiseIP, tlsCfg, log)
+	h := newHeartbeater(states, statePath, socketPath, port, version, advertiseIP, tlsCfg, log)
 	h.unsaved = unsaved
 	for {
 		select {
@@ -519,21 +520,21 @@ func StartHeartbeat(ctx context.Context, states *StateHolder, unsaved bool, stat
 // heartbeater is one agent's heartbeat state between beats. StartHeartbeat
 // owns the timing; step is one beat, so a test can drive months of them.
 type heartbeater struct {
-	states                                      *StateHolder
-	statePath, socketPath, version, advertiseIP string
-	tlsCfg                                      *tls.Config
-	log                                         zerolog.Logger
-	interval                                    time.Duration
-	failures                                    int
-	toldExpired                                 bool
+	states                                            *StateHolder
+	statePath, socketPath, port, version, advertiseIP string
+	tlsCfg                                            *tls.Config
+	log                                               zerolog.Logger
+	interval                                          time.Duration
+	failures                                          int
+	toldExpired                                       bool
 	// unsaved is true while the in-memory state holds a renewed token that
 	// has not reached disk; every beat tries again until it does.
 	unsaved bool
 }
 
-func newHeartbeater(states *StateHolder, statePath, socketPath, version, advertiseIP string, tlsCfg *tls.Config, log zerolog.Logger) *heartbeater {
+func newHeartbeater(states *StateHolder, statePath, socketPath, port, version, advertiseIP string, tlsCfg *tls.Config, log zerolog.Logger) *heartbeater {
 	return &heartbeater{
-		states: states, statePath: statePath, socketPath: socketPath, version: version,
+		states: states, statePath: statePath, socketPath: socketPath, port: port, version: version,
 		advertiseIP: advertiseIP, tlsCfg: tlsCfg, log: log, interval: heartbeatInterval,
 	}
 }
@@ -596,9 +597,11 @@ func (h *heartbeater) step(ctx context.Context) {
 	}
 }
 
-// reRegister trades the current token for a new one and saves it.
+// reRegister trades the current token for a new one and saves it. It reports
+// the agent's port: the server records what a registration says, and an empty
+// port reset it to the default.
 func (h *heartbeater) reRegister() bool {
-	info := DetectInfo(h.socketPath, "", h.version, h.advertiseIP)
+	info := DetectInfo(h.socketPath, h.port, h.version, h.advertiseIP)
 	newState, err := ReRegister(h.states.Load(), info, h.tlsCfg)
 	if err != nil {
 		h.log.Error().Err(err).Msg("re-registration failed")

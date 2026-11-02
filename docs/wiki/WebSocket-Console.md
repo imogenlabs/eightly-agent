@@ -173,6 +173,7 @@ curl -k -X POST -H "Authorization: Bearer $TOKEN" \
 
 - **Authentication**: Both WebSocket endpoints require a valid Bearer token (see [Authentication](Authentication.md)). The token is validated during the initial HTTP request before the WebSocket upgrade occurs.
 - **Origin checking**: Checked on every upgrade, whether or not authentication is enabled, to stop cross-site WebSocket hijacking. With `--allowed-origins` (`EIGHTLY_ALLOWED_ORIGINS`, comma-separated) the `Origin` must exactly match one entry (scheme, host and port). Without it, the `Origin` must be `http` or `https` and match the request's host (the TLS server name, or the `Host` header), with default ports treated as equal. A request with no `Origin` is accepted only if it carries a Bearer token (a server-to-agent call, not a browser).
+- **Target containers**: Before the upgrade, the agent applies the Docker proxy's rules for exec and attach to the container the session reaches (for exec, the container the exec instance belongs to). It refuses the agent's own container, one holding the Docker socket, a privileged one, one sharing a host namespace or another container's, one with a capability outside Docker's default set or a host device, and one mounting a host path outside `--allowed-bind-roots`. A privileged exec instance is refused too. Attach then goes to the container's full ID, the one that was checked.
 - **Session limit**: At most 50 WebSocket sessions run at once across attach and exec. Further requests get `503 Service Unavailable` "too many sessions" before the upgrade.
 - **Timeouts**: See [Termination](#termination). The HTTP server's `WriteTimeout` does not apply once the connection is upgraded; the session limits above do.
 - **No audit logging**: WebSocket sessions are not logged beyond the initial HTTP request. Commands entered in the terminal are not recorded by the agent.
@@ -185,6 +186,7 @@ curl -k -X POST -H "Authorization: Bearer $TOKEN" \
 | `id` is not 12-64 letters and digits | Returns `400 Bad Request` with "invalid container id" or "invalid exec id" |
 | 50 sessions already open | Returns `503 Service Unavailable` with "too many sessions" |
 | `Origin` not allowed | Upgrade refused with `403 Forbidden` |
+| Target container off limits, or the daemon could not be asked | `403 Forbidden` with `{"message":"forbidden: <reason>"}`, before the upgrade |
 | WebSocket upgrade fails | Connection is dropped silently |
 | Cannot connect to Docker socket (5 s) | Sends WebSocket close frame with code 1011 and reason "docker connect failed" |
 | Writing the request to Docker fails | Sends WebSocket close frame with code 1011 and reason "docker write failed" |

@@ -14,6 +14,9 @@ services:
       # The control is the agent's own filter on the requests it forwards.
       - /var/run/docker.sock:/var/run/docker.sock
       - agent-data:/data
+      # Docker's named volumes, for the file browser, at the path the agent
+      # reads by default (--volumes-path). Leave it out to turn the browser off.
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
     # The agent needs the group that owns the socket on this host. The image
     # assumes 999; if yours differs, set DOCKER_GID=$(stat -c %g /var/run/docker.sock)
     # in .env.

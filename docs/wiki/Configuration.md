@@ -17,8 +17,10 @@ Eight.ly Agent is configured entirely through command-line flags and environment
 | `--secret-file` | `EIGHTLY_AGENT_SECRET_FILE` | (empty) | Authentication | File holding the shared secret, instead of `--secret`. Setting both is refused. |
 | `--server-url` | `EIGHTLY_SERVER_URL` | (empty) | Registration | EOS server URL for registration and heartbeat. Must be `https` unless `--insecure-server-tls`. When empty, registration is skipped. |
 | `--enroll-token` | `EIGHTLY_ENROLL_TOKEN` | (empty) | Registration | One-time enrollment token for first-time registration |
+| `--enroll-token-file` | `EIGHTLY_ENROLL_TOKEN_FILE` | (empty) | Registration | File holding the enrollment token, instead of `--enroll-token`. Setting both is refused; a missing or empty file means no token. |
 | `--state-path` | `EIGHTLY_STATE_PATH` | `eightly-agent.json` in the data directory | Storage | JSON file that stores registration state |
-| `--data` | `DATA_PATH` | `/data` | Storage | Data directory. TLS certificates are stored here, and the file browser resolves volume paths under it. |
+| `--data` | `DATA_PATH` | `/data` | Storage | Data directory: TLS certificate, key and state. |
+| `--volumes-path` | `EIGHTLY_VOLUMES_PATH` | `/var/lib/docker/volumes` where it exists | Storage | Folder holding Docker's named volumes, for the file browser. See below for the full default. |
 | `--metrics` | `EIGHTLY_METRICS_ENABLED` | `false` | Monitoring | Enable the Prometheus `/metrics` endpoint |
 | `--allowed-origins` | `EIGHTLY_ALLOWED_ORIGINS` | (empty) | Security | Comma-separated WebSocket origin allowlist (empty = same-origin check) |
 | `--allowed-bind-roots` | `EIGHTLY_ALLOWED_BIND_ROOTS` | (empty) | Security | Comma-separated host directories containers may bind-mount. Empty: named volumes only |
@@ -104,6 +106,10 @@ The URL of the EOS server this agent should register with. Example: `https://you
 
 A one-time token provided by the EOS admin to authorize the first registration. This is sent in the `Authorization` header of the registration POST and in the request body. After successful registration, this token is no longer needed -- the agent receives a persistent token from EOS and stores it in the state file.
 
+**`--enroll-token-file` / `EIGHTLY_ENROLL_TOKEN_FILE`**
+
+A file holding the enrollment token, read at startup instead of `--enroll-token`, to keep it out of the environment and the command line. Surrounding whitespace is ignored. Unlike the secret file, a missing or empty file is not an error: the token is spent at the first registration and the file should then be deleted, after which the agent starts from its saved registration. Setting a token file and `--enroll-token` or `EIGHTLY_ENROLL_TOKEN` together is refused. On Windows the agent closes the file to everyone but SYSTEM, Administrators and its own account, as it does the secret file, and `eightly-agent.exe install` points the service at `C:\ProgramData\eightly-agent\enroll-token`.
+
 ### Storage
 
 **`--state-path` / `EIGHTLY_STATE_PATH`**
@@ -112,10 +118,11 @@ Path to the JSON file where the agent stores its registration state (agent ID, s
 
 **`--data` / `DATA_PATH`**
 
-Root directory for agent data. Two things live here:
+Root directory for agent data: the state file and the TLS certificate and key, `<data>/cert.pem` and `<data>/key.pem` (auto-generated if missing). See [TLS](TLS.md).
 
-1. TLS certificates: `<data>/cert.pem` and `<data>/key.pem` (auto-generated if missing). See [TLS](TLS.md).
-2. Volume file browser root: the file browser resolves paths as `<data>/volumes/<volumeID>/_data/<path>`. See [File Browser](File-Browser.md).
+**`--volumes-path` / `EIGHTLY_VOLUMES_PATH`**
+
+The folder holding Docker's named volumes, which the file browser reads as `<volumes-path>/<volumeID>/_data/<path>`. When unset: `/var/lib/docker/volumes` (`C:\ProgramData\docker\volumes` on Windows) if it exists, else `<data>/volumes` if it exists (the bind older instructions used), else `/var/lib/docker/volumes` on Linux and none on macOS and Windows, where Docker Desktop keeps volumes inside its VM. See [File Browser](File-Browser.md).
 
 ### Logging
 

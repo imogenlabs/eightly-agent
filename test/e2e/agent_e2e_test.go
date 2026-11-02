@@ -231,8 +231,9 @@ func TestAgentEndToEnd(t *testing.T) {
 		"--addr", "127.0.0.1",
 		"--port", port,
 		"--data", data,
-		// The browse check binds a volume under the agent's data folder, so that folder
-		// must be an allowed bind root; nothing else on the host is.
+		// The bind check binds a volume under the agent's data folder, so that folder
+		// must be an allowed bind root; nothing else on the host is. No
+		// --volumes-path: the browser reads Docker's own volumes folder.
 		"--allowed-bind-roots", data,
 		"--state-path", statePath,
 		"--socket", dockerSocket(),
@@ -426,12 +427,9 @@ func TestAgentEndToEnd(t *testing.T) {
 		}
 	})
 
-	t.Run("browses a volume and keeps dotfiles out", func(t *testing.T) {
-		vol := prefix + "-vol"
-		// The file browser reads <data>/volumes/<name>/_data, where the agent's
-		// container sees the host's volumes. Here the volume is bound to that
-		// directory, so what a container writes into it is what the agent reads.
-		dir := filepath.Join(data, "volumes", vol, "_data")
+	t.Run("binds a volume only under an allowed root", func(t *testing.T) {
+		vol := prefix + "-bound"
+		dir := filepath.Join(data, "binds", vol)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -454,29 +452,46 @@ func TestAgentEndToEnd(t *testing.T) {
 		if code, body := api.do(t, http.MethodGet, "/volumes/"+vol, token, nil); code != http.StatusOK {
 			t.Errorf("inspecting the volume through the agent: %d %s", code, body)
 		}
-
-		// A container fills the volume through the agent's proxy.
-		id := createContainer(t, api, token, prefix+"-writer", map[string]any{
-			"Image": testImage,
-			"Cmd":   []string{"sh", "-c", "echo 'hello from a volume' > /v/hello.txt && echo hidden > /v/.secret"},
-			"HostConfig": map[string]any{
-				"Mounts": []map[string]any{{"Type": "volume", "Source": vol, "Target": "/v"}},
-			},
-		})
-		if code, body := api.do(t, http.MethodPost, "/containers/"+id+"/start", token, nil); code != http.StatusNoContent {
-			t.Fatalf("start the writer: %d %s", code, body)
-		}
-		var wait struct{ StatusCode int }
-		code, body := api.do(t, http.MethodPost, "/containers/"+id+"/wait", token, nil)
-		if code != http.StatusOK || json.Unmarshal(body, &wait) != nil || wait.StatusCode != 0 {
-			t.Fatalf("the writer container: %d %s", code, body)
-		}
+		runWriter(t, api, token, prefix+"-bound-writer", vol, "echo bound > /v/hello.txt")
 		if _, err := os.Stat(filepath.Join(dir, "hello.txt")); err != nil {
 			t.Fatalf("the file the container wrote is not in %s (%v). The Docker daemon does not see this machine's filesystem; run the e2e test where Docker runs locally.", dir, err)
 		}
+	})
+
+	t.Run("browses a named volume in Docker's volumes folder", func(t *testing.T) {
+		// The agent runs without --volumes-path, so the browser reads
+		// Docker's own folder, as the image does with docker-compose.yml.
+		var info struct{ DockerRootDir string }
+		_, b := docker.do(t, http.MethodGet, "/info", "", nil)
+		if json.Unmarshal(b, &info) != nil || info.DockerRootDir != "/var/lib/docker" {
+			t.Skipf("the daemon keeps its data in %q, not the default /var/lib/docker the agent reads", info.DockerRootDir)
+		}
+		vol := prefix + "-named"
+		if code, body := api.do(t, http.MethodPost, "/volumes/create", token, map[string]any{"Name": vol}); code != http.StatusCreated {
+			t.Fatalf("creating a named volume through the agent: %d %s", code, body)
+		}
+		runWriter(t, api, token, prefix+"-named-writer", vol, "echo 'hello from a volume' > /v/hello.txt && echo hidden > /v/.secret && chmod -R a+rX /v")
 
 		q := "volumeID=" + url.QueryEscape(vol) + "&path="
-		code, body = api.do(t, http.MethodGet, "/browse/ls?"+q+"/", token, nil)
+		// Traversal is refused before the folder is touched.
+		if code, body := api.do(t, http.MethodGet, "/browse/get?"+q+"/../../cert.pem", token, nil); code != http.StatusBadRequest {
+			t.Errorf("get ../../cert.pem: %d %q, want 400", code, short(string(body)))
+		}
+		if code, body := api.do(t, http.MethodGet, "/browse/ls?volumeID=../data&path=/", token, nil); code != http.StatusBadRequest {
+			t.Errorf("ls of volume ../data: %d %q, want 400", code, short(string(body)))
+		}
+
+		code, body := api.do(t, http.MethodGet, "/browse/ls?"+q+"/", token, nil)
+		// /var/lib/docker is root-only. The agent runs as this test's user;
+		// unless that is root, the honest answer is that it may not read the
+		// volume (403), never that the volume is missing (404).
+		if _, err := os.ReadDir(filepath.Join("/var/lib/docker/volumes", vol, "_data")); err != nil {
+			if code != http.StatusForbidden || !strings.Contains(string(body), "not readable by the agent") {
+				t.Errorf("ls as a user who cannot read Docker's folder: %d %s, want 403 'not readable by the agent'", code, body)
+			}
+			t.Logf("this user cannot read /var/lib/docker/volumes (%v); checked the 403, run as root to check the contents", err)
+			return
+		}
 		var entries []struct{ Name string }
 		if code != http.StatusOK || json.Unmarshal(body, &entries) != nil {
 			t.Fatalf("ls: %d %s", code, body)
@@ -493,12 +508,6 @@ func TestAgentEndToEnd(t *testing.T) {
 		}
 		if code, body := api.do(t, http.MethodGet, "/browse/get?"+q+"/.secret", token, nil); code != http.StatusForbidden {
 			t.Errorf("get .secret: %d %q, want 403", code, body)
-		}
-		if code, body := api.do(t, http.MethodGet, "/browse/get?"+q+"/../../cert.pem", token, nil); code != http.StatusBadRequest {
-			t.Errorf("get ../../cert.pem: %d %q, want 400", code, short(string(body)))
-		}
-		if code, body := api.do(t, http.MethodGet, "/browse/ls?volumeID=../data&path=/", token, nil); code != http.StatusBadRequest {
-			t.Errorf("ls of volume ../data: %d %q, want 400", code, short(string(body)))
 		}
 	})
 
@@ -524,12 +533,10 @@ func TestAgentEndToEnd(t *testing.T) {
 		if len(beats) == 0 || beats[0].Token != regs[0].Token {
 			t.Errorf("no heartbeat with the enrolled token before the renewal: %+v", beats)
 		}
+		// The server records the port a registration reports; an empty one
+		// reset an agent listening elsewhere to 9001.
 		if renewal.Port != port {
-			// Known defect: the renewal re-registers with DetectInfo(..., "", ...),
-			// so it reports no port, and the server then records its default
-			// (9001) for an agent listening elsewhere. Logged here rather than
-			// failed until it is fixed in internal/register.
-			t.Logf("KNOWN DEFECT: the renewal reported port %q; the agent listens on %q", renewal.Port, port)
+			t.Errorf("renewed reporting port %q, want %q", renewal.Port, port)
 		}
 		// The renewed token is saved, so a restart keeps it.
 		waitFor(t, "the renewed token in the state file", 10*time.Second, func() bool {
@@ -552,6 +559,27 @@ func pullImage(t *testing.T, api *client, token string) {
 	code, body := api.do(t, http.MethodPost, "/images/create?fromImage="+repo+"&tag="+tag, token, nil)
 	if code != http.StatusOK || bytes.Contains(body, []byte(`"error"`)) {
 		t.Fatalf("pulling %s through the agent: %d %s", testImage, code, short(string(body)))
+	}
+}
+
+// runWriter runs cmd in a container with volume vol at /v, through the
+// agent's proxy, and waits for it to succeed.
+func runWriter(t *testing.T, api *client, token, name, vol, cmd string) {
+	t.Helper()
+	id := createContainer(t, api, token, name, map[string]any{
+		"Image": testImage,
+		"Cmd":   []string{"sh", "-c", cmd},
+		"HostConfig": map[string]any{
+			"Mounts": []map[string]any{{"Type": "volume", "Source": vol, "Target": "/v"}},
+		},
+	})
+	if code, body := api.do(t, http.MethodPost, "/containers/"+id+"/start", token, nil); code != http.StatusNoContent {
+		t.Fatalf("start %s: %d %s", name, code, body)
+	}
+	var wait struct{ StatusCode int }
+	code, body := api.do(t, http.MethodPost, "/containers/"+id+"/wait", token, nil)
+	if code != http.StatusOK || json.Unmarshal(body, &wait) != nil || wait.StatusCode != 0 {
+		t.Fatalf("%s: %d %s", name, code, body)
 	}
 }
 

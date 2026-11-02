@@ -30,7 +30,7 @@ func TestLsListsFiles(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dataDir, "hello.txt"), []byte("hi"), 0644)
 	_ = os.Mkdir(filepath.Join(dataDir, "subdir"), 0755)
 
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=" + volID + "&path=") //nolint:noctx // test helper, no meaningful context
@@ -75,7 +75,7 @@ func TestLsListsFiles(t *testing.T) {
 func TestLsEmptyDir(t *testing.T) {
 	dataPath, volID := setupVolume(t)
 
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=" + volID + "&path=") //nolint:noctx // test helper, no meaningful context
@@ -103,7 +103,7 @@ func TestGetDownloadsFile(t *testing.T) {
 	content := "file content here"
 	_ = os.WriteFile(filepath.Join(dataDir, "data.bin"), []byte(content), 0644)
 
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/browse/get?volumeID=" + volID + "&path=data.bin") //nolint:noctx // test helper, no meaningful context
@@ -125,7 +125,7 @@ func TestGetDownloadsFile(t *testing.T) {
 func TestPutUploadsFile(t *testing.T) {
 	dataPath, volID := setupVolume(t)
 
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	var buf bytes.Buffer
@@ -165,7 +165,7 @@ func TestDeleteRemovesFile(t *testing.T) {
 	target := filepath.Join(dataDir, "gone.txt")
 	_ = os.WriteFile(target, []byte("bye"), 0644)
 
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	req, _ := http.NewRequest("DELETE", srv.URL+"/browse/delete?volumeID="+volID+"&path=gone.txt", nil) //nolint:noctx // test helper, no meaningful context
@@ -189,7 +189,7 @@ func TestRenameFile(t *testing.T) {
 	dataDir := filepath.Join(dataPath, "volumes", volID, "_data")
 	_ = os.WriteFile(filepath.Join(dataDir, "old.txt"), []byte("data"), 0644)
 
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	body, _ := json.Marshal(map[string]string{"path": "old.txt", "newName": "new.txt"})
@@ -220,7 +220,7 @@ func TestRenameFile(t *testing.T) {
 
 func TestPathTraversalVolumeID(t *testing.T) {
 	dataPath := t.TempDir()
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=../etc&path=") //nolint:noctx // test helper, no meaningful context
@@ -236,7 +236,7 @@ func TestPathTraversalVolumeID(t *testing.T) {
 
 func TestPathTraversalPath(t *testing.T) {
 	dataPath := t.TempDir()
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=safe&path=../../etc/passwd") //nolint:noctx // test helper, no meaningful context
@@ -255,7 +255,7 @@ func TestRenameTraversalDotDot(t *testing.T) {
 	dataDir := filepath.Join(dataPath, "volumes", volID, "_data")
 	_ = os.WriteFile(filepath.Join(dataDir, "a.txt"), []byte("x"), 0644)
 
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	body, _ := json.Marshal(map[string]string{"path": "a.txt", "newName": "../escape.txt"})
@@ -278,7 +278,7 @@ func TestRenameTraversalSlash(t *testing.T) {
 	dataDir := filepath.Join(dataPath, "volumes", volID, "_data")
 	_ = os.WriteFile(filepath.Join(dataDir, "a.txt"), []byte("x"), 0644)
 
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	body, _ := json.Marshal(map[string]string{"path": "a.txt", "newName": "sub/escape.txt"})
@@ -298,7 +298,7 @@ func TestRenameTraversalSlash(t *testing.T) {
 
 func TestVolumeIDAbsolutePath(t *testing.T) {
 	dataPath := t.TempDir()
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=/etc&path=") //nolint:noctx // test helper, no meaningful context
@@ -314,7 +314,7 @@ func TestVolumeIDAbsolutePath(t *testing.T) {
 
 func TestVolumeIDWithPathSeparator(t *testing.T) {
 	dataPath := t.TempDir()
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=foo/bar&path=") //nolint:noctx // test helper, no meaningful context
@@ -330,7 +330,7 @@ func TestVolumeIDWithPathSeparator(t *testing.T) {
 
 func TestVolumeIDStartingWithDot(t *testing.T) {
 	dataPath := t.TempDir()
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=.hidden&path=") //nolint:noctx // test helper, no meaningful context
@@ -359,7 +359,7 @@ func TestSymlinkEscapeRejected(t *testing.T) {
 		t.Skipf("symlinks not supported: %v", err)
 	}
 
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	// Try to read through the symlink
@@ -377,7 +377,7 @@ func TestSymlinkEscapeRejected(t *testing.T) {
 
 func TestPutRejectsOversizeUpload(t *testing.T) {
 	dataPath, volID := setupVolume(t)
-	handler := Handler(dataPath)
+	handler := Handler(filepath.Join(dataPath, "volumes"))
 
 	// Build a multipart body with a file part that streams more than 100MB.
 	// We use io.Pipe so the multipart writer runs in a goroutine and produces
@@ -440,7 +440,7 @@ func TestSymlinkEscapeWriteRejected(t *testing.T) {
 		t.Skipf("symlinks not supported: %v", err)
 	}
 
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	// PUT through the symlink: must NOT create/overwrite a file outside.
@@ -537,7 +537,7 @@ func TestReadOnlyRejectsMutations(t *testing.T) {
 	dataDir := filepath.Join(dataPath, "volumes", volID, "_data")
 	_ = os.WriteFile(filepath.Join(dataDir, "f.txt"), []byte("x"), 0644)
 
-	srv := httptest.NewServer(Handler(dataPath, ReadOnly(true)))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes"), ReadOnly(true)))
 	defer srv.Close()
 
 	// put
@@ -597,7 +597,7 @@ func TestGetRefusesDotfile(t *testing.T) {
 	dataDir := filepath.Join(dataPath, "volumes", volID, "_data")
 	_ = os.WriteFile(filepath.Join(dataDir, ".secret"), []byte("hidden"), 0644)
 
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/browse/get?volumeID=" + volID + "&path=.secret") //nolint:noctx
@@ -616,7 +616,7 @@ func TestLsSkipsDotfiles(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dataDir, "visible.txt"), []byte("x"), 0644)
 	_ = os.WriteFile(filepath.Join(dataDir, ".hidden"), []byte("y"), 0644)
 
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/browse/ls?volumeID=" + volID + "&path=") //nolint:noctx
@@ -644,7 +644,7 @@ func TestPutRejectsDirectoryTarget(t *testing.T) {
 	dataDir := filepath.Join(dataPath, "volumes", volID, "_data")
 	_ = os.MkdirAll(filepath.Join(dataDir, "subdir"), 0755)
 
-	srv := httptest.NewServer(Handler(dataPath))
+	srv := httptest.NewServer(Handler(filepath.Join(dataPath, "volumes")))
 	defer srv.Close()
 
 	var buf bytes.Buffer

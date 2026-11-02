@@ -116,7 +116,7 @@ curl -k -H "Authorization: Bearer $TOKEN" https://localhost:9001/host
 
 ## File Browser
 
-All file browser endpoints operate on Docker volume data stored under `<data-path>/volumes/<volumeID>/_data/`. See [File Browser](File-Browser.md) for full details.
+All file browser endpoints operate on Docker volume data stored under `<volumes-path>/<volumeID>/_data/` (`--volumes-path`, by default `/var/lib/docker/volumes`). See [File Browser](File-Browser.md) for full details.
 
 ### GET /browse/ls
 
@@ -287,7 +287,7 @@ Attach to a running container's stdin/stdout/stderr streams.
 wss://localhost:9001/websocket/attach?id=my-container
 ```
 
-The agent opens a raw TCP connection to the Docker socket and sends a `POST /containers/<id>/attach?stdin=1&stdout=1&stderr=1&stream=1` request with `Connection: Upgrade` and `Upgrade: tcp` headers. After Docker responds with `101 Switching Protocols`, the WebSocket and Docker streams are bridged.
+The container is first checked as the proxy checks exec and attach (see the [WebSocket Console](WebSocket-Console.md#security-model)); one that reaches the host is refused with `403` before the upgrade. The agent then opens a raw TCP connection to the Docker socket and sends a `POST /containers/<full-id>/attach?stdin=1&stdout=1&stderr=1&stream=1` request with `Connection: Upgrade` and `Upgrade: tcp` headers. After Docker responds with `101 Switching Protocols`, the WebSocket and Docker streams are bridged.
 
 ### GET /websocket/exec
 
