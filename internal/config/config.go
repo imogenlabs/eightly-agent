@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/imogenlabs/eightly-agent/internal/winacl"
 )
 
 // Config holds all agent configuration from CLI flags and environment variables.
@@ -207,11 +209,21 @@ func envOverrideBool(target *bool, key string) error {
 	return nil
 }
 
-// Validate checks that required configuration fields are set.
+// AgentFiles names the files this configuration keeps: the state file, the
+// TLS pair in the data folder, the secret file and the enrollment token file.
+// A folder is only ever tightened when it holds nothing else.
+func (c *Config) AgentFiles() winacl.AgentFiles {
+	return winacl.AgentFiles{State: c.StatePath, Data: c.DataPath, Secret: c.SecretFile, EnrollToken: c.EnrollTokenFile}
+}
+
+// Validate checks that required configuration fields are set. It also tells
+// winacl which files are the agent's, before the secret file is read and any
+// folder is protected.
 func (c *Config) Validate() error {
 	if len(c.envErrs) > 0 {
 		return errors.Join(c.envErrs...)
 	}
+	winacl.SetAgentFiles(c.AgentFiles())
 	if err := c.loadSecretFile(); err != nil {
 		return err
 	}
@@ -249,11 +261,26 @@ var systemPaths = []string{
 // --allowed-bind-roots. Each must be an absolute, clean path that is not a
 // system directory, inside one, or a parent of one. An empty setting allows
 // none: containers get named volumes only.
+//
+// On Windows a root may also be a drive path (C:\AppData or C:/AppData),
+// returned in the form CanonicalWindowsPath gives it.
 func (c *Config) BindRoots() ([]string, error) {
+	return bindRoots(c.AllowedBindRoots, runtime.GOOS == "windows", os.Getenv)
+}
+
+func bindRoots(setting string, windows bool, getenv func(string) string) ([]string, error) {
 	var roots []string
-	for _, r := range strings.Split(c.AllowedBindRoots, ",") {
+	for _, r := range strings.Split(setting, ",") {
 		r = strings.TrimSpace(r)
 		if r == "" {
+			continue
+		}
+		if windows && IsWindowsDrivePath(r) {
+			w, err := windowsBindRoot(r, getenv)
+			if err != nil {
+				return nil, err
+			}
+			roots = append(roots, w)
 			continue
 		}
 		if !strings.HasPrefix(r, "/") || path.Clean(r) != r {

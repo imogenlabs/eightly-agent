@@ -82,6 +82,8 @@ Still allowed: containers that already bind host folders keep running, and can b
 - A bad bind root, a bad boolean variable (`EIGHTLY_METRICS_ENABLED`, `EIGHTLY_BROWSE_READ_ONLY`, `EIGHTLY_INSECURE_NO_AUTH` take `true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off`), a secret and a secret file set together, or an enrollment token and a token file set together.
 - A state file that exists but cannot be read or parsed. Fix or remove it; the agent leaves it alone.
 - A saved registration for a different `--server-url`. Set the old URL back, or supply a new enrollment token: the agent then copies the old state to `<state path>.bak` and enrolls with the new server.
+- On Windows, a data, state, secret or token folder that holds other files and lets another account add, delete or rename files in it, or that sits under a folder another account may delete or rename things in (a folder made under `C:\` by a user inherits that), is refused. Keep the agent's files in `C:\ProgramData\eightly-agent` or another folder only SYSTEM and Administrators can change.
+- An agent whose state folder holds files that are not its own and is wider than 0700 does not enroll: the next start would refuse the saved registration, so the single-use token is kept.
 - An enrollment token the server refuses (401, 403 or 410) no longer retries forever. The agent keeps running, answers `503` on authenticated routes and logs that a new install command is needed.
 
 ### Other changes you may notice

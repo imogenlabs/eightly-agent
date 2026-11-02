@@ -285,7 +285,7 @@ func logEnrollmentRefused(cfg *config.Config, err error) {
 // enrollment token, and otherwise means the agent must not start (the saved
 // state cannot be read, or belongs to another server).
 func resume(cfg *config.Config, serverTLS *tls.Config) (state *register.State, unsaved bool, err error) {
-	if tightened, err := register.PrepareStateDir(cfg.StatePath, cfg.DataPath); err != nil {
+	if tightened, err := register.PrepareStateDir(cfg.AgentFiles()); err != nil {
 		log.Warn().Err(err).Msg("registration state directory is too open and could not be tightened; saved state will be refused")
 	} else if tightened {
 		log.Info().Str("dir", filepath.Dir(cfg.StatePath)).Msg("tightened registration state directory to 0700")
@@ -347,6 +347,12 @@ func resume(cfg *config.Config, serverTLS *tls.Config) (state *register.State, u
 	// state file is known to be writable.
 	if err := register.CheckWritable(cfg.StatePath); err != nil {
 		log.Error().Err(err).Str("state_path", cfg.StatePath).Msg("not registering: the registration state cannot be saved; set EIGHTLY_STATE_PATH to a writable file")
+		return nil, false, nil
+	}
+	// Nor until the folder passes the checks the next start makes, or the
+	// saved registration would be refused then.
+	if err := register.CheckStateDir(cfg.AgentFiles()); err != nil {
+		log.Error().Err(err).Str("state_path", cfg.StatePath).Msg("not registering: the saved registration would be refused on the next start because of its folder; fix the folder or point EIGHTLY_STATE_PATH at a folder of its own")
 		return nil, false, nil
 	}
 	if switching {

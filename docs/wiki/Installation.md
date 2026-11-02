@@ -226,7 +226,7 @@ The service runs as `EightlyAgent` (LocalSystem) in the Windows Services panel. 
 - State file: `C:\ProgramData\eightly-agent\state.json`
 - Secret file: `C:\ProgramData\eightly-agent\secret`
 
-**File access on Windows.** Windows ignores unix file modes, so the agent sets an explicit, protected access list (SYSTEM and Administrators full control, plus the agent's own account when it is run by hand) on the data folder, state file, secret file, TLS key and certificate whenever it creates or reuses them. It refuses to load the state, secret or key if any other account still has access after that. A folder that also holds other things (a volume, a home directory) keeps its access list; the agent's files in it are protected one by one. Check with `icacls C:\ProgramData\eightly-agent\*`.
+**File access on Windows.** Windows ignores unix file modes, so the agent sets an explicit, protected access list (SYSTEM and Administrators full control, plus the agent's own account when it is run by hand) on the data folder, state file, secret file, TLS key and certificate whenever it creates or reuses them. It refuses to load the state, secret or key if any other account still has access after that. A folder that also holds other things (another program's settings, a volume, a home directory) keeps its access list, and the agent's files in it are protected one by one; the agent refuses such a folder if any other account may add, delete or rename files in it, and refuses any folder above its own that lets another account delete or rename what it holds. Only the configured state, secret, enrollment token and TLS files count as the agent's. Check with `icacls C:\ProgramData\eightly-agent\*`.
 
 ## Build from Source
 
