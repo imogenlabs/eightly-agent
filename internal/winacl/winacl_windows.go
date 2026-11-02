@@ -7,6 +7,7 @@ package winacl
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -34,7 +35,9 @@ func trustedSIDs() (map[string]bool, error) {
 // Protect replaces path's DACL with full control for SYSTEM, Administrators and
 // the agent's own account, marked protected so nothing is inherited from the
 // parent. On a folder the entries are inheritable, so files created in it later
-// start out closed too.
+// start out closed too. An owner outside that set is replaced first: the owner
+// may rewrite the DACL at any time, and a hostile DACL denies changing it until
+// the owner has changed.
 func Protect(path string) error {
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -42,6 +45,9 @@ func Protect(path string) error {
 	}
 	self, err := selfSID()
 	if err != nil {
+		return err
+	}
+	if err := fixOwner(path, self); err != nil {
 		return err
 	}
 	flags := ""
@@ -65,9 +71,121 @@ func Protect(path string) error {
 		nil, nil, dacl, nil)
 }
 
-// Check refuses path unless only SYSTEM, Administrators and the agent's own
-// account are granted access to it.
+// owner returns the SID that owns path.
+func owner(path string) (string, error) {
+	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	if err != nil {
+		return "", fmt.Errorf("cannot read the owner of %s: %w", path, err)
+	}
+	o, _, err := sd.Owner()
+	if err != nil {
+		return "", fmt.Errorf("cannot read the owner of %s: %w", path, err)
+	}
+	if o == nil {
+		return "", nil
+	}
+	return o.String(), nil
+}
+
+// fixOwner hands path to BUILTIN\Administrators (or, run by hand without
+// elevation, to the agent's own account) unless a trusted account already owns
+// it. Taking a file from another account needs SeTakeOwnershipPrivilege, which
+// SYSTEM and elevated administrators hold; it is enabled for this call only.
+func fixOwner(path, self string) error {
+	cur, err := owner(path)
+	if err != nil {
+		return err
+	}
+	trusted := map[string]bool{sidSystem: true, sidAdministrators: true, self: true}
+	if cur != "" && trusted[cur] {
+		return nil
+	}
+	target, err := ownerFor(self)
+	if err != nil {
+		return err
+	}
+	err = withPrivileges([]string{"SeTakeOwnershipPrivilege", "SeRestorePrivilege"}, func() error {
+		return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+			windows.OWNER_SECURITY_INFORMATION, target, nil, nil, nil)
+	})
+	if err != nil {
+		if cur == "" {
+			cur = "an unreadable owner"
+		}
+		return fmt.Errorf("%s is owned by %s and the agent cannot take it over (%w); run the agent as the service (SYSTEM) or from an elevated prompt, or delete %s so the agent creates it afresh", path, cur, err, path)
+	}
+	return nil
+}
+
+// ownerFor picks the owner the agent gives its files: Administrators when it
+// runs as SYSTEM or elevated, its own account otherwise, which is the only
+// owner an unprivileged process may set.
+func ownerFor(self string) (*windows.SID, error) {
+	if self == sidSystem || windows.GetCurrentProcessToken().IsElevated() {
+		return windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	}
+	return windows.StringToSid(self)
+}
+
+// withPrivileges runs fn with the named privileges enabled on this thread only.
+// The process token is left alone: Go opens every file with backup semantics,
+// so SeRestorePrivilege enabled process-wide would let any open in the agent
+// pass straight through access lists. A privilege the account does not hold is
+// skipped; fn then fails on its own with the reason.
+func withPrivileges(names []string, fn func() error) error {
+	runtime.LockOSThread()
+	if err := windows.ImpersonateSelf(windows.SecurityImpersonation); err != nil {
+		runtime.UnlockOSThread()
+		return fmt.Errorf("cannot impersonate self: %w", err)
+	}
+	reverted := false
+	defer func() {
+		// A thread still impersonating must never run other goroutines; left
+		// locked, it is thrown away when this goroutine exits.
+		if reverted {
+			runtime.UnlockOSThread()
+		}
+	}()
+	defer func() { reverted = windows.RevertToSelf() == nil }()
+
+	var tok windows.Token
+	if err := windows.OpenThreadToken(windows.CurrentThread(), windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, true, &tok); err != nil {
+		return fmt.Errorf("cannot open the thread token: %w", err)
+	}
+	defer func() { _ = tok.Close() }()
+	for _, name := range names {
+		var luid windows.LUID
+		if err := windows.LookupPrivilegeValue(nil, windows.StringToUTF16Ptr(name), &luid); err != nil {
+			continue
+		}
+		tp := windows.Tokenprivileges{PrivilegeCount: 1}
+		tp.Privileges[0] = windows.LUIDAndAttributes{Luid: luid, Attributes: windows.SE_PRIVILEGE_ENABLED}
+		// ERROR_NOT_ALL_ASSIGNED: the account lacks it; fn reports the outcome.
+		_ = windows.AdjustTokenPrivileges(tok, false, &tp, 0, nil, nil)
+	}
+	return fn()
+}
+
+// CheckOwner refuses path unless SYSTEM, Administrators or the agent's own
+// account owns it.
+func CheckOwner(path string) error {
+	trusted, err := trustedSIDs()
+	if err != nil {
+		return err
+	}
+	o, err := owner(path)
+	if err != nil {
+		return err
+	}
+	return ownerVerdict(path, o, trusted)
+}
+
+// Check refuses path unless SYSTEM, Administrators or the agent's own account
+// owns it and only those are granted access to it.
 func Check(path string) error {
+	if err := CheckOwner(path); err != nil {
+		return err
+	}
 	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
 		return fmt.Errorf("cannot read the access list of %s: %w", path, err)

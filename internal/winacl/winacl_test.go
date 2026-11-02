@@ -41,6 +41,27 @@ func TestVerdict(t *testing.T) {
 	}
 }
 
+func TestOwnerVerdict(t *testing.T) {
+	cases := []struct {
+		owner, wantErr string
+	}{
+		{sidSystem, ""},
+		{sidAdministrators, ""},
+		{usersSID, "owned by " + usersSID},
+		{"S-1-5-21-1-2-3-1001", "owned by"},
+		{"", "no owner"},
+	}
+	for _, c := range cases {
+		err := ownerVerdict(`C:\x\secret`, c.owner, trusted)
+		switch {
+		case c.wantErr == "" && err != nil:
+			t.Errorf("owner %q: unexpected refusal: %v", c.owner, err)
+		case c.wantErr != "" && (err == nil || !strings.Contains(err.Error(), c.wantErr)):
+			t.Errorf("owner %q: got %v, want an error containing %q", c.owner, err, c.wantErr)
+		}
+	}
+}
+
 func TestOnlyAgentFiles(t *testing.T) {
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "nope")
