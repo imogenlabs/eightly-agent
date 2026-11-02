@@ -58,6 +58,7 @@ FLOORS=(
   "internal/tlsutil:66.0"
   "internal/websocket:73.0"
   "internal/winacl:73.0"
+  "internal/dockerdial:98.0"
 )
 
 # self_test fires the gate at every outcome against profiles it writes itself,
