@@ -10,7 +10,7 @@ cd eightly-agent
 go build ./cmd/agent/
 ```
 
-Requirements: Go 1.26+ (see `go.mod`), Docker (for integration testing), no CGO.
+Requirements: Go 1.26.4 or later (`go.mod` pins toolchain 1.26.10, which Go fetches automatically), Docker (for integration testing), no CGO.
 
 ## Running Tests
 
@@ -47,8 +47,17 @@ Set `EIGHTLY_E2E_DOCKER_SOCKET` if the socket is not `/var/run/docker.sock` (or 
 ## Code Style
 
 - Run `go vet ./...` and `staticcheck ./...` before committing.
-- No CGO -- the agent cross-compiles to five platforms with `CGO_ENABLED=0`.
+- No CGO -- the agent cross-compiles to six platforms with `CGO_ENABLED=0`.
 - Keep packages small and focused. Handler logic stays thin; business logic goes in `internal/`.
+
+## Documentation
+
+The docs site is built from `docs/wiki` with MkDocs. Check a docs change the way CI does:
+
+```bash
+python3 -m venv /tmp/docsvenv && /tmp/docsvenv/bin/pip install -r requirements-docs.txt
+/tmp/docsvenv/bin/mkdocs build --strict
+```
 
 ## Commit Messages
 

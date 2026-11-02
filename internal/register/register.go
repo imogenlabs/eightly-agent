@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -116,11 +117,18 @@ func assertPerm(name string, fi os.FileInfo, maxMode os.FileMode) error {
 }
 
 func (s *State) Save(path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
+		return err
+	}
+	return writeStateFile(path, data)
+}
+
+// writeStateFile writes data to path through a temporary file closed to
+// everyone but the agent, so a reader never sees half a file and the token
+// is never readable by anyone else, not even for a moment.
+func writeStateFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
 	tmp := path + ".tmp"
@@ -131,6 +139,22 @@ func (s *State) Save(path string) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// BackupState copies the state file at path to path+".bak", replacing an
+// older backup, and returns the backup's path. It is taken before an agent
+// enrolls with a different server, so the identity it held with the old one
+// is not lost if the operator needs it back.
+func BackupState(path string) (string, error) {
+	data, err := os.ReadFile(path) // #nosec G304 -- admin-configured state path
+	if err != nil {
+		return "", err
+	}
+	bak := path + ".bak"
+	if err := writeStateFile(bak, data); err != nil {
+		return "", err
+	}
+	return bak, nil
 }
 
 // CheckWritable reports whether the state file can be saved at path, without
@@ -267,6 +291,14 @@ func BuildServerTLSConfig(caPath string, insecure bool, log zerolog.Logger) (*tl
 	return cfg, nil
 }
 
+// ErrEnrollmentRefused means the server answered and refused the enrollment:
+// the enrollment token is unknown, expired or already used, or the agent it
+// was made for has been deleted. Sending the same token again cannot succeed,
+// so the caller stops retrying; only a new install command fixes it. Every
+// other failure (no answer, rate limiting, server errors) may pass and is
+// worth retrying.
+var ErrEnrollmentRefused = errors.New("enrollment refused by the server")
+
 type registerPayload struct {
 	AgentInfo
 	EnrollToken string `json:"enroll_token,omitempty"`
@@ -306,7 +338,15 @@ func Register(serverURL, enrollToken string, info AgentInfo, tlsCfg *tls.Config)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusCreated:
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusGone:
+		metrics.RegistrationAttempts.WithLabelValues("rejected").Inc()
+		if msg := serverMessage(resp.Body); msg != "" {
+			return nil, fmt.Errorf("%w: status %d: %s", ErrEnrollmentRefused, resp.StatusCode, msg)
+		}
+		return nil, fmt.Errorf("%w: status %d", ErrEnrollmentRefused, resp.StatusCode)
+	default:
 		metrics.RegistrationAttempts.WithLabelValues("rejected").Inc()
 		return nil, fmt.Errorf("register failed: status %d", resp.StatusCode)
 	}
@@ -341,6 +381,28 @@ func Register(serverURL, enrollToken string, info AgentInfo, tlsCfg *tls.Config)
 		// is now the pin. Persisting it lets every later dial enforce it.
 		ServerPin: currentPin(tlsCfg),
 	}, nil
+}
+
+// serverMessage reads the "message" the server puts in an error response,
+// or "" when there is none. It is shown to the operator, so it is cut short
+// and kept to one line.
+func serverMessage(body io.Reader) string {
+	var r struct {
+		Message string `json:"message"`
+	}
+	if json.NewDecoder(io.LimitReader(body, 4096)).Decode(&r) != nil {
+		return ""
+	}
+	msg := []rune(r.Message)
+	if len(msg) > 200 {
+		msg = msg[:200]
+	}
+	for i, c := range msg {
+		if c < 0x20 || c == 0x7f {
+			msg[i] = ' '
+		}
+	}
+	return string(msg)
 }
 
 type reRegisterPayload struct {

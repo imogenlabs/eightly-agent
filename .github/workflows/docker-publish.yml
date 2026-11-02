@@ -11,6 +11,13 @@ permissions:
   id-token: write
   attestations: write
 
+# One publish at a time per stream, so two releases cannot race each other to
+# `latest`. Release tags share one group; branch pushes queue per branch.
+# Never cancel a publish that has started: it may already have pushed.
+concurrency:
+  group: docker-publish-${{ startsWith(github.ref, 'refs/tags/') && 'release' || github.ref }}
+  cancel-in-progress: false
+
 env:
   GHCR_IMAGE: ghcr.io/imogenlabs/eightly-agent
   DOCKERHUB_IMAGE: smashingtags/eightly-agent
@@ -22,9 +29,14 @@ jobs:
     # the runner itself, so it needs a runner proven to do both: `docker-build`
     # (builds and runs an image) and `can-sign` (can reach Sigstore's Fulcio).
     # A runner that cannot reach Fulcio pushes the image and then fails to sign.
-    runs-on: [self-hosted, docker-build, can-sign]
+    # Org self-hosted runners do not serve public repositories, so a public repo
+    # uses GitHub-hosted runners, which have Docker, buildx and Fulcio access.
+    runs-on: ${{ github.event.repository.private == false && 'ubuntu-latest' || fromJSON('["self-hosted","docker-build","can-sign"]') }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0  # every tag, for the `latest` check below
+          persist-credentials: false
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
@@ -55,6 +67,22 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      # metadata-action's latest=auto tags every stable release push as
+      # `latest`, so publishing an older release moved `latest` backwards.
+      # Promote only the highest stable tag in the repo. Prereleases never.
+      - name: Decide whether this release becomes latest
+        id: latest
+        run: |
+          PROMOTE=false
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            HIGHEST=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+            if [ "$GITHUB_REF_NAME" = "$HIGHEST" ]; then
+              PROMOTE=true
+            fi
+            echo "This tag: $GITHUB_REF_NAME, highest stable tag: ${HIGHEST:-none}, promote latest: $PROMOTE"
+          fi
+          echo "promote=$PROMOTE" >> "$GITHUB_OUTPUT"
+
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
@@ -67,11 +95,11 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
             type=sha,prefix=
-          # latest=auto: `latest` is applied only on a release tag push, and only
-          # when it is the highest semver — so `latest` always == the newest release.
-          # main pushes produce :main + :<sha> (a dev image), never :latest.
+            type=raw,value=latest,enable=${{ steps.latest.outputs.promote }}
+          # `latest` comes only from the step above. main pushes produce
+          # :main + :<sha> (a dev image), never :latest.
           flavor: |
-            latest=auto
+            latest=false
 
       - name: Build and push
         id: docker

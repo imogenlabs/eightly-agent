@@ -31,14 +31,14 @@ Status legend: **Met** / **Partial** / **N/A**.
 | Subcategory | Status | Evidence |
 |-------------|--------|----------|
 | PR.AA-01 Identities/credentials managed | **Met** | HMAC shared secret; TOFU cert pin; one-time enrollment token exchanged for a persistent agent token (`internal/register/`) |
-| PR.AA-03 Authentication enforced | **Met** | `auth.Middleware` fail-closed on every protected route (`internal/auth/jwt.go`) |
+| PR.AA-03 Authentication enforced | **Met** | `auth.Middleware` fail-closed on every protected route; tokens must carry the server's issuer and `agent` type, an `iat`, and an `exp` no more than 30 days later, and be issued for this agent's ID; routes answer 503 until that ID is known (`internal/auth/jwt.go`, `internal/server/server.go`) |
 | PR.AA-05 Access permissions, least privilege | **Partial** | Token = full Docker API by design; create-deny filter (`denyDangerousCreates`) is the in-process least-privilege boundary against host escape |
 | PR.DS-02 Data in transit protected | **Met** | TLS 1.2+ AEAD-only listener; outbound TLS verified/pinned (`server.go`, `register/pin.go`) |
-| PR.DS-01 Data at rest protected | **Met** | TLS private key `0600`/dir `0700`, perms re-tightened on reuse (`internal/tlsutil/tls.go`) |
-| PR.PS-01 Configuration management | **Met** | Pinned base images, pinned Go toolchain (1.26.4), SHA-pinned Actions, hardened systemd unit shipped in the package |
+| PR.DS-01 Data at rest protected | **Met** | TLS private key and state file `0600`, state dir `0700`, re-tightened or refused on reuse; on Windows a protected access list on the data folder, state, secret file and TLS key (`internal/tlsutil/tls.go`, `internal/register/`, `internal/winacl/`); shared secret can live in a file (`--secret-file`) or the root-only `agent.env` instead of the environment |
+| PR.PS-01 Configuration management | **Met** | Pinned base images, pinned Go toolchain (1.26.10), SHA-pinned Actions, hardened systemd unit shipped in the package |
 | PR.PS-02 Software maintained / patched | **Met** | Dependabot weekly across gomod/actions/docker; `govulncheck` gate (see `posture.md` patch-cadence note) |
 | PR.PS-06 Secure SDLC practices | **Met** | Mandatory lint/vet/staticcheck/gosec/govulncheck/test+race/coverage gates before build (`ci.yml`) |
-| PR.IR-01 Resources protected from unauthorized use | **Met** | systemd `CapabilityBoundingSet=`, `ProtectSystem=strict`, `RestrictNamespaces`, `NoNewPrivileges`; container non-root + socket `:ro` |
+| PR.IR-01 Resources protected from unauthorized use | **Met** | systemd `CapabilityBoundingSet=`, `ProtectSystem=strict`, `RestrictNamespaces`, `NoNewPrivileges`; container non-root (uid 1000); the socket is mounted read-write by design, gated by the token check and the proxy's request filter |
 
 ## DE — DETECT
 
@@ -62,7 +62,7 @@ Status legend: **Met** / **Partial** / **N/A**.
 
 | Subcategory | Status | Evidence |
 |-------------|--------|----------|
-| RC.RP-01 Recovery executed | **Met** | Stateless-by-design: the agent regenerates its self-signed cert and re-enrolls on a clean `/data`; `systemd Restart=always` auto-recovers crashes |
+| RC.RP-01 Recovery executed | **Met** | Stateless-by-design: the agent regenerates its self-signed cert on a clean `/data` and enrolls again with a fresh enrollment token; `systemd Restart=always` auto-recovers crashes |
 | RC.RP-03 Integrity of restored assets verified | **Met** | Released binaries/images are cosign-verifiable + SLSA-attested before redeploy; `SHA256SUMS` published per release (`release.yml`) |
 | RC.CO-03 Recovery communicated | **Met** | Versioned releases + `CHANGELOG.md` communicate fixes/restores |
 

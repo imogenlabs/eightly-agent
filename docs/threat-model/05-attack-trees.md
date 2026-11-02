@@ -18,8 +18,13 @@ GOAL: Execute arbitrary code as root on a managed host
 │   │   │   └── [BLOCKED] r4 HMAC-SHA256, constant-time hmac.Equal; strength = A-02 entropy [RESIDUAL: secret strength is operator-supplied]
 │   │   └── 1.2.2 Steal the secret from the host
 │   │       └── [EXTERNAL] requires existing host access (already root)
-│   └── 1.3 Exploit the --insecure-no-auth escape hatch
-│       └── [RESIDUAL] operator-acknowledged; loud, deliberate opt-in only
+│   ├── 1.3 Exploit the --insecure-no-auth escape hatch
+│   │   └── [RESIDUAL] operator-acknowledged; loud, deliberate opt-in only
+│   └── 1.4 Replay another agent's token (same fleet secret)
+│       ├── 1.4.1 After the target has registered
+│       │   └── [BLOCKED] sub must equal this agent's registered ID
+│       └── 1.4.2 Before the target knows its ID
+│           └── [BLOCKED] authenticated routes answer 503 until registration succeeds
 ├── 2. With a valid token, submit a host-escape request
 │   ├── 2.1 Privileged=true (HostConfig, top level, or on exec create)
 │   │   └── [BLOCKED] checkHostConfig on HostConfig and on the top-level fields
@@ -102,18 +107,20 @@ GOAL: Run commands in a container as the operator, cross-origin
 ```
 GOAL: Read or write a host path outside the volume root
 ├── 1. Path traversal with ../
-│   └── [BLOCKED] r3 lexical filepath.Rel reject + symlink-resolved containment
+│   └── [BLOCKED] any .. segment refused; every operation runs in an os.Root on the volume
 ├── 2. Symlink redirection
 │   ├── 2.1 Symlink at the final component on get/put
-│   │   └── [BLOCKED] r3 O_NOFOLLOW open
+│   │   └── [BLOCKED] O_NOFOLLOW open (checked after the open on Windows)
 │   ├── 2.2 Symlink mid-path resolves outside volume
-│   │   └── [BLOCKED] r3 resolveExisting + Rel against resolved root
+│   │   └── [BLOCKED] os.Root refuses it at the moment of the operation
 │   └── 2.3 MkdirAll follows a symlink during put
-│       └── [BLOCKED] r3 re-validate containedPath AFTER MkdirAll
+│       └── [BLOCKED] MkdirAll runs through the same os.Root
 ├── 3. Escape via rename newName
-│   └── [BLOCKED] r3 validIdentifier + reject ../ + destination re-validated
-└── 4. Exfiltrate a secret dotfile (.env)
-    └── [BLOCKED] r3 dotfiles skipped on ls, refused on get
+│   └── [BLOCKED] validIdentifier (no /, no .., no leading .) + rename inside the os.Root
+├── 4. Exfiltrate a hidden file or directory (.env, .ssh)
+│   └── [BLOCKED] any path segment starting with . refused with 403 on every route
+└── 5. Read a host disk through a device node a container created in its volume
+    └── [BLOCKED] get/put serve regular files only, checked on the opened file
 ```
 
 ## Tree 4 — Impersonate the EOS server to the agent (A-06)
@@ -130,14 +137,15 @@ GOAL: Get the agent to trust a rogue orchestrator
     └── [RESIDUAL] flag-only, loud, deliberate operator opt-in
 ```
 
-## Tree 5 — Steal the agent's long-lived credentials (A-03/04/05)
+## Tree 5 — Steal the agent's credentials (A-03/04/05)
 
 ```
 GOAL: Obtain the server token, pin, or TLS key
 ├── 1. Read a world/group-readable state or key file
-│   └── [BLOCKED] r1 checkStatePerms (0600/0700 + uid) fail-closed; tightenKeyPerm repairs key mode
-├── 2. Replay a stolen long-lived server token
-│   └── [RESIDUAL] no agent-side token rotation (server-side lifecycle concern)
+│   └── [BLOCKED] r1 checkStatePerms (0600/0700 + uid) fail-closed; tightenKeyPerm repairs key mode;
+│       on Windows a protected access list (winacl) on the data folder, state, secret and key
+├── 2. Replay a stolen server token
+│   └── [RESIDUAL] valid until its exp (at most 30 days); the agent renews from half-life on
 └── 3. Extract the secret from process memory / env
     └── [EXTERNAL] requires host root already
 ```

@@ -6,9 +6,11 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,11 +44,18 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	}
 
 	states := register.NewStateHolder(nil)
-	state, unsaved := resume(cfg, serverTLS)
+	state, unsaved, err := resume(cfg, serverTLS)
+	refused := errors.Is(err, register.ErrEnrollmentRefused)
+	if err != nil && !refused {
+		return err
+	}
+	if refused {
+		logEnrollmentRefused(cfg, err)
+	}
 	if state != nil {
 		states.Store(state)
 	}
-	if cfg.ServerURL != "" {
+	if cfg.ServerURL != "" && !refused {
 		// Started here, not after a successful registration: an agent that
 		// could not register at startup keeps trying in the background, and
 		// until it does its authenticated routes answer 503.
@@ -209,7 +218,8 @@ var (
 )
 
 // registerWithRetry repeats resume with a growing pause until it yields a
-// registration or ctx ends, in which case it returns nil.
+// registration, and returns nil when ctx ends or retrying cannot help: the
+// server refused the enrollment token, or the saved state became unusable.
 func registerWithRetry(ctx context.Context, cfg *config.Config, serverTLS *tls.Config) (*register.State, bool) {
 	wait := registerRetryMin
 	for {
@@ -219,17 +229,33 @@ func registerWithRetry(ctx context.Context, cfg *config.Config, serverTLS *tls.C
 			return nil, false
 		case <-time.After(wait):
 		}
-		if state, unsaved := resume(cfg, serverTLS); state != nil {
+		state, unsaved, err := resume(cfg, serverTLS)
+		if state != nil {
 			return state, unsaved
+		}
+		if errors.Is(err, register.ErrEnrollmentRefused) {
+			logEnrollmentRefused(cfg, err)
+			return nil, false
+		}
+		if err != nil {
+			log.Error().Err(err).Msg("stopped trying to register; authenticated routes answer 503 until the agent is restarted")
+			return nil, false
 		}
 		wait = min(wait*2, registerRetryMax)
 	}
 }
 
-// loadOrRegister is resume without the saved flag.
-func loadOrRegister(cfg *config.Config, serverTLS *tls.Config) *register.State {
-	state, _ := resume(cfg, serverTLS)
-	return state
+// logEnrollmentRefused tells the operator what to do once the server has
+// refused the enrollment token. The likeliest cause is a token that was
+// already spent: the server takes it on first use, so if its answer was lost
+// on the way back, every later attempt is refused.
+func logEnrollmentRefused(cfg *config.Config, err error) {
+	ev := log.Error().Err(err).Str("server_url", cfg.ServerURL)
+	if cfg.EnrollToken == "" {
+		ev.Msg("the server refused to enroll this agent and no enrollment token is configured: generate an install command on the Agents page and run it on this host. Authenticated routes answer 503 until then")
+		return
+	}
+	ev.Msg("the server refused the enrollment token; it is single-use and has expired or already been used, so retrying cannot help: generate a new install command on the Agents page and run it on this host. Authenticated routes answer 503 until then")
 }
 
 // resume resumes from the saved registration when there is one and only
@@ -237,15 +263,25 @@ func loadOrRegister(cfg *config.Config, serverTLS *tls.Config) *register.State {
 // retry: the enrollment token is single-use, so a second register with it is
 // refused and the agent is left with no identity at all. unsaved is true when
 // a new registration could not be written to disk; the heartbeat retries it.
-func resume(cfg *config.Config, serverTLS *tls.Config) (state *register.State, unsaved bool) {
+//
+// state == nil with err == nil is a failure worth retrying. An error is not:
+// it wraps register.ErrEnrollmentRefused when the server refused the
+// enrollment token, and otherwise means the agent must not start (the saved
+// state cannot be read, or belongs to another server).
+func resume(cfg *config.Config, serverTLS *tls.Config) (state *register.State, unsaved bool, err error) {
 	if tightened, err := register.PrepareStateDir(cfg.StatePath, cfg.DataPath); err != nil {
 		log.Warn().Err(err).Msg("registration state directory is too open and could not be tightened; saved state will be refused")
 	} else if tightened {
 		log.Info().Str("dir", filepath.Dir(cfg.StatePath)).Msg("tightened registration state directory to 0700")
 	}
-	state, err := register.LoadState(cfg.StatePath)
+	state, err = register.LoadState(cfg.StatePath)
 	if err != nil {
-		log.Warn().Err(err).Msg("failed to load registration state")
+		// A missing file is the only case that means "enroll". A file that
+		// is there but cannot be read or parsed still holds this agent's
+		// identity and server pin, and enrolling would overwrite both.
+		return nil, false, fmt.Errorf("cannot use the saved registration at %s, so the agent will not start: %w. "+
+			"The file was left as it is. Fix its permissions or owner if that is the problem; "+
+			"if it is damaged, move it aside and re-enroll by running a new install command from the Agents page", cfg.StatePath, err)
 	}
 	if state != nil && (state.AgentID == "" || state.Token == "") {
 		// Older agents saved whatever a successful register returned, even
@@ -254,13 +290,30 @@ func resume(cfg *config.Config, serverTLS *tls.Config) (state *register.State, u
 		log.Error().Str("state_path", cfg.StatePath).Msg("saved registration has no agent ID or token; ignoring it and enrolling again")
 		state = nil
 	}
+	switching := false
+	if state != nil && cfg.ServerURL != "" && state.ServerURL != "" && !sameServer(state.ServerURL, cfg.ServerURL) {
+		// The saved identity and pin belong to another server. Using them
+		// would send this agent's token to a server that did not issue it,
+		// with a pin that server cannot match.
+		if cfg.EnrollToken == "" {
+			return nil, false, fmt.Errorf("the saved registration at %s is for server %s, but the configured server URL is %s, so the agent will not start. "+
+				"To keep the old server, set the server URL back to %s. "+
+				"To move this agent, generate an install command on the new server's Agents page and run it on this host: "+
+				"its enrollment token tells the agent to enroll there, and the old registration is kept in %s.bak",
+				cfg.StatePath, state.ServerURL, cfg.ServerURL, state.ServerURL, cfg.StatePath)
+		}
+		log.Warn().Str("saved_server", state.ServerURL).Str("server_url", cfg.ServerURL).
+			Msg("saved registration is for another server; an enrollment token is configured, so enrolling with the configured server")
+		switching = true
+		state = nil
+	}
 	if state != nil && register.TokenExpired(state.Token, time.Now()) {
 		// A lapsed token can never be renewed. Re-enrolling is
 		// running the install command again with a fresh enrollment token, so
 		// when one is configured, use it instead of the dead saved state.
 		if cfg.EnrollToken == "" {
 			log.Error().Msg("saved agent token has expired, so this agent must be re-enrolled: generate an install command on the Agents page and run it on this host")
-			return state, false
+			return state, false, nil
 		}
 		log.Warn().Msg("saved agent token has expired; enrolling again with the configured enrollment token")
 		if sameServer(state.ServerURL, cfg.ServerURL) {
@@ -271,31 +324,67 @@ func resume(cfg *config.Config, serverTLS *tls.Config) (state *register.State, u
 		state = nil
 	}
 	if state != nil || cfg.ServerURL == "" {
-		return state, false
+		return state, false, nil
 	}
 	// A registration that cannot be saved is lost on the next restart, and
 	// the single-use enrollment token with it, so it is not spent until the
 	// state file is known to be writable.
 	if err := register.CheckWritable(cfg.StatePath); err != nil {
 		log.Error().Err(err).Str("state_path", cfg.StatePath).Msg("not registering: the registration state cannot be saved; set EIGHTLY_STATE_PATH to a writable file")
-		return nil, false
+		return nil, false, nil
+	}
+	if switching {
+		// Taken before the token is spent: once the new registration is
+		// saved, the old one exists only in the backup.
+		bak, err := register.BackupState(cfg.StatePath)
+		if err != nil {
+			log.Error().Err(err).Str("state_path", cfg.StatePath).Msg("not registering with the new server: the old registration could not be backed up")
+			return nil, false, nil
+		}
+		log.Info().Str("backup", bak).Msg("backed up the registration with the previous server")
 	}
 	info := register.DetectInfo(cfg.SocketPath, cfg.Port, cfg.Version, cfg.AdvertiseIP)
 	state, err = register.Register(cfg.ServerURL, cfg.EnrollToken, info, serverTLS)
+	if errors.Is(err, register.ErrEnrollmentRefused) {
+		return nil, false, err
+	}
 	if err != nil {
 		log.Warn().Err(err).Msg("registration failed")
-		return nil, false
+		return nil, false, nil
 	}
 	if err := state.Save(cfg.StatePath); err != nil {
 		log.Error().Err(err).Msg("failed to save registration state; will retry")
 		unsaved = true
 	}
 	log.Info().Str("agent_id", state.AgentID).Msg("registered with server")
-	return state, unsaved
+	return state, unsaved, nil
 }
 
+// sameServer reports whether two server URLs name the same server: scheme and
+// host compared without case, a default port the same as none, and a
+// trailing slash ignored. An empty or unparsable URL matches nothing.
 func sameServer(a, b string) bool {
-	return a != "" && strings.TrimRight(a, "/") == strings.TrimRight(b, "/")
+	na, nb := normalizeServerURL(a), normalizeServerURL(b)
+	return na != "" && na == nb
+}
+
+func normalizeServerURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Hostname())
+	port := u.Port()
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		port = ""
+	}
+	if port != "" {
+		host = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	return scheme + "://" + host + strings.TrimRight(u.EscapedPath(), "/")
 }
 
 func detectCertSANs(cfg *config.Config) []string {

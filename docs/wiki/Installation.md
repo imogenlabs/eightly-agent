@@ -148,26 +148,29 @@ sudo install -m 0755 eightly-agent /usr/bin/eightly-agent
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin eightly-agent
 sudo usermod -aG docker eightly-agent
 sudo install -d -m 0700 -o eightly-agent -g eightly-agent /var/lib/eightly-agent
+sudo install -d -m 0700 /etc/eightly-agent
+sudo install -m 0600 /dev/null /etc/eightly-agent/agent.env
 sudo cp deploy/eightly-agent.service /etc/systemd/system/
 sudo systemctl daemon-reload
 ```
 
-Put the secret in a drop-in rather than on the command line, where any user can read it in the process list:
+The unit reads its settings from `/etc/eightly-agent/agent.env` (`EnvironmentFile=`), which the packages create root-owned with mode `0600`. Put the secret there, not on the command line, where any user can read it in the process list, and not in a `systemctl edit` drop-in, which every user can read and `systemctl show` prints:
 
 ```bash
-sudo systemctl edit eightly-agent
+sudoedit /etc/eightly-agent/agent.env
 ```
 
 ```ini
-[Service]
-Environment=EIGHTLY_AGENT_SECRET=your-shared-secret
-Environment=EIGHTLY_SERVER_URL=https://your-eos-server:8080
-Environment=EIGHTLY_ENROLL_TOKEN=your-enrollment-token
+EIGHTLY_AGENT_SECRET=your-shared-secret
+EIGHTLY_SERVER_URL=https://your-eos-server:8080
+EIGHTLY_ENROLL_TOKEN=your-enrollment-token
 ```
 
 ```bash
 sudo systemctl enable --now eightly-agent
 ```
+
+Values in `agent.env` override the unit's own `Environment=` lines. A package upgrade never overwrites an existing `agent.env`; it only resets its owner and mode. If an older install keeps the secret in a drop-in, move it into `agent.env` and delete the drop-in.
 
 ### Windows Service
 
@@ -189,11 +192,17 @@ eightly-agent.exe start
 [System.Environment]::SetEnvironmentVariable("EIGHTLY_AGENT_SECRET", $null, "Machine")
 ```
 
-The server URL and the single-use enrollment token are still read from the environment:
+The service takes no other settings on its command line, so the server URL and the single-use enrollment token are read from Machine environment variables:
 
 ```powershell
 [System.Environment]::SetEnvironmentVariable("EIGHTLY_SERVER_URL", "https://your-eos-server:8080", "Machine")
 [System.Environment]::SetEnvironmentVariable("EIGHTLY_ENROLL_TOKEN", "your-enrollment-token", "Machine")
+```
+
+Like any Machine variable, the enrollment token is readable by every local user until the agent spends it. Start the service right after setting it, and remove it once the agent has registered (the token is single-use and the agent no longer needs it):
+
+```powershell
+[System.Environment]::SetEnvironmentVariable("EIGHTLY_ENROLL_TOKEN", $null, "Machine")
 ```
 
 **Other service commands:**
@@ -214,7 +223,7 @@ The service runs as `EightlyAgent` (LocalSystem) in the Windows Services panel. 
 
 ## Build from Source
 
-Requires Go 1.23 or later.
+Requires Go 1.26.4 or later; the module pins toolchain `go1.26.10`, which Go downloads for you when your installed version is older.
 
 ```bash
 git clone https://github.com/imogenlabs/eightly-agent.git
@@ -232,7 +241,7 @@ make build
 | Make target | Description |
 |-------------|-------------|
 | `make build` | Build for the current platform to `build/eightly-agent` |
-| `make test` | Run tests with race detector |
+| `make test` | Run tests with the race detector |
 | `make lint` | Run `go vet` |
 | `make docker-local` | Build a local Docker image |
 | `make docker` | Build and push multi-arch images to GHCR and Docker Hub |

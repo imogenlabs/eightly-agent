@@ -18,7 +18,9 @@ Registration is optional. If `--server-url` (or `EIGHTLY_SERVER_URL`) is not set
 
 ## Initial Registration
 
-On startup, the agent checks for existing state at the configured `--state-path` (default `/data/eightly-agent.json`). If no state file exists and a `--server-url` is configured, the agent initiates registration.
+On startup, the agent checks for existing state at the configured `--state-path` (default: `eightly-agent.json` in the data directory, so `/data/eightly-agent.json` in the image). If no state file exists and a `--server-url` is configured, the agent initiates registration.
+
+Before it sends the enrollment token, the agent checks that it can write the state file. The token is single-use, so a registration that could not be saved would be lost on the next restart along with the token. When the file cannot be written, the agent logs `not registering: the registration state cannot be saved` and does not register.
 
 ### What the Agent Sends
 
@@ -75,15 +77,18 @@ On success (200 or 201):
 }
 ```
 
-The agent stores `agent_id` and `token` for future heartbeats.
+The agent stores `agent_id` and `token` for future heartbeats. A response that reports success without both is treated as a failure.
 
 ### Registration Failure
 
-If registration fails (network error, bad enrollment token, EOS unreachable), the agent logs a warning and continues running. It does not exit. The heartbeat loop will attempt re-registration later if connectivity is restored.
+If registration fails (network error, bad enrollment token, EOS unreachable), the agent logs a warning and keeps running. It does not exit. It retries in the background, first after 5 seconds and then twice as long each time, up to every 5 minutes, until it registers or is stopped.
 
 ```
-WRN registration failed, will retry via heartbeat
+WRN registration failed
+WRN agent is not registered; authenticated routes answer 503 until it is
 ```
+
+Until it has registered, every authenticated route answers `503` with `Retry-After: 30`, because the agent cannot yet check that a token was issued for it (see [Authentication](Authentication.md#before-the-agent-knows-its-id)). The probes (`/ping`, `/healthz`, `/readyz`, `/version`) keep answering. A `register failed: status 403` means the enrollment token was refused; retries cannot fix that, so generate a new install command in EOS.
 
 ## State File
 
@@ -94,17 +99,20 @@ After successful registration, the agent writes a JSON state file:
   "agent_id": "agt_a1b2c3d4",
   "token": "persistent-auth-token-from-eos",
   "server_url": "https://your-eos-server:8080",
-  "registered_at": "2026-05-20T15:30:00Z"
+  "registered_at": "2026-05-20T15:30:00Z",
+  "server_pin": "sha256/<base64 fingerprint>"
 }
 ```
 
-**File location**: Configured via `--state-path` / `EIGHTLY_STATE_PATH` (default `/data/eightly-agent.json`).
+`server_pin` is the fingerprint of the EOS server certificate's public key, captured on the first registration and enforced on every later connection (see [TLS](TLS.md#outbound-tls-registration-and-heartbeat)).
+
+**File location**: Configured via `--state-path` / `EIGHTLY_STATE_PATH` (default: `eightly-agent.json` in the data directory; `state.json` on Windows).
 
 **Atomic writes**: The file is written to a temporary path (`<state-path>.tmp`) and then renamed to the final path. This prevents corruption if the agent is killed mid-write.
 
-**Permissions**: The state file is written with mode `0600`. The parent directory is created with mode `0700` if it does not exist.
+**Permissions**: The state file is written with mode `0600`. The parent directory is created with mode `0700` if it does not exist. The agent refuses to load a state file that is not `0600` in a `0700` directory, both owned by its own user; it tightens a directory it owns that holds nothing but its own files. On Windows it sets a protected access list instead and refuses the file if another account keeps access.
 
-On subsequent startups, the agent loads this file and skips registration. It goes directly to the heartbeat loop.
+On subsequent startups, the agent loads this file and skips registration. It goes directly to the heartbeat loop. A saved state with no agent ID or token is ignored and the agent enrolls again. A saved token that has expired is replaced by a fresh enrollment when an enrollment token is configured; otherwise the agent logs that it must be re-enrolled.
 
 ## Heartbeat Loop
 
@@ -116,7 +124,7 @@ Once registered (or loaded from state), the agent starts a background goroutine 
 - **Method**: `PUT <server-url>/api/agents/<agent-id>/heartbeat`
 - **Auth**: `Authorization: Bearer <token>` (the persistent token from registration, not the enrollment token)
 - **Body**: Empty
-- **Expected response**: Any 2xx or 3xx status code
+- **Expected response**: Any status below 400
 
 On success, the interval remains at 30 seconds and the failure counter resets to zero.
 
@@ -127,6 +135,10 @@ When a heartbeat fails (network error or 4xx/5xx response):
 1. The failure counter increments.
 2. The interval doubles (exponential backoff): 30s -> 60s -> 120s -> 240s -> 300s (capped at 5 minutes).
 3. The failure is logged at `warn` level.
+
+### Token Renewal
+
+The bearer token from EOS lives 30 days. From half its lifetime on (day 15), each successful heartbeat is followed by a re-registration that trades the still-valid token for a new one and saves it. A failed renewal is retried on the next beat. If the agent was off long enough for the token to lapse, the server refuses it; the agent then logs `agent token expired, so this agent must be re-enrolled` once, slows to the 5-minute interval, and needs a new install command from EOS.
 
 ### Re-Registration
 
@@ -160,7 +172,7 @@ These counters are useful for alerting on connectivity issues (e.g., alert when 
 
 ## TLS for Registration and Heartbeat
 
-Outbound TLS is **fail-closed by default**. Registration and heartbeat requests verify the EOS server's TLS certificate against the system trust store. If verification fails, the connection is refused. For EOS servers with self-signed or internal CA certificates, use `--server-ca <path>` to pin the CA, or `--insecure-server-tls` as an explicit opt-in for dev environments only. See [TLS](TLS.md) for full details.
+Outbound TLS is **fail-closed by default**. The server URL must be `https`. The first successful registration pins the EOS server certificate's public key, and every later registration, renewal and heartbeat must present the same key, so a self-signed EOS server works without a CA. `--server-ca <path>` additionally verifies the chain against your CA. `--insecure-server-tls` turns verification and pinning off, for dev environments only. See [TLS](TLS.md) for full details.
 
 ## Timeline
 
@@ -170,10 +182,11 @@ Startup
   +-- Load state file
   |     |
   |     +-- Found? --> Start heartbeat loop
-  |     +-- Not found + server-url set? --> Register
+  |     +-- Not found + server-url set? --> Check state file is writable --> Register
   |           |
   |           +-- Success --> Save state --> Start heartbeat loop
-  |           +-- Failure --> Log warning, start server anyway
+  |           +-- Failure --> Start server anyway (authenticated routes 503),
+  |                           retry every 5s, doubling to 5 min
   |
   +-- Start HTTPS server
   |
@@ -181,7 +194,7 @@ Startup
   |
   +-- Every 30s: heartbeat PUT
   |     |
-  |     +-- OK --> reset interval
+  |     +-- OK --> reset interval; renew the token from day 15
   |     +-- Fail --> backoff, after 3 fails --> re-register
   |
   +-- SIGINT/SIGTERM

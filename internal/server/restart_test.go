@@ -6,13 +6,10 @@ package server
 
 import (
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,25 +19,10 @@ import (
 	"github.com/imogenlabs/eightly-agent/internal/register"
 )
 
-// registerCounter is an EOS server that counts enrollment calls and accepts
-// every one, so a test can tell "resumed" from "enrolled again".
-func registerCounter(t *testing.T) (*httptest.Server, *atomic.Int32) {
-	t.Helper()
-	var calls atomic.Int32
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/agents/register" {
-			calls.Add(1)
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"success": true,
-				"data":    map[string]string{"agent_id": "agent-new", "token": "new-token"},
-			})
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(srv.Close)
-	return srv, &calls
+// loadOrRegister is resume without the saved flag or the error.
+func loadOrRegister(cfg *config.Config, serverTLS *tls.Config) *register.State {
+	state, _, _ := resume(cfg, serverTLS)
+	return state
 }
 
 // Docker creates a new volume directory 0755. The agent saved its
@@ -122,11 +104,6 @@ func TestLoadOrRegister_FirstStartEnrolls(t *testing.T) {
 	if state == nil || state.AgentID != "agent-new" {
 		t.Fatalf("first start did not take the new registration, got %+v", state)
 	}
-}
-
-func tokenExpiringAt(exp time.Time) string {
-	claims, _ := json.Marshal(map[string]int64{"iat": exp.Add(-30 * 24 * time.Hour).Unix(), "exp": exp.Unix()})
-	return base64.RawURLEncoding.EncodeToString(claims) + ".sig"
 }
 
 // Re-enrolling an agent whose token lapsed means running the install
@@ -280,5 +257,30 @@ func TestLoadOrRegister_VolumeWithTLSPairIsStillRepaired(t *testing.T) {
 
 	if calls.Load() != 0 || state == nil || state.AgentID != "agent-saved" {
 		t.Fatalf("the agent's own volume was not repaired: %d register calls, state %+v", calls.Load(), state)
+	}
+}
+
+// A state file the agent cannot read is not a missing one: refuse to start
+// rather than enroll over the identity it holds.
+func TestResume_UnreadableStateRefusesToStart(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root reads a 0000 file")
+	}
+	srv, calls := registerCounter(t)
+	statePath := filepath.Join(t.TempDir(), "data", "eightly-agent.json")
+	saved := &register.State{AgentID: "agent-saved", Token: "saved-token", ServerURL: srv.URL}
+	if err := saved.Save(statePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(statePath, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(statePath, 0o600) })
+	cfg := &config.Config{ServerURL: srv.URL, EnrollToken: "eos_enroll_x", StatePath: statePath, SocketPath: "/nonexistent.sock"}
+	tlsCfg, _ := register.BuildServerTLSConfig("", true, zerolog.Nop())
+
+	state, _, err := resume(cfg, tlsCfg)
+	if err == nil || state != nil || calls.Load() != 0 {
+		t.Fatalf("got state %+v, err %v, %d register calls; want a startup error and no enrollment", state, err, calls.Load())
 	}
 }

@@ -10,8 +10,9 @@ Eight.ly Agent uses HMAC-SHA256 signed tokens for request authentication. The EO
 
 - Algorithm: HMAC-SHA256
 - Token location: `Authorization: Bearer <token>` header
-- Shared secret: set via `--secret` flag or `EIGHTLY_AGENT_SECRET` env var
-- When the secret is empty, authentication is completely disabled (dev mode)
+- Shared secret: set via `--secret`, `EIGHTLY_AGENT_SECRET`, or a file named by `--secret-file` / `EIGHTLY_AGENT_SECRET_FILE`
+- Without a secret the agent refuses to start, unless `--insecure-no-auth` is set (dev only)
+- A token opens only the agent it names: its `sub` must be this agent's registered ID
 
 ## Token Format
 
@@ -25,28 +26,27 @@ This is structurally similar to a JWT but uses a simplified format with only two
 
 ### Payload
 
-The payload is a JSON object, base64url-encoded (no padding):
+The payload is a JSON object, base64url-encoded (no padding). Eight.ly OS issues tokens like this one:
 
 ```json
 {
-  "sub": "admin",
+  "sub": "<agent ID>",
   "iss": "eightly-server",
-  "type": "agent-api",
-  "iat": 1716249600
+  "type": "agent",
+  "iat": 1716249600,
+  "exp": 1718841600
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `sub` | string | No | Subject -- typically the username or API client identifier |
-| `iss` | string | Yes | Issuer -- **must** be `"eightly-server"` or the token is rejected |
-| `type` | string | No | Token type identifier |
-| `iat` | int64 | No | Issued-at timestamp (Unix epoch seconds) |
-| `exp` | int64 | No | Expiration timestamp (Unix epoch seconds). Enforced when present. |
+| `sub` | string | Yes, once registered | The agent ID this token is for. An agent that knows its ID refuses a token for any other agent. |
+| `iss` | string | Yes | Issuer. Must be exactly `"eightly-server"`. |
+| `type` | string | Yes | Token type. Must be exactly `"agent"`. |
+| `iat` | int64 | Yes | Issued-at time (Unix epoch seconds). |
+| `exp` | int64 | Yes | Expiry (Unix epoch seconds). Must be after `iat` and no more than 30 days after it. |
 
-The `iss` field is the only required claim beyond signature verification. If `iss` is not exactly `"eightly-server"`, the request is rejected with 401.
-
-Token expiry (`exp` claim) is **enforced when present**. If the `exp` field is set and the current time is past that timestamp, the token is rejected with 401. If `exp` is absent, the token does not expire based on time. Rotation is handled by changing the shared secret.
+A token that lacks `iat` or `exp`, expires before it was issued, lives longer than 30 days, has already expired, or carries another issuer or type is refused with 401. A token without an expiry would never lapse, so it is not accepted.
 
 ### Signature
 
@@ -71,12 +71,14 @@ import (
     "time"
 )
 
-func GenerateToken(secret string) string {
+func GenerateToken(secret, agentID string) string {
+    now := time.Now()
     claims := map[string]any{
-        "sub":  "admin",
+        "sub":  agentID,
         "iss":  "eightly-server",
-        "type": "agent-api",
-        "iat":  time.Now().Unix(),
+        "type": "agent",
+        "iat":  now.Unix(),
+        "exp":  now.Add(time.Hour).Unix(),
     }
     payload, _ := json.Marshal(claims)
     encoded := base64.RawURLEncoding.EncodeToString(payload)
@@ -93,7 +95,9 @@ Example using shell tools:
 
 ```bash
 SECRET="your-shared-secret"
-PAYLOAD=$(echo -n '{"sub":"admin","iss":"eightly-server","type":"agent-api","iat":1716249600}' | base64 | tr '+/' '-_' | tr -d '=')
+AGENT_ID="the-agent-id"   # agent_id in the agent's state file
+NOW=$(date +%s)
+PAYLOAD=$(printf '{"sub":"%s","iss":"eightly-server","type":"agent","iat":%d,"exp":%d}' "$AGENT_ID" "$NOW" $((NOW + 3600)) | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
 SIG=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" -binary | base64 | tr '+/' '-_' | tr -d '=')
 TOKEN="${PAYLOAD}.${SIG}"
 
@@ -106,21 +110,37 @@ When a request arrives, the auth middleware executes these steps in order:
 
 1. **Extract token**: Read the `Authorization` header, strip the `Bearer ` prefix. If the header is missing or has no `Bearer ` prefix, return 401.
 
-2. **Split on dot**: The token must contain exactly one dot, producing two parts: `[payload, signature]`. If the split fails, return 401.
+2. **Split on dot**: The token is split at its first dot into `[payload, signature]`. If there is no dot, return 401.
 
 3. **Verify signature**: Compute `HMAC-SHA256(secret, payload_part)` and compare against the base64url-decoded signature using constant-time comparison (`hmac.Equal`). If the signature does not match, return 401.
 
 4. **Decode payload**: Base64url-decode the payload part and unmarshal the JSON into a Claims struct. If decoding or JSON parsing fails, return 401.
 
-5. **Check issuer**: Verify that `claims.Iss == "eightly-server"`. If not, return 401.
+5. **Check issuer and type**: `iss` must be `"eightly-server"` and `type` must be `"agent"`. If not, return 401.
 
-6. **Check expiry**: If the `exp` claim is present and the current time exceeds it, return 401.
+6. **Check lifetime**: `iat` and `exp` must both be set, `exp` must be after `iat` and at most 30 days after it, and the current time must be before `exp`. If not, return 401.
 
-7. **Pass through**: If all checks pass, the request proceeds to the handler.
+7. **Check subject**: When the agent knows its registered ID, `sub` must equal it. If not, return 401.
+
+8. **Pass through**: If all checks pass, the request proceeds to the handler.
+
+### Before the agent knows its ID
+
+When a secret and a server URL are both set, every authenticated route answers `503 Service Unavailable` with `Retry-After: 30` until the agent has registered and knows its own ID:
+
+```
+HTTP/1.1 503 Service Unavailable
+Content-Type: application/json
+Retry-After: 30
+
+{"message":"service unavailable: agent is not registered with the server yet"}
+```
+
+Without its ID the agent cannot check whose token it was handed, so it serves nothing that needs one. The unauthenticated probes keep answering. In local-only mode (no server URL) the agent never has an ID and checks only the signature, issuer, type and lifetime.
 
 ## Middleware Chain
 
-The authentication middleware is applied as a wrapper around protected handlers in `main.go`:
+The authentication middleware is applied as a wrapper around protected handlers in `internal/server/server.go`:
 
 ```
 GET  /healthz                -- NO auth (liveness, always open)
@@ -135,11 +155,11 @@ GET  /host                   -- auth required
 *    /* (Docker proxy)       -- auth required
 ```
 
-The `/healthz`, `/readyz`, `/version`, and `/ping` endpoints are registered directly on the mux without the auth wrapper. Every other route passes through `auth.Middleware(secret)(handler)`.
+The `/healthz`, `/readyz`, `/version`, and `/ping` endpoints are registered directly on the mux without the auth wrapper. Every other route passes through the registration gate described above and then `auth.Middleware`.
 
 ## Failure Responses
 
-All authentication failures return the same response to avoid leaking information about which step failed:
+All token failures return the same response to avoid leaking information about which step failed. The reason is written to the agent's log as a `[SECURITY] auth.unauthorized` line.
 
 ```
 HTTP/1.1 401 Unauthorized
@@ -150,7 +170,7 @@ Content-Type: application/json
 
 ## Dev Mode (No Auth)
 
-The agent is **fail-closed by default**: it refuses to start without `EIGHTLY_AGENT_SECRET` set. To run without authentication (dev/testing only), you must explicitly pass `--insecure-no-auth` or set `EIGHTLY_INSECURE_NO_AUTH=true`. When running in this mode, the middleware is bypassed entirely -- no token validation occurs and all endpoints are open.
+The agent is **fail-closed by default**: it refuses to start without a shared secret. To run without authentication (dev/testing only), you must explicitly pass `--insecure-no-auth` or set `EIGHTLY_INSECURE_NO_AUTH=true`. When running in this mode, the middleware is bypassed entirely -- no token validation occurs and all endpoints are open.
 
 This is only appropriate for local development and testing. In production, always set a strong shared secret.
 
@@ -158,7 +178,7 @@ This is only appropriate for local development and testing. In production, alway
 
 The same secret must be configured on both sides:
 
-1. **On the agent**: Set `EIGHTLY_AGENT_SECRET` or `--secret` to the shared secret value.
+1. **On the agent**: Set `EIGHTLY_AGENT_SECRET` or `--secret`, or put the secret in a file and point `--secret-file` / `EIGHTLY_AGENT_SECRET_FILE` at it. The packaged Linux service reads `/etc/eightly-agent/agent.env`; the Windows service reads `C:\ProgramData\eightly-agent\secret`.
 2. **On EOS**: Configure the agent's secret in the remote environment settings. EOS will use this secret to sign tokens when making API calls to the agent.
 
 Choose a strong random secret. Example generation:
@@ -175,7 +195,7 @@ To rotate the shared secret:
 
 1. Generate a new secret
 2. Update the EOS remote environment configuration with the new secret
-3. Restart the agent with the new `EIGHTLY_AGENT_SECRET`
+3. Restart the agent with the new secret (environment variable, `agent.env` or secret file)
 
 There is no grace period or dual-secret support. Both sides must switch at the same time, which means a brief window where requests may fail. For zero-downtime rotation in a fleet, roll agents one at a time and update EOS between each.
 

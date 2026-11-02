@@ -25,7 +25,7 @@ Run on every Docker host. Manage them all from one dashboard.
 
 Eight.ly Agent is a single Go binary that turns any Docker host into a managed node for Eight.ly OS. Deploy the agent on Linux, macOS, or Windows, point EOS at it, and get full container management, WebSocket console, file browsing, and system monitoring — all over authenticated TLS.
 
-**~3,150 lines of Go. Four dependencies. Zero config files.**
+**About 4,800 lines of Go. Four dependencies. Zero config files.**
 
 ### Key Capabilities
 
@@ -112,16 +112,17 @@ scoop install eightly-agent                                   # Windows
 
 ## Configuration
 
-Every flag has an equivalent environment variable. Env vars take precedence.
+Every flag except `--addr`, `--insecure-server-tls` and `--version` has an equivalent environment variable. Env vars take precedence.
 
 | Flag | Env Var | Default | Description |
 |:-----|:--------|:--------|:------------|
 | `--addr` | — | `0.0.0.0` | Listen address |
 | `--port` | `AGENT_PORT` | `9001` | Listen port |
 | `--secret` | `EIGHTLY_AGENT_SECRET` | — | HMAC shared secret for token validation |
+| `--secret-file` | `EIGHTLY_AGENT_SECRET_FILE` | — | File holding the shared secret, instead of `--secret` (setting both is refused) |
 | `--server-url` | `EIGHTLY_SERVER_URL` | — | EOS server URL for registration (must be `https` unless `--insecure-server-tls`) |
 | `--enroll-token` | `EIGHTLY_ENROLL_TOKEN` | — | One-time enrollment token |
-| `--state-path` | `EIGHTLY_STATE_PATH` | `/data/eightly-agent.json` | Registration state file |
+| `--state-path` | `EIGHTLY_STATE_PATH` | `eightly-agent.json` in the data directory | Registration state file |
 | `--data` | `DATA_PATH` | `/data` | Data directory (TLS certs, state) |
 | `--socket` | `DOCKER_SOCKET` | `/var/run/docker.sock` | Docker socket path |
 | `--log-level` | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
@@ -133,6 +134,8 @@ Every flag has an equivalent environment variable. Env vars take precedence.
 | `--browse-read-only` | `EIGHTLY_BROWSE_READ_ONLY` | `false` | Serve the file browser read-only (reject upload/delete/rename) |
 | `--insecure-no-auth` | `EIGHTLY_INSECURE_NO_AUTH` | `false` | Disable authentication (NOT for production) |
 | `--insecure-server-tls` | — | `false` | Skip EOS server TLS verification + TOFU pinning (flag-only, NOT for production) |
+
+`EIGHTLY_METRICS_ENABLED`, `EIGHTLY_BROWSE_READ_ONLY` and `EIGHTLY_INSECURE_NO_AUTH` take `true`/`false`, `1`/`0`, `yes`/`no` or `on`/`off`. Any other value stops the agent at startup with an error naming the variable. On Windows the defaults are `C:\ProgramData\eightly-agent` for data and `state.json` for the state file; see the [configuration guide](https://imogenlabs.github.io/eightly-agent/Configuration/).
 
 ---
 
@@ -188,7 +191,7 @@ EIGHTLY_ENROLL_TOKEN=eos_enroll_...
 sudo systemctl enable --now eightly-agent
 ```
 
-Values in `agent.env` override the unit's own `Environment=` lines. The package never overwrites an existing `agent.env`. If you set the secret in a drop-in before, move it into `agent.env` and delete the drop-in.
+Values in `agent.env` override the unit's own `Environment=` lines. The package never overwrites an existing `agent.env`; an upgrade only resets its owner and mode. If you set the secret in a drop-in before, move it into `agent.env` and delete the drop-in.
 
 For a manual install, create the user, the data directory and the settings file yourself, then copy the unit from the repo:
 
@@ -210,7 +213,7 @@ The service restarts automatically on failure (5-second delay) and starts after 
 
 ## API Reference
 
-All endpoints require a valid Bearer token (HMAC-signed) **except** the unauthenticated probes `/ping`, `/healthz`, `/readyz`, and `/version`.
+All endpoints require a valid Bearer token (HMAC-signed) **except** the unauthenticated probes `/ping`, `/healthz`, `/readyz`, and `/version`. Until an agent that registers with Eight.ly OS knows its own ID, the authenticated endpoints answer `503` with `Retry-After: 30`.
 
 | Method | Path | Description |
 |:-------|:-----|:------------|
@@ -219,7 +222,7 @@ All endpoints require a valid Bearer token (HMAC-signed) **except** the unauthen
 | `GET` | `/readyz` | Readiness probe — returns `200` if Docker socket is reachable, `503` otherwise (unauthenticated) |
 | `GET` | `/version` | Agent version + API version — returns `{"version":...,"api_version":"2"}` (unauthenticated) |
 | `GET` | `/metrics` | Prometheus metrics (requires `--metrics` flag and auth) |
-| `GET` | `/host` | PCI devices and physical disk info |
+| `GET` | `/host` | PCI devices and physical disk info (cached for 30 seconds) |
 | `GET` | `/browse/ls` | List directory contents in a volume |
 | `GET` | `/browse/get` | Download a file from a volume |
 | `POST` | `/browse/put` | Upload a file to a volume |
@@ -284,28 +287,25 @@ flowchart TB
 
 ```
 cmd/agent/
-  main.go  — entry point, subcommands, signal handling
+  main.go             — entry point, subcommands, signal handling
+  healthcheck.go      — `eightly-agent healthcheck` for container health checks
   service_windows.go  — Windows service (install/uninstall/start/stop/status)
-  service_other.go  — no-op stubs for non-Windows platforms
+  service_other.go    — stubs for Linux and macOS
 internal/auth/jwt.go  — HMAC shared-secret token validation middleware
-internal/browse/browse.go  — file browser (ls, get, put, delete, rename)
+internal/browse/      — file browser (ls, get, put, delete, rename), confined to each volume
 internal/config/
-  config.go  — CLI flags + env var parsing
-  defaults_windows.go  — Windows default paths (named pipes, ProgramData)
-  defaults_other.go  — Linux/macOS default paths (unix socket, /data)
-internal/hostinfo/
-  hostinfo.go  — handler + shared types
-  hostinfo_linux.go  — PCI + disk detection (Linux, sysfs)
-  hostinfo_darwin.go  — system_profiler parsing (macOS)
-  hostinfo_windows.go  — PowerShell Get-PnpDevice / Get-PhysicalDisk (Windows)
-internal/metrics/metrics.go  — Prometheus counters/gauges
-internal/proxy/docker.go  — reverse proxy to Docker socket
-internal/register/register.go  — EOS registration + 30s heartbeat loop
-internal/register/pin.go  — TOFU server-cert leaf-SPKI pinning
-internal/server/server.go  — HTTP mux, TLS, graceful shutdown
-internal/tlsutil/tls.go  — self-signed cert generation
-internal/websocket/websocket.go  — WebSocket attach + exec handlers
-                               ─────
+  config.go           — CLI flags + env var parsing and validation
+  secretfile.go       — --secret-file reading
+  defaults_windows.go — Windows default paths (named pipe, ProgramData)
+  defaults_other.go   — Linux/macOS default paths (unix socket, /data)
+internal/hostinfo/    — PCI + disk detection (sysfs, system_profiler, PowerShell), cached 30s
+internal/metrics/     — Prometheus counters/gauges
+internal/proxy/docker.go — reverse proxy to the Docker socket and its request filter
+internal/register/    — EOS registration, 30s heartbeat, token renewal, server-cert pinning
+internal/server/      — HTTP mux, TLS, registration gate, health check, graceful shutdown
+internal/tlsutil/tls.go — self-signed cert generation and reuse
+internal/websocket/   — WebSocket attach + exec handlers
+internal/winacl/      — Windows access lists for the data folder, state, secret and TLS key
 ```
 
 </details>
@@ -401,11 +401,11 @@ gh attestation verify eightly-agent-linux-amd64 --owner imogenlabs \
 
 Eight.ly Agent mediates access to the Docker daemon. Understanding the trust model is critical before deploying it.
 
-**Who's trusted:** Anyone with a valid HMAC-signed Bearer token. A valid token grants full Docker API access on the host, which is equivalent to root access. Treat `EIGHTLY_AGENT_SECRET` with the same care as a root password.
+**Who's trusted:** Anyone with a valid HMAC-signed Bearer token for this agent. A token must name this agent's ID, come from Eight.ly OS (issuer `eightly-server`, type `agent`) and carry an issue time and an expiry at most 30 days later; anything else gets 401. A valid token reaches the Docker API on the host through the agent's request filter, which refuses the known ways out of a container (privileged mode, host namespaces, dangerous capabilities, sensitive host mounts, devices and more), but a filter cannot be complete, so treat the token and the shared secret as root-level credentials.
 
 **What the secret protects:** The shared secret (`EIGHTLY_AGENT_SECRET`) gates all Docker operations, file browser access, host info queries, and WebSocket console sessions. Without it, the agent rejects every request.
 
-**What happens if it leaks:** An attacker with the secret can issue valid tokens, gaining full Docker API control on every host using that secret. They can create privileged containers, mount the host filesystem, and escalate to root. **Rotate the secret immediately** if you suspect compromise.
+**What happens if it leaks:** An attacker with the secret can sign tokens for any agent that uses it and drive the Docker API on every one of those hosts. The request filter stands in the way of the known container escapes, but **rotate the secret immediately** if you suspect compromise.
 
 **Network exposure:**
 - Bind the agent to a private interface or VPN -- never expose port 9001 to the public internet.

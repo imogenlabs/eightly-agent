@@ -3,25 +3,42 @@
 ## Agent won't start
 
 **"EIGHTLY_AGENT_SECRET is required"**
-Set the secret via environment variable or flag. Generate one with `openssl rand -hex 32`. For development only, use `--insecure-no-auth`.
+Set the secret via environment variable, flag or secret file (`--secret-file` / `EIGHTLY_AGENT_SECRET_FILE`). Generate one with `openssl rand -hex 32`. For development only, use `--insecure-no-auth`.
+
+**"both a secret ... and a secret file ... are set"**
+Keep only the secret file. On Windows remove the old Machine variable: `[Environment]::SetEnvironmentVariable('EIGHTLY_AGENT_SECRET', $null, 'Machine')`.
+
+**"... is not a boolean; use true or false"**
+`EIGHTLY_METRICS_ENABLED`, `EIGHTLY_BROWSE_READ_ONLY` and `EIGHTLY_INSECURE_NO_AUTH` take `true`/`false`, `1`/`0`, `yes`/`no` or `on`/`off`. Fix or unset the variable named in the error.
 
 **"failed to generate TLS cert"**
 The agent can't write to the data directory. Check permissions: the directory should be writable by the eightly-agent user (or root if running as root).
+
+**"cannot use the saved registration at ..."**
+The state file (`EIGHTLY_STATE_PATH`) exists but cannot be read or parsed. The agent will not start rather than enroll over the identity and server pin it holds, and it leaves the file as it is. If the error names permissions or an owner, fix those. If the file is damaged, move it aside and run a new install command from the Agents page.
+
+**"the saved registration at ... is for server A, but the configured server URL is B"**
+The agent is registered with another server. To keep it there, set `EIGHTLY_SERVER_URL` back to the old URL. To move it, run an install command generated on the new server: its enrollment token tells the agent to enroll there, and the old state is copied to `<state path>.bak` first (replacing any older backup). Differences in case, a trailing slash or a default port do not count as another server.
 
 **Port already in use**
 Another process is using port 9001. Use `--port` to pick a different port, or find the conflicting process: `lsof -i :9001` (Linux/macOS) or `netstat -ano | findstr 9001` (Windows).
 
 ## Registration fails
 
-**"registration failed, will retry via heartbeat"**
-The agent can't reach the EOS server. Check:
+**"registration failed" and every authenticated request answers 503**
+The agent can't reach the EOS server, or the server failed. The agent keeps retrying with a growing pause (up to 5 minutes), and authenticated routes answer 503 until it registers. Check:
 1. `EIGHTLY_SERVER_URL` is correct and reachable
-2. The enrollment token is valid and unused
-3. Firewall allows outbound HTTPS to the EOS server
-4. If using `--server-ca`, the CA cert matches the server's certificate
+2. Firewall allows outbound HTTPS to the EOS server
+3. If using `--server-ca`, the CA cert matches the server's certificate
 
-**Token expired**
-EOS enrollment tokens are single-use and may have an expiry. Generate a new one from the EOS admin panel.
+**"the server refused the enrollment token"**
+The server answered 401, 403 or 410: the enrollment token is unknown, expired or already used, or the agent it was made for has been deleted. Tokens are single-use, so this also happens when the server accepted the token but its answer never reached the agent. Retrying cannot help, so the agent stops trying, keeps running, and answers 503 on authenticated routes. Generate a new install command on the Agents page and run it on the host.
+
+**"not registering: the registration state cannot be saved"**
+The agent will not spend its single-use enrollment token while it cannot save the result. Make the state directory writable by the agent's user, or set `EIGHTLY_STATE_PATH` to a writable file.
+
+**"agent token expired, so this agent must be re-enrolled"**
+The agent was off for longer than its 30-day token lasts. Generate a new install command on the Agents page and run it on the host.
 
 ## Docker socket errors
 
@@ -45,7 +62,7 @@ The connecting client (typically the EOS server, or curl) doesn't trust the agen
 - Configure the EOS server to trust the agent's self-signed cert via `--server-ca`
 - For curl debugging only: use `--insecure` (curl flag, never in production)
 
-The agent no longer defaults to InsecureSkipVerify for outbound connections. If registering against an EOS server with a self-signed certificate, use `--insecure-server-tls` as an explicit opt-in.
+For outbound connections to EOS, the agent pins the server's certificate on first registration and refuses a different one afterwards, so a self-signed EOS server needs no extra flag. `--server-ca` adds chain verification against your CA. `--insecure-server-tls` turns verification and pinning off and is for development only.
 
 ## WebSocket issues
 
@@ -62,15 +79,19 @@ Run `eightly-agent.exe uninstall` first, then `eightly-agent.exe install`.
 
 **Service starts but immediately stops**
 Check Event Viewer > Windows Logs > Application for EightlyAgent errors. Common causes:
-- `EIGHTLY_AGENT_SECRET` not set as a system environment variable
+- The secret file (`C:\ProgramData\eightly-agent\secret` by default) is missing or empty
+- `EIGHTLY_AGENT_SECRET` is still set as a Machine variable next to the secret file
+- Another account has access to the secret file, state file or TLS key (check with `icacls`)
 - Docker Desktop not running
 - Port 9001 in use
 
-**How to set environment variables for the service**
+The service's own log is not written to Event Viewer. To read it, stop the service and run `eightly-agent.exe --secret-file C:\ProgramData\eightly-agent\secret --log-level debug` in an elevated PowerShell.
+
+**How to set the secret for the service**
 ```powershell
-[System.Environment]::SetEnvironmentVariable("EIGHTLY_AGENT_SECRET", "your-secret", "Machine")
+Set-Content -NoNewline -Path C:\ProgramData\eightly-agent\secret -Value 'your-secret'
 ```
-Restart the service after changing variables.
+Do not use a Machine environment variable for the secret: every local user can read those. Restart the service (`stop`, then `start`) after changing it.
 
 ## Debug logging
 
@@ -81,8 +102,8 @@ For the Docker container:
 docker run -e LOG_LEVEL=debug ...
 ```
 
-For the Windows service, set `LOG_LEVEL=debug` as a system environment variable and restart.
+For the Windows service, run the agent by hand as shown above; the service discards its log output.
 
 ## Platform testing limitations
 
-CI runs on self-hosted Linux runners. Windows and macOS builds are verified via cross-compilation but not executed in CI. Community testing on Windows and macOS is encouraged. If you encounter platform-specific issues, please file a bug report with your platform details.
+CI runs on Linux: self-hosted runners for this repository's own branches, GitHub-hosted runners for pull requests from forks. Windows and macOS builds are verified via cross-compilation but not executed in CI. Community testing on Windows and macOS is encouraged. If you encounter platform-specific issues, please file a bug report with your platform details.

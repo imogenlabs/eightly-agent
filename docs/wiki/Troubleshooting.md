@@ -41,10 +41,17 @@ At `debug` level, you will see heartbeat confirmations (`heartbeat ok`), startup
 
 ## Agent Will Not Register
 
-**Symptoms**: Agent starts but never appears in the EOS dashboard. Log shows:
+**Symptoms**: Agent starts but never appears in the EOS dashboard. Every authenticated request answers `503` with `Retry-After: 30` and `{"message":"service unavailable: agent is not registered with the server yet"}`. Log shows:
 ```
-WRN registration failed, will retry via heartbeat
+WRN registration failed
+WRN agent is not registered; authenticated routes answer 503 until it is  retry_in=5000
 ```
+
+The agent keeps retrying in the background, waiting 5 seconds and then twice as long each time, up to 5 minutes. Once it registers, the 503s stop without a restart. Only `/ping`, `/healthz`, `/readyz` and `/version` answer while it waits.
+
+A `register failed: status 403` in the log means the server refused the enrollment token: it was already used, has expired or is wrong. Retrying will not help. Generate a new install command in EOS, set the new `EIGHTLY_ENROLL_TOKEN`, and restart the agent.
+
+If the log instead says `not registering: the registration state cannot be saved; set EIGHTLY_STATE_PATH to a writable file`, the agent has not spent the enrollment token: make the state directory writable by the agent (uid 1000 in the image) or point `EIGHTLY_STATE_PATH` somewhere that is.
 
 **Check these in order**:
 
@@ -65,10 +72,11 @@ WRN registration failed, will retry via heartbeat
    ```
 
 4. **State file from a previous registration**
-   If a state file exists at the configured `--state-path`, the agent skips registration and goes straight to heartbeat. If the state is stale (different EOS server, old agent ID), delete the state file and restart:
+   If a state file exists at the configured `--state-path`, the agent skips registration and goes straight to heartbeat. If the state is stale (different EOS server, old agent ID), generate a new install command in EOS first, because the old enrollment token is already spent. Then delete the state file and start the agent with the new `EIGHTLY_ENROLL_TOKEN`. For Docker, re-run the container with the new token (an environment variable cannot be changed on an existing container):
    ```bash
    docker exec eightly-agent rm /data/eightly-agent.json
-   docker restart eightly-agent
+   docker rm -f eightly-agent
+   # re-run with -e EIGHTLY_ENROLL_TOKEN=<new token>; keep the same data volume
    ```
 
 ---
@@ -84,7 +92,9 @@ WRN re-registering after repeated heartbeat failures
 
 **Causes and fixes**:
 
-- **401 status**: The agent's token was invalidated on the EOS side (e.g., the agent was deleted and re-added in EOS). Delete the state file and restart the agent to re-register.
+- **401 status**: The agent's token was invalidated on the EOS side (e.g., the agent was deleted and re-added in EOS). Generate a new install command in EOS, delete the state file, and start the agent with the new enrollment token.
+
+- **`agent token expired, so this agent must be re-enrolled`**: The agent was off long enough for its 30-day token to lapse (it renews from day 15 while running). Generate a new install command on the Agents page and run it on the host; the agent uses the new enrollment token in place of the lapsed saved one.
 
 - **Connection refused / timeout**: EOS is unreachable. The agent will back off (30s -> 60s -> 120s -> 240s -> 300s) and attempt re-registration after 3 consecutive failures. Once EOS is reachable again, the agent recovers automatically.
 
@@ -127,22 +137,23 @@ docker connect failed
 
 ## Agent Refuses to Start
 
-**Symptoms**: Agent exits immediately on startup with an error about missing secret.
+**Symptoms**: Agent exits immediately on startup with `invalid configuration`.
 
-**Cause**: The agent is fail-closed by default -- `EIGHTLY_AGENT_SECRET` is required. Without it, the agent will not start.
+**Causes and fixes**:
 
-**Fixes**:
-
-1. **Production**: Set the shared secret:
+1. **No secret**: The agent is fail-closed -- a shared secret is required. Set it with `EIGHTLY_AGENT_SECRET`, `--secret`, or a file named by `--secret-file` / `EIGHTLY_AGENT_SECRET_FILE`:
    ```bash
    -e EIGHTLY_AGENT_SECRET="your-shared-secret"
    ```
+   For development only, opt in to no-auth mode with `-e EIGHTLY_INSECURE_NO_AUTH=true` or `--insecure-no-auth`.
 
-2. **Development only**: Explicitly opt in to no-auth mode:
-   ```bash
-   -e EIGHTLY_INSECURE_NO_AUTH=true
-   ```
-   Or with the binary: `--insecure-no-auth`
+2. **Secret set twice**: A secret file together with `--secret` or `EIGHTLY_AGENT_SECRET` is refused. Keep only the file.
+
+3. **Secret file unreadable or empty**: The error names the file. On Windows it also says when the file's access list could not be closed to other accounts.
+
+4. **Not a boolean**: `EIGHTLY_METRICS_ENABLED`, `EIGHTLY_BROWSE_READ_ONLY` and `EIGHTLY_INSECURE_NO_AUTH` accept `true`/`false`, `1`/`0`, `yes`/`no` or `on`/`off`. Anything else stops the agent with an error such as `EIGHTLY_METRICS_ENABLED="ture" is not a boolean; use true or false`.
+
+5. **Server URL not https**: `--server-url` must use `https` unless `--insecure-server-tls` is set.
 
 ---
 
@@ -158,9 +169,8 @@ The connecting client (typically the EOS server, or curl) doesn't trust the agen
 
 ### Agent fails to register -- outbound TLS error
 
-Outbound TLS to EOS is **fail-closed by default**. The agent verifies the EOS server's certificate against the system trust store. If your EOS server uses a self-signed certificate:
-- **Recommended**: Use `--server-ca <path-to-ca.pem>` to pin the CA
-- **Dev only**: Use `--insecure-server-tls` to skip verification
+Outbound TLS to EOS is **fail-closed by default**. The agent pins the EOS server's certificate on the first successful registration and refuses any other certificate afterwards; with `--server-ca` it also verifies the chain against that CA. If the EOS server's certificate was replaced on purpose, the saved pin no longer matches: delete the state file and enroll the agent again with a fresh enrollment token.
+- `--insecure-server-tls` turns off verification and pinning. Dev only.
 
 See [TLS](TLS.md) for full details.
 
@@ -184,15 +194,13 @@ rm /data/cert.pem /data/key.pem
 # Restart agent
 ```
 
-### Certificate expired
+### Certificate past its end date
 
-Auto-generated certificates are valid for 1 year. Check expiration:
+Auto-generated certificates carry a 1-year validity, and the agent keeps serving the same certificate after that on purpose: Eight.ly OS pins this exact certificate, and the container health check ignores its dates. A browser or curl will report it as expired; that does not affect Eight.ly OS. Do not delete the files to "renew" it: a new certificate cuts the agent off until it is accepted again in EOS. See [TLS](TLS.md).
 
-```bash
-openssl s_client -connect localhost:9001 </dev/null 2>/dev/null | openssl x509 -enddate -noout
-```
+### "refusing to reuse TLS key"
 
-To renew, delete both cert files and restart the agent. Note: this will change the certificate fingerprint, requiring re-acceptance in EOS if TOFU is in use. See [TLS](TLS.md).
+The key in the data directory is readable by others and the agent could not tighten it to `0600` (for example a read-only bind mount). Fix the mode and owner on the host. On Windows the message means another account still has access to the key after the agent tried to remove it; check with `icacls`.
 
 ---
 
@@ -207,11 +215,11 @@ To renew, delete both cert files and restart the agent. Note: this will change t
    curl -k -H "Authorization: Bearer $TOKEN" https://localhost:9001/containers/<id>/json | jq .State.Running
    ```
 
-2. **Write timeout**: The HTTP server has a 30-minute write timeout. Sessions idle for over 30 minutes may be terminated. Reconnect if this happens.
+2. **Session limits**: A session with no input from the client for 15 minutes is closed, and every session ends after 8 hours. A client that stops reading for more than 10 seconds is disconnected. Reconnect if this happens.
 
 3. **Network interruption**: Any break in the TCP connection between the client and agent will terminate the WebSocket. There is no automatic reconnection built into the agent.
 
-4. **Reverse proxy timeout**: If a load balancer or reverse proxy sits between the client and agent, ensure it has WebSocket support enabled and a long enough idle timeout (at least 30 minutes).
+4. **Reverse proxy timeout**: If a load balancer or reverse proxy sits between the client and agent, ensure it has WebSocket support enabled and an idle timeout of at least 15 minutes.
 
 ### WebSocket returns "docker connect failed"
 
@@ -228,7 +236,7 @@ Docker rejected the attach or exec request. Common causes:
 
 ## File Browser 403 / Permission Denied
 
-**Symptoms**: File browser operations fail with 500 errors containing permission messages.
+**Symptoms**: File browser operations fail with `403` or `500` errors.
 
 **Fixes**:
 
@@ -238,9 +246,15 @@ Docker rejected the attach or exec request. Common causes:
      - /var/lib/docker/volumes:/data/volumes:rw
    ```
 
-2. **File ownership**: Docker volumes may be owned by different UIDs inside containers. The agent process needs read/write access. Running the agent as root (default in the Docker image) typically resolves this.
+2. **File ownership**: Docker volumes may be owned by different UIDs inside containers. The agent runs as uid 1000 in the image and needs read (and, for uploads, write) access. `{"error":"volume is not readable by the agent"}` (403) means it has none.
 
 3. **Path traversal rejection**: If you see `{"error":"path traversal rejected"}`, your `volumeID` or `path` parameter contains `..`. Use clean paths without parent directory references.
+
+4. **Hidden paths**: `{"error":"forbidden"}` (403) means a segment of the path starts with `.` (`.ssh`, `.env`, `.git`). Hidden files and folders are never reachable through the file browser.
+
+5. **Special files**: `{"error":"not a regular file"}` (400) means the target is a pipe, socket or device. Only regular files can be downloaded or overwritten.
+
+6. **Read-only mode**: `{"error":"read-only mode"}` (403) on upload, delete or rename means the agent runs with `--browse-read-only`.
 
 ---
 
@@ -307,20 +321,25 @@ eightly-agent.exe start
 
 **Symptoms**: `eightly-agent.exe start` succeeds, but the service shows as "Stopped" moments later in `services.msc`.
 
-**Diagnosis**: Open **Event Viewer > Windows Logs > Application** and filter by source `EightlyAgent`. The service logs startup errors there when running under the SCM.
+**Diagnosis**: The service writes its log to standard error, which Windows discards for services, so the reason is not in Event Viewer (the System log only records that the service stopped). Run the agent by hand to see it; see [Viewing Logs When Running as a Windows Service](#viewing-logs-when-running-as-a-windows-service).
 
 **Common causes**:
 
-1. **Missing environment variables**: The service needs `EIGHTLY_AGENT_SECRET` and `EIGHTLY_SERVER_URL` set as system-level environment variables (not user-level). Set them with:
+1. **Missing or empty secret file**: The service reads its secret from the file `install` configured (default `C:\ProgramData\eightly-agent\secret`). Write it from an elevated PowerShell:
    ```powershell
-   [System.Environment]::SetEnvironmentVariable("EIGHTLY_AGENT_SECRET", "your-secret", "Machine")
-   [System.Environment]::SetEnvironmentVariable("EIGHTLY_SERVER_URL", "https://your-eos-server:8080", "Machine")
+   Set-Content -NoNewline -Path C:\ProgramData\eightly-agent\secret -Value 'your-shared-secret'
    ```
-   Then reinstall and start the service.
 
-2. **Data directory permissions**: Ensure `C:\ProgramData\eightly-agent` exists and is writable by the service account (Local System by default).
+2. **Secret set twice**: The agent refuses to start when `EIGHTLY_AGENT_SECRET` is set as well as the secret file. Remove the old Machine variable, which every local user can read:
+   ```powershell
+   [System.Environment]::SetEnvironmentVariable("EIGHTLY_AGENT_SECRET", $null, "Machine")
+   ```
 
-3. **Port conflict**: Another process is using port 9001. Check with:
+3. **Secret file or state open to other users**: The agent refuses the secret file, the state file and the TLS key if an account other than SYSTEM, Administrators and its own still has access after it tries to lock them down. Check with `icacls C:\ProgramData\eightly-agent\*` and remove the extra entries.
+
+4. **A boolean variable with a bad value**: `EIGHTLY_METRICS_ENABLED`, `EIGHTLY_BROWSE_READ_ONLY` and `EIGHTLY_INSECURE_NO_AUTH` must be `true` or `false` (or `1`/`0`, `yes`/`no`, `on`/`off`); anything else stops the agent at startup.
+
+5. **Port conflict**: Another process is using port 9001. Check with:
    ```powershell
    netstat -ano | findstr :9001
    ```
@@ -346,25 +365,13 @@ eightly-agent.exe start
 
 ### Viewing Logs When Running as a Windows Service
 
-When the agent runs as a Windows service, it logs to the Windows Event Log rather than stdout.
+The agent logs to standard error. Under the Service Control Manager that output is discarded, and the agent does not write to the Windows Event Log; Event Viewer's System log only shows the service starting and stopping.
 
-**Event Viewer**:
-1. Open Event Viewer (`eventvwr.msc`)
-2. Navigate to **Windows Logs > Application**
-3. Filter by source: `EightlyAgent`
-
-**Debug logging**: Set the `LOG_LEVEL` environment variable at the system level before starting the service:
-
-```powershell
-[System.Environment]::SetEnvironmentVariable("LOG_LEVEL", "debug", "Machine")
-eightly-agent.exe restart
-```
-
-**Running interactively for debugging**: Stop the service and run the agent directly in a terminal to see real-time output:
+**Running interactively for debugging**: Stop the service and run the agent in an elevated PowerShell with the same secret file to see its output:
 
 ```powershell
 eightly-agent.exe stop
-eightly-agent.exe --log-level debug
+eightly-agent.exe --secret-file C:\ProgramData\eightly-agent\secret --log-level debug
 ```
 
 Press Ctrl+C to stop, then restart the service when done debugging.

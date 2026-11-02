@@ -18,7 +18,7 @@ Eight.ly Agent is a lightweight, cross-platform Docker management daemon written
 
 | Feature | Description |
 |---------|-------------|
-| Docker API Proxy | Forwards authenticated requests to the local Docker socket over HTTPS |
+| Docker API Proxy | Forwards authenticated requests to the local Docker socket over HTTPS, refusing requests that would reach the host |
 | WebSocket Console | Interactive container attach and exec via WebSocket |
 | File Browser | List, upload, download, delete, and rename files in Docker volumes |
 | Host Info | Reports PCI devices, physical disks, and system metadata |
@@ -69,25 +69,36 @@ The agent sits between the EOS dashboard and the local Docker daemon. All commun
 ## Package Layout
 
 ```
-cmd/agent/main.go                  128 LOC -- entry point, HTTP mux, TLS, graceful shutdown
-cmd/agent/service_linux.go          -- Linux service (systemd) integration
-cmd/agent/service_darwin.go         -- macOS service (launchd) integration
-cmd/agent/service_windows.go        -- Windows service (SCM) integration
-internal/auth/jwt.go                65 LOC -- HMAC shared-secret token validation middleware
-internal/browse/browse.go          143 LOC -- file browser (ls, get, put, delete, rename)
-internal/config/config.go           51 LOC -- CLI flags + env var parsing
-internal/config/defaults_linux.go   -- Linux platform defaults
-internal/config/defaults_darwin.go  -- macOS platform defaults
-internal/config/defaults_windows.go -- Windows platform defaults
-internal/hostinfo/hostinfo.go       87 LOC -- PCI device and physical disk detection
-internal/proxy/docker.go            50 LOC -- reverse proxy to Docker socket
-internal/register/register.go      268 LOC -- EOS registration + 30s heartbeat loop
-internal/server/server.go           -- HTTP server lifecycle (used by service wrappers)
-internal/tlsutil/tls.go             75 LOC -- self-signed cert generation
-internal/websocket/ws.go           125 LOC -- WebSocket attach + exec handlers
-                                   -----
-                                  ~2,050 LOC total
+cmd/agent/
+  main.go               -- entry point, subcommands, signal handling
+  healthcheck.go        -- `eightly-agent healthcheck` subcommand for container health checks
+  service_windows.go    -- Windows service (install/uninstall/start/stop/status)
+  service_other.go      -- stubs for Linux and macOS
+internal/auth/jwt.go    -- HMAC shared-secret token validation middleware
+internal/browse/        -- file browser (ls, get, put, delete, rename), confined to each volume
+internal/config/
+  config.go             -- CLI flags + env var parsing and validation
+  secretfile.go         -- --secret-file reading
+  defaults_other.go     -- Linux/macOS default paths (unix socket, /data)
+  defaults_windows.go   -- Windows default paths (named pipe, ProgramData)
+internal/hostinfo/      -- PCI devices and physical disks (sysfs, system_profiler, PowerShell), cached 30s
+internal/metrics/       -- Prometheus counters and gauges
+internal/proxy/docker.go -- reverse proxy to the Docker socket and its request filter
+internal/register/
+  register.go           -- EOS registration + 30s heartbeat loop
+  renew.go              -- token renewal from half-life
+  pin.go                -- first-use pinning of the EOS server certificate
+  holder.go             -- registration state shared with request handlers
+  statedir.go           -- state file and directory permission checks
+internal/server/
+  server.go             -- HTTP mux, TLS listener, registration gate, graceful shutdown
+  healthcheck.go        -- health check pinned to the agent's own certificate
+internal/tlsutil/tls.go -- self-signed cert generation and reuse
+internal/websocket/     -- WebSocket attach + exec handlers
+internal/winacl/        -- Windows access lists for the data folder, state, secret and TLS key
 ```
+
+About 4,800 lines of Go, not counting tests.
 
 ## Dependencies
 
@@ -96,6 +107,7 @@ internal/websocket/ws.go           125 LOC -- WebSocket attach + exec handlers
 | `github.com/gorilla/websocket` | WebSocket upgrade for container console |
 | `github.com/rs/zerolog` | Structured JSON logging |
 | `github.com/prometheus/client_golang` | Prometheus metrics exposition |
+| `golang.org/x/sys` | Windows service management and access lists |
 
 No frameworks, no ORM, no config libraries.
 

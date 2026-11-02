@@ -364,3 +364,53 @@ func TestLifetimeProblemAtExactExpiry(t *testing.T) {
 		t.Errorf("a token was refused a second before exp: %s", p)
 	}
 }
+
+// exp - iat used to be multiplied into a time.Duration, which wraps: a span of
+// 18446744074 seconds came out as about 0.7 seconds and passed the 30-day check.
+func TestTokenWithOverflowingLifetimeIsRejected(t *testing.T) {
+	c := serverClaims("agent-1")
+	c.Exp = c.Iat + 18446744074
+	if p := lifetimeProblem(c, time.Unix(c.Iat, 0)); p == "" {
+		t.Fatal("a token whose lifetime overflows a Duration was accepted")
+	}
+	if code := statusFor(t, c); code != http.StatusUnauthorized {
+		t.Fatalf("overflowing lifetime got %d, want 401", code)
+	}
+}
+
+func TestTokenIssuedInTheFutureIsRejected(t *testing.T) {
+	now := time.Now()
+	c := serverClaims("agent-1")
+	c.Iat = now.Add(time.Hour).Unix()
+	c.Exp = time.Unix(c.Iat, 0).Add(maxTokenLifetime).Unix()
+	if p := lifetimeProblem(c, now); p == "" {
+		t.Fatal("a token issued an hour from now was accepted")
+	}
+	if code := statusFor(t, c); code != http.StatusUnauthorized {
+		t.Fatalf("future iat got %d, want 401", code)
+	}
+}
+
+// Two clocks never agree exactly; a token minted a moment "ahead" of this host
+// is still the server's.
+func TestTokenIssuedWithinClockSkewIsAccepted(t *testing.T) {
+	now := time.Now()
+	c := serverClaims("agent-1")
+	c.Iat = now.Add(maxClockSkew).Unix()
+	c.Exp = time.Unix(c.Iat, 0).Add(maxTokenLifetime).Unix()
+	if p := lifetimeProblem(c, now); p != "" {
+		t.Fatalf("a token issued within the clock skew was refused: %s", p)
+	}
+	c.Iat = now.Add(maxClockSkew + time.Second).Unix()
+	if lifetimeProblem(c, now) == "" {
+		t.Fatal("a token issued just past the clock skew was accepted")
+	}
+}
+
+func TestTokenOfExactly30DaysIsAccepted(t *testing.T) {
+	c := serverClaims("agent-1")
+	c.Exp = c.Iat + int64(maxTokenLifetime/time.Second)
+	if p := lifetimeProblem(c, time.Unix(c.Iat, 0)); p != "" {
+		t.Fatalf("a 30-day token was refused: %s", p)
+	}
+}
