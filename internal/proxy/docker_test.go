@@ -178,10 +178,10 @@ func TestProxy_ReadEndpoints_NotInspected(t *testing.T) {
 	}
 }
 
-func TestInspectCreateBody_MalformedJSONAllowed(t *testing.T) {
-	// A body that isn't valid JSON is not our job to block — the daemon rejects it.
-	if reason := inspectCreateBody([]byte("not json")); reason != "" {
-		t.Fatalf("expected malformed body to pass inspection, got reason %q", reason)
+func TestInspectBody_MalformedJSONRefused(t *testing.T) {
+	// A body the filter cannot interpret is refused: it cannot be shown safe.
+	if reason := inspectBody(bodyContainerCreate, []byte("not json")); reason == "" {
+		t.Fatal("malformed body passed inspection")
 	}
 }
 
@@ -197,6 +197,14 @@ func TestProxy_SecurityOpt_Rejected(t *testing.T) {
 		"label disable :":         `{"HostConfig":{"SecurityOpt":["label:disable"]}}`,
 		"seccomp colon sep":       `{"HostConfig":{"SecurityOpt":["seccomp:unconfined"]}}`,
 		"mixed case + whitespace": `{"HostConfig":{"SecurityOpt":[" Seccomp = Unconfined "]}}`,
+		"seccomp profile path":    `{"HostConfig":{"SecurityOpt":["seccomp=/path/to/profile.json"]}}`,
+		"seccomp inline profile":  `{"HostConfig":{"SecurityOpt":["seccomp={\"defaultAction\":\"SCMP_ACT_ALLOW\"}"]}}`,
+		"apparmor other profile":  `{"HostConfig":{"SecurityOpt":["apparmor=unconfined-ish"]}}`,
+		"label type spc":          `{"HostConfig":{"SecurityOpt":["label=type:spc_t"]}}`,
+		"bare disable":            `{"HostConfig":{"SecurityOpt":["disable"]}}`,
+		"systempaths unconfined":  `{"HostConfig":{"SecurityOpt":["systempaths=unconfined"]}}`,
+		"writable cgroups":        `{"HostConfig":{"SecurityOpt":["writable-cgroups=true"]}}`,
+		"as a string":             `{"HostConfig":{"SecurityOpt":"seccomp=unconfined"}}`,
 	}
 	for name, body := range cases {
 		rr, sink := postCreate(t, body)
@@ -210,11 +218,15 @@ func TestProxy_SecurityOpt_Rejected(t *testing.T) {
 }
 
 func TestProxy_SecurityOpt_SafeProfilePassesThrough(t *testing.T) {
-	// A custom seccomp profile / no-new-privileges is NOT a confinement bypass.
+	// The default profiles, no-new-privileges and SELinux user/role/level
+	// labels keep the sandbox in place.
 	cases := map[string]string{
-		"custom seccomp profile": `{"HostConfig":{"SecurityOpt":["seccomp=/path/to/profile.json"]}}`,
-		"no-new-privileges":      `{"HostConfig":{"SecurityOpt":["no-new-privileges"]}}`,
-		"label user":             `{"HostConfig":{"SecurityOpt":["label=user:USER"]}}`,
+		"default seccomp":   `{"HostConfig":{"SecurityOpt":["seccomp=builtin"]}}`,
+		"default apparmor":  `{"HostConfig":{"SecurityOpt":["apparmor=docker-default"]}}`,
+		"no-new-privileges": `{"HostConfig":{"SecurityOpt":["no-new-privileges"]}}`,
+		"nnp true":          `{"HostConfig":{"SecurityOpt":["no-new-privileges:true"]}}`,
+		"label user":        `{"HostConfig":{"SecurityOpt":["label=user:USER"]}}`,
+		"label level":       `{"HostConfig":{"SecurityOpt":["label=level:s0:c100,c200"]}}`,
 	}
 	for name, body := range cases {
 		rr, sink := postCreate(t, body)

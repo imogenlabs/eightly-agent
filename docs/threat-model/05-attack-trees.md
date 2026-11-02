@@ -20,22 +20,62 @@ GOAL: Execute arbitrary code as root on a managed host
 │   │       └── [EXTERNAL] requires existing host access (already root)
 │   └── 1.3 Exploit the --insecure-no-auth escape hatch
 │       └── [RESIDUAL] operator-acknowledged; loud, deliberate opt-in only
-├── 2. With a valid token, submit a host-escape create
-│   ├── 2.1 HostConfig.Privileged=true / top-level Privileged on exec
-│   │   └── [BLOCKED] r4 inspectCreateBody rejects both
-│   ├── 2.2 Host PID/IPC/Network/Userns namespace
-│   │   └── [BLOCKED] r4 isHostNamespace + UsernsMode=="host"
+├── 2. With a valid token, submit a host-escape request
+│   ├── 2.1 Privileged=true (HostConfig, top level, or on exec create)
+│   │   └── [BLOCKED] checkHostConfig on HostConfig and on the top-level fields
+│   ├── 2.2 Host PID/IPC/network/user/UTS/cgroup namespace
+│   │   └── [BLOCKED] isHostNamespace on PidMode, IpcMode, NetworkMode, UsernsMode, UTSMode, CgroupnsMode
 │   ├── 2.3 CapAdd: SYS_ADMIN / SYS_PTRACE / DAC_READ_SEARCH / ALL …
-│   │   └── [BLOCKED] r4 dangerousCaps map (CAP_ prefix normalized)
-│   ├── 2.4 Bind-mount /, /etc, /root, /proc, /sys, or docker.sock
-│   │   └── [BLOCKED] r4 sensitivePaths via Binds + structured Mounts, cleaned + prefix-matched
-│   └── 2.5 Escape via a vector NOT on the deny-list
-│       ├── 2.5.1 Devices (e.g. /dev/mem, raw disk)        [RESIDUAL]
-│       ├── 2.5.2 SecurityOpt (apparmor=unconfined, seccomp=unconfined) [RESIDUAL]
-│       └── 2.5.3 Sysctls (kernel param tampering)         [RESIDUAL]
+│   │   └── [BLOCKED] dangerousCaps (CAP_ prefix normalized; list or single string)
+│   ├── 2.4 Bind-mount a sensitive host path (Binds, Mounts Type "bind")
+│   │   └── [BLOCKED] isSensitiveHostPath: path.Clean resolves .. and //, then refuses a path equal to,
+│   │       under, or a parent of /, /etc, /root, /proc, /sys, /dev, /boot, /home, /run, /var/run,
+│   │       /var/lib/docker, docker.sock (so /var and /var/lib are refused too)
+│   ├── 2.5 Volume that mounts a host path or block device
+│   │   ├── 2.5.1 POST /volumes/create DriverOpts type=none/o=bind/device=/path
+│   │   │   └── [BLOCKED] checkVolumeOptions: bind/rbind, a local-path device, any type but nfs/nfs4/cifs/smb3/tmpfs,
+│   │   │       and options for any non-local driver are refused
+│   │   └── 2.5.2 Mounts Type "volume" with VolumeOptions.DriverConfig options
+│   │       └── [BLOCKED] same checkVolumeOptions
+│   ├── 2.6 Weaken the sandbox
+│   │   ├── 2.6.1 SecurityOpt: seccomp unconfined or custom profile, apparmor other than docker-default,
+│   │   │         label=disable or label=type:*, systempaths=unconfined, writable-cgroups=true
+│   │   │   └── [BLOCKED] allowedSecurityOpt allow-list (seccomp=builtin, apparmor=docker-default,
+│   │   │       no-new-privileges, label=user:/role:/level:)
+│   │   ├── 2.6.2 MaskedPaths / ReadonlyPaths set (overrides the defaults; [] unmasks everything)
+│   │   │   └── [BLOCKED] refused when present
+│   │   ├── 2.6.3 Devices / DeviceCgroupRules (raw disk, /dev/mem)
+│   │   │   └── [BLOCKED] refused on create and on POST /containers/{id}/update
+│   │   ├── 2.6.4 Sysctls outside the namespaced set
+│   │   │   └── [BLOCKED] only net.*, fs.mqueue.* and the kernel IPC set pass
+│   │   ├── 2.6.5 CgroupParent
+│   │   │   └── [BLOCKED] refused on create and update
+│   │   └── 2.6.6 tmpfs over /, /proc, /sys, /etc (Tmpfs map or Mounts Type "tmpfs")
+│   │       └── [BLOCKED] isSensitiveTmpfsTarget
+│   ├── 2.7 Use the Swarm or plugin API
+│   │   ├── 2.7.1 Install/enable a plugin (runs with host privileges)
+│   │   │   └── [BLOCKED] any non-GET/HEAD under /plugins
+│   │   ├── 2.7.2 Create a service/config/secret or change a node
+│   │   │   └── [BLOCKED] any non-GET/HEAD under /services, /configs, /secrets, /nodes
+│   │   └── 2.7.3 Read join tokens or the unlock key, init/join a swarm
+│   │       └── [BLOCKED] every method under /swarm
+│   └── 2.8 Escape via a vector NOT on the deny-list
+│       ├── 2.8.1 A future HostConfig field that grants host reach      [RESIDUAL]
+│       ├── 2.8.2 Join another container's namespaces (NetworkMode/PidMode "container:<id>")
+│       │         or VolumesFrom a container created outside the proxy   [RESIDUAL]
+│       ├── 2.8.3 A symlink on the host that points a harmless-looking bind path at a
+│       │         sensitive one (paths are compared lexically)            [RESIDUAL]
+│       └── 2.8.4 POST /build (e.g. networkmode=host) and NFS/CIFS volumes pointed at the host itself [RESIDUAL]
 └── 3. Bypass the proxy filter entirely
-    ├── 3.1 Smuggle the body past inspection (chunked/size games)
-    │   └── [BLOCKED] r4 body buffered to maxInspectBody then replayed; non-create paths pass but carry no escape config
+    ├── 3.1 Smuggle the body past inspection
+    │   ├── 3.1.1 Oversized body (padding past the inspection buffer)
+    │   │   └── [BLOCKED] bodies over 1 MiB are refused with 413, never truncated and forwarded
+    │   ├── 3.1.2 Body the filter cannot parse (wrong types, trailing data)
+    │   │   └── [BLOCKED] any decode error is refused with 403; CapAdd/Binds/SecurityOpt/DeviceCgroupRules
+    │   │       accept a string or a list, as Docker does
+    │   └── 3.1.3 Path tricks (/v1.45/v1.45/containers/create, //, ./, ..)
+    │       └── [BLOCKED] dockerPath cleans the path and strips every version prefix; the filter
+    │           inspects exactly the path the proxy forwards
     └── 3.2 Reach the unix socket directly
         └── [EXTERNAL] requires host-local access already
 ```
