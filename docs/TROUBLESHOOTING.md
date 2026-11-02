@@ -14,20 +14,25 @@ Keep only the secret file. On Windows remove the old Machine variable: `[Environ
 **"failed to generate TLS cert"**
 The agent can't write to the data directory. Check permissions: the directory should be writable by the eightly-agent user (or root if running as root).
 
+**"cannot use the saved registration at ..."**
+The state file (`EIGHTLY_STATE_PATH`) exists but cannot be read or parsed. The agent will not start rather than enroll over the identity and server pin it holds, and it leaves the file as it is. If the error names permissions or an owner, fix those. If the file is damaged, move it aside and run a new install command from the Agents page.
+
+**"the saved registration at ... is for server A, but the configured server URL is B"**
+The agent is registered with another server. To keep it there, set `EIGHTLY_SERVER_URL` back to the old URL. To move it, run an install command generated on the new server: its enrollment token tells the agent to enroll there, and the old state is copied to `<state path>.bak` first (replacing any older backup). Differences in case, a trailing slash or a default port do not count as another server.
+
 **Port already in use**
 Another process is using port 9001. Use `--port` to pick a different port, or find the conflicting process: `lsof -i :9001` (Linux/macOS) or `netstat -ano | findstr 9001` (Windows).
 
 ## Registration fails
 
 **"registration failed" and every authenticated request answers 503**
-The agent has not registered yet. It retries every 5 seconds, doubling to every 5 minutes, and serves only `/ping`, `/healthz`, `/readyz` and `/version` until it has. Check:
+The agent can't reach the EOS server, or the server failed. The agent keeps retrying with a growing pause (up to 5 minutes), and authenticated routes answer 503 until it registers. Check:
 1. `EIGHTLY_SERVER_URL` is correct and reachable
-2. The enrollment token is valid and unused
-3. Firewall allows outbound HTTPS to the EOS server
-4. If using `--server-ca`, the CA cert matches the server's certificate
+2. Firewall allows outbound HTTPS to the EOS server
+3. If using `--server-ca`, the CA cert matches the server's certificate
 
-**"register failed: status 403"**
-EOS refused the enrollment token: it is single-use and may have expired. Retrying will not help. Generate a new install command in EOS and restart the agent with the new token.
+**"the server refused the enrollment token"**
+The server answered 401, 403 or 410: the enrollment token is unknown, expired or already used, or the agent it was made for has been deleted. Tokens are single-use, so this also happens when the server accepted the token but its answer never reached the agent. Retrying cannot help, so the agent stops trying, keeps running, and answers 503 on authenticated routes. Generate a new install command on the Agents page and run it on the host.
 
 **"not registering: the registration state cannot be saved"**
 The agent will not spend its single-use enrollment token while it cannot save the result. Make the state directory writable by the agent's user, or set `EIGHTLY_STATE_PATH` to a writable file.

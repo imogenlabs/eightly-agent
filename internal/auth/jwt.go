@@ -21,6 +21,9 @@ const (
 	tokenIssuer      = "eightly-server"
 	tokenType        = "agent"
 	maxTokenLifetime = 30 * 24 * time.Hour
+	// maxClockSkew is how far in the future an iat may be and still be
+	// believed: the server's clock and this host's are not the same clock.
+	maxClockSkew = 5 * time.Minute
 )
 
 // Claims represents the payload of an HMAC-signed agent token.
@@ -44,8 +47,9 @@ type Claims struct {
 //     socket — i.e. host root — unauthenticated, we FAIL CLOSED and reject every
 //     request with 503. "No auth" must always be a deliberate choice.
 //
-// A token must carry the issuer and type the server sets, an iat and an exp
-// no more than 30 days after it, and must not have expired. A token without an
+// A token must carry the issuer and type the server sets, an iat no more than
+// five minutes in the future and an exp no more than 30 days after it, and must
+// not have expired. A token without an
 // exp never lapses, so it is refused.
 //
 // agentID reports this agent's own registered ID and is called on every request,
@@ -140,7 +144,12 @@ func Middleware(secret string, insecureNoAuth bool, agentID func() string) func(
 // lifetimeProblem says why the token's lifetime is unacceptable at now, or ""
 // when it is fine. The server sets exp exactly 30 days after iat, so a longer
 // span was not minted by it as an agent token.
+//
+// Everything is compared in whole seconds. Converting a claimed span to a
+// time.Duration first overflows for a large exp and wraps to a short one,
+// which then passed the 30-day check.
 func lifetimeProblem(c Claims, now time.Time) string {
+	nowSec := now.Unix()
 	switch {
 	case c.Exp <= 0:
 		return "token has no expiry"
@@ -148,9 +157,11 @@ func lifetimeProblem(c Claims, now time.Time) string {
 		return "token has no issue time"
 	case c.Exp <= c.Iat:
 		return "token expires before it was issued"
-	case time.Duration(c.Exp-c.Iat)*time.Second > maxTokenLifetime:
+	case c.Exp-c.Iat > int64(maxTokenLifetime/time.Second):
 		return "token lifetime is longer than 30 days"
-	case !now.Before(time.Unix(c.Exp, 0)):
+	case c.Iat > nowSec && c.Iat-nowSec > int64(maxClockSkew/time.Second):
+		return "token issued in the future"
+	case nowSec >= c.Exp:
 		return "expired token"
 	}
 	return ""
