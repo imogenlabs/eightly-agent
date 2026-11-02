@@ -19,6 +19,7 @@ Read [Upgrading to 2.1.0](docs/UPGRADING.md#upgrading-to-210) before you upgrade
 - **The file browser reads Docker's volumes folder.** Mount `/var/lib/docker/volumes` into the agent's container at the same path, or set `--volumes-path`. Without it the browser answers `503`.
 - **Tokens must carry `"type":"agent"`, `iat` and `exp`**, at most 30 days apart. Tokens from Eight.ly OS already do; a token you sign yourself must too.
 - **Linux packages and the Windows service keep their secrets in files.** `.deb` / `.rpm` installs read `/etc/eightly-agent/agent.env`; the Windows service reads its secret and enrollment token from files and must be reinstalled.
+- **Bind roots in a container install must be mounted into the agent.** When the agent runs in a container, mount each `--allowed-bind-roots` folder into it at the same path, read-only (`-v /opt/appdata:/opt/appdata:ro`), so it can check binds under it for symlinks. A root that is not mounted still works for containers without a restart policy, but a restart policy other than `no` is refused on any container that mounts a path under it.
 
 ### Security
 - The Docker proxy is an allow-list. Only the listed method and path pairs reach Docker; everything else is refused with `403`. Container create, container update, exec create, volume create and network create bodies are read and refused when they ask for privileged mode; a host or another container's PID, IPC, UTS, user, cgroup or network namespace; a capability beyond Docker's default set; a host folder outside the bind roots; `VolumesFrom`; a non-local volume driver; host devices, device requests or device cgroup rules; a runtime other than `runc`; runtime annotations; masked or read-only path overrides; a security option outside the default profiles, `no-new-privileges` and SELinux user, role and level labels; a sysctl that is not namespaced; `CgroupParent`; `OomKillDisable`; or a tmpfs over `/`, `/proc`, `/sys` or `/etc`. A new network must use the `bridge`, `macvlan` or `ipvlan` driver, and joining a network whose driver is `host` is refused. Paths are cleaned and every `/vX.Y` prefix removed before the check, so the proxy checks exactly what Docker will route.
@@ -32,6 +33,14 @@ Read [Upgrading to 2.1.0](docs/UPGRADING.md#upgrading-to-210) before you upgrade
 - The file browser refuses any path with a segment starting with `.` (`.ssh`, `.env`, `.git`) with `403` on every route, not only downloads, and refuses pipes, sockets and devices with `400`.
 - The container health check accepts only the agent's own certificate, byte for byte, and ignores its dates, so another listener on the port is unhealthy and a certificate past its first year is not.
 - A saved registration with no agent ID or token is ignored, and a registration reply without them is treated as a failure.
+- A Docker request body that names the same key twice, at any depth and in any letter case, is refused. Docker and the proxy could read such a body differently.
+- A container the daemon does not know is answered `404` by the agent and never forwarded by name, and every checked route (start, stop, restart, kill, pause, update, rename, delete, top, exec, attach, archive, the WebSocket console) goes on under the inspected full ID.
+- The agent's own container cannot be stopped, killed, paused, removed, restarted, updated or renamed through it, and a container holding the Docker socket cannot be renamed. Nothing can be tagged into the agent's own image repositories.
+- The agent's own volumes and bind sources, and on a host install its state, key, certificate and secret files, cannot be mounted by another container. The file browser applies the same volume check and refuses a path that runs through a symlink.
+- `GET /containers/json` hides the command line of the agent and of socket holders, and the values of secret flags in every other container.
+- `/images/create` is a registry pull only: `fromImage` is required and no body is accepted.
+- Windows drive, UNC and colon bind sources are refused, and a volume source must be a Docker volume name. Start and restart re-check volumes bound under a root for symlinks, as they do binds.
+- On Windows a folder holding the agent's files is refused when another account may add or delete files in it, and only the agent's configured files mark a folder as its own, so it no longer re-locks folders that merely hold a `.json` file.
 
 ### Changed
 - An agent that registers with Eight.ly OS now answers `503 Service Unavailable` with `Retry-After: 30` on every route that needs a token until it knows its own ID. Before, an agent waiting to register accepted a valid token for any agent. The health probes (`/ping`, `/healthz`, `/readyz`, `/version`) keep answering, and an agent with a saved registration is not affected.
@@ -63,6 +72,9 @@ Read [Upgrading to 2.1.0](docs/UPGRADING.md#upgrading-to-210) before you upgrade
 - Token renewal and re-registration report the agent's port. They sent none, so Eight.ly OS reset an agent listening on another port to 9001 at its first renewal and could no longer reach it.
 - A WebSocket console client that stopped reading could hold its session open past the idle and 8-hour limits. Every write now has a 10-second deadline, and the limits are enforced separately from the writes.
 - `/host` could hang on a stuck `system_profiler`, `diskutil` or PowerShell command. Each one now stops after 15 seconds, and the summary is cached for 30 seconds so polling does not start new commands each time.
+- WebSocket console output that arrived in the same packet as Docker's handshake reply was dropped, so a shell could open with no prompt.
+- Behind TLS with SNI, a browser origin with the agent's port (`https://agent.example:9001`) was refused as cross-origin.
+- A host install that kept its `--secret-file` in the data folder could not restart: the secret was counted as another program's file and the saved registration was refused.
 
 ## [2.0.6] - 2026-11-02
 
