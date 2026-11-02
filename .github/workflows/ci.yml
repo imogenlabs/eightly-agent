@@ -87,6 +87,21 @@ jobs:
             exit 1
           fi
 
+  windows-test:
+    name: Test (Windows)
+    # GitHub-hosted on every push and pull request, fork or not: no
+    # self-hosted runner here runs Windows, and this is the only job that
+    # exercises the named-pipe dialer and the Windows access-list and owner
+    # checks for real. The runner is elevated, so the owner tests run.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.26.10'
+      - name: Run tests
+        run: go test ./... -count=1 -timeout 120s
+
   race:
     name: Race Detector
     # A pull request from a fork runs on a GitHub-hosted runner, never on the
