@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -207,7 +209,14 @@ func TestBridge_ReadLimitClosesOnOversizedFrame(t *testing.T) {
 		t.Fatalf("maxFrameBytes = %d, want 65536 (parity with OS terminal)", maxFrameBytes)
 	}
 
-	sock := t.TempDir() + "/docker.sock"
+	// The socket lives under /tmp to stay inside the sun_path limit (104 bytes
+	// on macOS, where t.TempDir() is already too long).
+	dir, err := os.MkdirTemp("/tmp", "ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "d.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatalf("listen unix: %v", err)
