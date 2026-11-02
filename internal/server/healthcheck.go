@@ -3,6 +3,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -26,9 +27,10 @@ import (
 // on a production host. This check starts no child process, so there is nothing to
 // orphan, and it gives up on ctx's deadline rather than waiting to be killed.
 //
-// It trusts exactly the certificate at certPath, the one the listener loads, so
-// it answers whether THIS agent is healthy rather than whether something on the
-// port speaks TLS. A certificate it cannot read makes the check fail.
+// It accepts exactly the certificate at certPath, the one the listener loads,
+// so it answers whether THIS agent is healthy rather than whether something on
+// the port speaks TLS. The certificate's dates are not checked. A certificate
+// it cannot read makes the check fail.
 func Healthcheck(ctx context.Context, addr, port, certPath string) error {
 	host := healthcheckHost(addr)
 	tlsConfig, err := pinnedTLSConfig(certPath, host)
@@ -56,14 +58,14 @@ func Healthcheck(ctx context.Context, addr, port, certPath string) error {
 	return nil
 }
 
-// pinnedTLSConfig trusts only the certificate(s) in certPath. The agent's
-// generated certificate is self-signed and not a CA; Go accepts such a leaf
-// when that exact certificate is in RootCAs, so chain verification stays on.
+// pinnedTLSConfig accepts exactly the certificate in certPath and nothing else.
 //
-// ServerName must be a name the certificate carries or verification fails on
-// the name, not the key. The dialled host is used when the certificate covers
-// it; otherwise the certificate's first SAN is. Trust is already pinned to this
-// one certificate, so choosing the name from it gives nothing away.
+// It compares the bytes the listener presents with the bytes on disk instead of
+// building a chain, because a chain check also checks the validity dates. The
+// agent's certificate is self-signed for a year and reused for good (Eight.ly OS
+// pins the whole certificate, so the agent must never swap it), and a dated
+// check would turn a healthy agent unhealthy on its first birthday. A byte match
+// is the stronger pin anyway: only the certificate the agent loads passes.
 func pinnedTLSConfig(certPath, host string) (*tls.Config, error) {
 	data, err := os.ReadFile(certPath) // #nosec G304 -- the agent's own certificate under its configured data directory
 	if err != nil {
@@ -73,31 +75,23 @@ func pinnedTLSConfig(certPath, host string) (*tls.Config, error) {
 	if block == nil || block.Type != "CERTIFICATE" {
 		return nil, fmt.Errorf("%s holds no PEM certificate", certPath)
 	}
-	leaf, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
+	if _, err := x509.ParseCertificate(block.Bytes); err != nil {
 		return nil, fmt.Errorf("cannot parse the agent's certificate %s: %w", certPath, err)
 	}
-	pool := x509.NewCertPool()
-	pool.AppendCertsFromPEM(data)
-
-	serverName, err := certServerName(leaf, host)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", certPath, err)
-	}
-	return &tls.Config{RootCAs: pool, ServerName: serverName, MinVersion: tls.VersionTLS12}, nil
-}
-
-func certServerName(leaf *x509.Certificate, host string) (string, error) {
-	if leaf.VerifyHostname(host) == nil {
-		return host, nil
-	}
-	if len(leaf.DNSNames) > 0 {
-		return leaf.DNSNames[0], nil
-	}
-	if len(leaf.IPAddresses) > 0 {
-		return leaf.IPAddresses[0].String(), nil
-	}
-	return "", errors.New("certificate names no host or IP address to verify it against")
+	want := block.Bytes
+	return &tls.Config{
+		// Go's chain and hostname checks are replaced, not dropped: the
+		// presented leaf must be byte-for-byte the agent's own certificate.
+		InsecureSkipVerify: true, // #nosec G402 -- verification is the exact byte match in VerifyPeerCertificate below
+		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			if len(rawCerts) == 0 || !bytes.Equal(rawCerts[0], want) {
+				return errors.New("the listener presented a certificate that is not this agent's")
+			}
+			return nil
+		},
+		ServerName: host,
+		MinVersion: tls.VersionTLS12,
+	}, nil
 }
 
 // healthcheckHost turns the listen address into one a client can dial: a

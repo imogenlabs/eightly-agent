@@ -4,9 +4,14 @@ package server
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -186,26 +191,73 @@ func TestHealthcheck_UnreadableCertificateFails(t *testing.T) {
 	}
 }
 
-// A specific --addr the certificate does not name (a reused or supplied cert)
-// is verified against a name the certificate does carry, not refused forever.
-func TestCertServerName_FallsBackToANameTheCertCarries(t *testing.T) {
-	certPath, _, err := tlsutil.EnsureCert(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, _ := os.ReadFile(certPath)
-	block, _ := pem.Decode(data)
-	leaf, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for host, want := range map[string]string{"127.0.0.1": "127.0.0.1", "localhost": "localhost", "10.9.9.9": "localhost"} {
-		got, err := certServerName(leaf, host)
-		if err != nil || got != want {
-			t.Errorf("certServerName(%q) = %q, %v; want %q", host, got, err, want)
+// The agent reuses its self-signed certificate after it expires (Eight.ly OS
+// pins it, so it is never reissued). An expired certificate the agent serves
+// must still pass, and an expired one it does not serve must still fail.
+func TestHealthcheck_ExpiredOwnCertificatePasses(t *testing.T) {
+	expired := func() (*x509.Certificate, tls.Certificate) {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
 		}
+		tmpl := &x509.Certificate{
+			SerialNumber: big.NewInt(1),
+			Subject:      pkix.Name{CommonName: "eightly-agent"},
+			NotBefore:    time.Now().Add(-2 * 365 * 24 * time.Hour),
+			NotAfter:     time.Now().Add(-365 * 24 * time.Hour),
+			KeyUsage:     x509.KeyUsageDigitalSignature,
+			ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+			DNSNames:     []string{"localhost"},
+			IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		}
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		leaf, err := x509.ParseCertificate(der)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return leaf, tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}
 	}
-	if _, err := certServerName(&x509.Certificate{}, "127.0.0.1"); err == nil {
-		t.Error("a certificate with no names was given a server name")
+	serve := func(pair tls.Certificate) (string, string) {
+		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		srv.TLS = &tls.Config{Certificates: []tls.Certificate{pair}}
+		srv.StartTLS()
+		t.Cleanup(srv.Close)
+		host, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+		return host, port
 	}
+
+	ours, pair := expired()
+	if !time.Now().After(ours.NotAfter) {
+		t.Fatal("test certificate is not expired")
+	}
+	host, port := serve(pair)
+	if err := Healthcheck(context.Background(), host, port, writeCertPEM(t, t.TempDir(), ours)); err != nil {
+		t.Fatalf("the agent's own expired certificate was rejected: %v", err)
+	}
+
+	other, _ := expired()
+	if err := Healthcheck(context.Background(), host, port, writeCertPEM(t, t.TempDir(), other)); err == nil {
+		t.Fatal("a listener presenting another expired certificate was reported healthy")
+	}
+}
+
+// The probe dials a specific --addr the certificate may not name (a supplied
+// certificate, or a host address added later). The pin is the certificate
+// itself, so the name does not matter.
+func TestHealthcheck_AddressTheCertificateDoesNotName(t *testing.T) {
+	_, port, certPath := agentTarget(t, t.TempDir())
+	cfg, err := pinnedTLSConfig(certPath, "10.9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := tls.Dial("tcp", net.JoinHostPort("127.0.0.1", port), cfg)
+	if err != nil {
+		t.Fatalf("a certificate that does not name the dialled address was refused: %v", err)
+	}
+	_ = conn.Close()
 }
