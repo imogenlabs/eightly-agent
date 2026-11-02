@@ -20,10 +20,10 @@ Eight.ly Agent is configured entirely through command-line flags and environment
 | `--enroll-token-file` | `EIGHTLY_ENROLL_TOKEN_FILE` | (empty) | Registration | File holding the enrollment token, instead of `--enroll-token`. Setting both is refused; a missing or empty file means no token. |
 | `--state-path` | `EIGHTLY_STATE_PATH` | `eightly-agent.json` in the data directory | Storage | JSON file that stores registration state |
 | `--data` | `DATA_PATH` | `/data` | Storage | Data directory: TLS certificate, key and state. |
-| `--volumes-path` | `EIGHTLY_VOLUMES_PATH` | `/var/lib/docker/volumes` where it exists | Storage | Folder holding Docker's named volumes, for the file browser. See below for the full default. |
+| `--volumes-path` | `EIGHTLY_VOLUMES_PATH` | `/var/lib/docker/volumes` where it exists | Storage | Folder holding Docker's named volumes, for the file browser. See [below](#storage) for the full default. |
 | `--metrics` | `EIGHTLY_METRICS_ENABLED` | `false` | Monitoring | Enable the Prometheus `/metrics` endpoint |
 | `--allowed-origins` | `EIGHTLY_ALLOWED_ORIGINS` | (empty) | Security | Comma-separated WebSocket origin allowlist (empty = same-origin check) |
-| `--allowed-bind-roots` | `EIGHTLY_ALLOWED_BIND_ROOTS` | (empty) | Security | Comma-separated host directories containers may bind-mount. Empty: named volumes only |
+| `--allowed-bind-roots` | `EIGHTLY_ALLOWED_BIND_ROOTS` | (empty) | Security | Comma-separated host directories containers may bind-mount. Empty: named volumes only. See [below](#security). |
 | `--browse-read-only` | `EIGHTLY_BROWSE_READ_ONLY` | `false` | Security | Serve the file browser read-only (refuse upload, delete and rename) |
 | `--advertise-ip` | `EIGHTLY_ADVERTISE_IP` | (auto-detected) | Network | Override the detected local IP sent during registration |
 | `--tls-san` | `EIGHTLY_TLS_SANS` | (empty) | TLS | Extra SANs (DNS names or IPs) to include in the auto-generated TLS certificate |
@@ -48,6 +48,7 @@ The defaults are chosen at build time. Flags and environment variables override 
 | Docker socket | `/var/run/docker.sock` |
 | Data path | `/data` |
 | State path | `eightly-agent.json` in the data path (`/data/eightly-agent.json`) |
+| Volumes path | `/var/lib/docker/volumes` if it exists, else `/data/volumes` if it exists, else `/var/lib/docker/volumes` on Linux and none on macOS |
 
 The `.deb` and `.rpm` packages set `DATA_PATH=/var/lib/eightly-agent` and `EIGHTLY_STATE_PATH=/var/lib/eightly-agent/eightly-agent.json` in the systemd unit.
 
@@ -58,7 +59,9 @@ The `.deb` and `.rpm` packages set `DATA_PATH=/var/lib/eightly-agent` and `EIGHT
 | Docker socket | `//./pipe/docker_engine` |
 | Data path | `C:\ProgramData\eightly-agent` |
 | State path | `state.json` in the data path (`C:\ProgramData\eightly-agent\state.json`) |
+| Volumes path | `C:\ProgramData\docker\volumes` if it exists, else `C:\ProgramData\eightly-agent\volumes` if it exists, else none |
 | Secret file (set by `eightly-agent.exe install`) | `C:\ProgramData\eightly-agent\secret` |
+| Enrollment token file (set by `eightly-agent.exe install`) | `C:\ProgramData\eightly-agent\enroll-token` |
 
 These defaults are defined in `internal/config/defaults_other.go` and `internal/config/defaults_windows.go`. When `--state-path` is not set, the state file goes in whatever directory `--data` names, so moving the data directory moves the state file with it.
 
@@ -122,7 +125,7 @@ Root directory for agent data: the state file and the TLS certificate and key, `
 
 **`--volumes-path` / `EIGHTLY_VOLUMES_PATH`**
 
-The folder holding Docker's named volumes, which the file browser reads as `<volumes-path>/<volumeID>/_data/<path>`. When unset: `/var/lib/docker/volumes` (`C:\ProgramData\docker\volumes` on Windows) if it exists, else `<data>/volumes` if it exists (the bind older instructions used), else `/var/lib/docker/volumes` on Linux and none on macOS and Windows, where Docker Desktop keeps volumes inside its VM. See [File Browser](File-Browser.md).
+The folder holding Docker's named volumes, which the file browser reads as `<volumes-path>/<volumeID>/_data/<path>`. When unset: `/var/lib/docker/volumes` (`C:\ProgramData\docker\volumes` on Windows) if it exists, else `<data>/volumes` if it exists (the bind older instructions used), else `/var/lib/docker/volumes` on Linux and none on macOS and Windows, where Docker Desktop keeps volumes inside its VM. With none, the browser answers `501`; with a folder that does not exist, `503` naming it; with a folder the agent may not read (Docker's own is root-only on a host), `403`. When the agent runs in a container, mount the folder at the same path. See [File Browser](File-Browser.md).
 
 ### Logging
 
@@ -156,9 +159,9 @@ Example: `--allowed-origins "https://os.eight.ly,https://os-dev.eight.ly"`
 
 **`--allowed-bind-roots` / `EIGHTLY_ALLOWED_BIND_ROOTS`**
 
-Comma-separated host directories that containers created through the agent may bind-mount, as a bind or as a local volume with bind options. A host path outside them is refused, and so is exec, attach or file upload into an existing container that binds one. Empty (the default) allows no host paths at all: containers get named volumes, plus `/etc/localtime` and `/etc/timezone` read-only.
+Comma-separated host directories that containers created through the agent may bind-mount, as a bind or as a local volume with bind options. A host path outside them is refused with `403`, and so is exec, attach, the WebSocket console or file upload into an existing container that binds one. Empty (the default) allows no host paths at all: containers get named volumes, plus `/etc/localtime` and `/etc/timezone` read-only. Containers that already bind other folders keep running and can still be started, stopped and restarted.
 
-Each root must be an absolute path with no trailing slash. A system directory, a directory inside one, or a parent of one (`/`, `/etc`, `/usr`, `/var`, `/run`, `/opt`, `/var/lib/docker` and so on) is refused at startup.
+Each root must be an absolute path in `/` form with no trailing slash, `.` or `..`. A system directory, a directory inside one, or a parent of one is refused at startup. The system directories are `/bin`, `/boot`, `/dev`, `/etc`, `/lib`, `/lib32`, `/lib64`, `/libx32`, `/opt/cni`, `/opt/containerd`, `/proc`, `/root`, `/run`, `/sbin`, `/sys`, `/usr`, `/var/lib/containerd`, `/var/lib/docker` and `/var/run`, so `/`, `/opt` and `/var` are refused as their parents while `/opt/appdata` and `/srv/media` are fine. The agent's paths are host paths: it does not need the folders mounted into its own container. Set the same roots on every host whose containers bind them.
 
 Any container that can write under a root can plant a symlink there, and the kernel follows a symlink when it mounts a bind. When the agent runs directly on the host it refuses a bind that runs through a symlink, at create and again at start; when it runs in a container it cannot see the host's paths and does not check. Choose roots that hold app data and nothing the host trusts.
 
@@ -224,10 +227,12 @@ docker run -d --init \
   -e EIGHTLY_AGENT_SECRET="a-strong-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
   -e EIGHTLY_ENROLL_TOKEN="token-from-eos-admin" \
+  -e EIGHTLY_ALLOWED_BIND_ROOTS="/opt/appdata" \
+  -v /var/lib/docker/volumes:/var/lib/docker/volumes \
   ghcr.io/imogenlabs/eightly-agent:latest
 ```
 
-Standard deployment for a single remote Docker host managed by EOS.
+Standard deployment for a single remote Docker host managed by EOS. Containers may bind folders under `/opt/appdata`, and the file browser reads Docker's volumes.
 
 ### Multi-Host Fleet
 

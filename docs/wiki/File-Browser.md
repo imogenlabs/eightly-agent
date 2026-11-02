@@ -204,5 +204,5 @@ Leave the bind out to turn the file browser off; it then answers `503`. If Docke
 
 - [API Reference](API-Reference.md) -- Full endpoint documentation with curl examples
 - [Authentication](Authentication.md) -- Token requirements for file browser access
-- [Configuration](Configuration.md) -- `--data` setting
+- [Configuration](Configuration.md) -- `--volumes-path` setting
 - [Troubleshooting](Troubleshooting.md) -- File browser 403 and permission issues

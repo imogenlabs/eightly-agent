@@ -73,12 +73,15 @@ docker run -d --init --name eightly-agent --restart unless-stopped \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
   -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
+  -e EIGHTLY_ALLOWED_BIND_ROOTS="/opt/appdata" \
   ghcr.io/imogenlabs/eightly-agent:latest
 ```
 
+`EIGHTLY_ALLOWED_BIND_ROOTS` names the host folders your containers may bind; `/opt/appdata` is where the Eight.ly OS app catalog keeps app data. Leave it out and containers get named volumes only: an app that binds a host folder is refused. The `/var/lib/docker/volumes` mount is for the file browser.
+
 The agent runs as uid 1000 and reaches Docker through the group that owns the socket. The image assumes GID 999; `--group-add` gives it your host's group, whatever its number.
 
-The socket is mounted read-write on purpose. `:ro` only marks the socket file read-only, not the Docker API: anything that can open the socket can still create and start containers, so it protects nothing. The controls are the agent's signed-token check and its filter on the Docker requests it forwards, which refuses privileged containers, host namespaces and sensitive host mounts.
+The socket is mounted read-write on purpose. `:ro` only marks the socket file read-only, not the Docker API: anything that can open the socket can still create and start containers, so it protects nothing. The controls are the agent's signed-token check and its Docker proxy, which forwards only an allow-list of Docker endpoints and refuses privileged containers, host namespaces, extra capabilities, devices and host folders outside the bind roots.
 
 `--init` gives the container a process reaper. Images from this release on carry tini for the same job, and their health check is `eightly-agent healthcheck`. That is an in-process HTTPS GET of the agent's own `/healthz` that exits 0 or 1 and starts no child process. Do not override the health check with that command on an older image: before the subcommand existed, the agent ignored the extra word and would start a second agent.
 
@@ -126,7 +129,7 @@ Every flag except `--addr`, `--insecure-server-tls` and `--version` has an equiv
 | `--enroll-token-file` | `EIGHTLY_ENROLL_TOKEN_FILE` | — | File holding the enrollment token, instead of `--enroll-token` (setting both is refused; a missing or empty file means none) |
 | `--state-path` | `EIGHTLY_STATE_PATH` | `eightly-agent.json` in the data directory | Registration state file |
 | `--data` | `DATA_PATH` | `/data` | Data directory (TLS certs, state) |
-| `--volumes-path` | `EIGHTLY_VOLUMES_PATH` | `/var/lib/docker/volumes` where it exists | Docker's named volumes, read by the file browser. On Docker Desktop they are inside its VM and the browser answers `501` |
+| `--volumes-path` | `EIGHTLY_VOLUMES_PATH` | `/var/lib/docker/volumes` (`C:\ProgramData\docker\volumes` on Windows) where it exists, else `<data>/volumes` where it exists | Docker's named volumes, read by the file browser. On Docker Desktop they are inside its VM and the browser answers `501`; a folder that does not exist gets `503` |
 | `--socket` | `DOCKER_SOCKET` | `/var/run/docker.sock` (`//./pipe/docker_engine` on Windows) | Docker socket path |
 | `--log-level` | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
 | `--metrics` | `EIGHTLY_METRICS_ENABLED` | `false` | Enable Prometheus `/metrics` endpoint |
@@ -134,7 +137,7 @@ Every flag except `--addr`, `--insecure-server-tls` and `--version` has an equiv
 | `--advertise-ip` | `EIGHTLY_ADVERTISE_IP` | — | IP to advertise instead of auto-detecting |
 | `--tls-san` | `EIGHTLY_TLS_SANS` | — | Comma-separated extra SANs for the self-signed cert |
 | `--allowed-origins` | `EIGHTLY_ALLOWED_ORIGINS` | — | Comma-separated WebSocket origin allowlist (empty = same-origin) |
-| `--allowed-bind-roots` | `EIGHTLY_ALLOWED_BIND_ROOTS` | — | Comma-separated host directories containers may bind-mount (empty = named volumes only) |
+| `--allowed-bind-roots` | `EIGHTLY_ALLOWED_BIND_ROOTS` | — | Comma-separated host directories containers may bind-mount (empty = named volumes only). Absolute, no trailing slash; a system directory, one inside it or a parent of it stops the agent at startup |
 | `--browse-read-only` | `EIGHTLY_BROWSE_READ_ONLY` | `false` | Serve the file browser read-only (reject upload/delete/rename) |
 | `--insecure-no-auth` | `EIGHTLY_INSECURE_NO_AUTH` | `false` | Disable authentication (NOT for production) |
 | `--insecure-server-tls` | — | `false` | Skip EOS server TLS verification + TOFU pinning (flag-only, NOT for production) |
@@ -198,6 +201,7 @@ sudoedit /etc/eightly-agent/agent.env
 EIGHTLY_AGENT_SECRET=your-shared-secret
 EIGHTLY_SERVER_URL=https://your-eos-server:8080
 EIGHTLY_ENROLL_TOKEN=eos_enroll_...
+EIGHTLY_ALLOWED_BIND_ROOTS=/opt/appdata
 ```
 
 ```bash
@@ -243,7 +247,7 @@ All endpoints require a valid Bearer token (HMAC-signed) **except** the unauthen
 | `PUT` | `/browse/rename` | Rename a file or directory |
 | `GET` | `/websocket/attach` | WebSocket container console (attach) |
 | `GET` | `/websocket/exec` | WebSocket container console (exec) |
-| `*` | `/*` | Docker API pass-through to local socket |
+| `*` | `/*` | Docker API endpoints on the [allow-list](https://imogenlabs.github.io/eightly-agent/API-Reference/#allowed-docker-endpoints), checked and forwarded to the local socket; anything else `403` |
 
 ---
 
@@ -309,12 +313,14 @@ internal/browse/      — file browser (ls, get, put, delete, rename), confined 
 internal/dockerdial/  — connects to Docker: named pipe on Windows, Unix socket elsewhere
 internal/config/
   config.go           — CLI flags + env var parsing and validation
-  secretfile.go       — --secret-file reading
+  secretfile.go       — --secret-file and --enroll-token-file reading
   defaults_windows.go — Windows default paths (named pipe, ProgramData)
   defaults_other.go   — Linux/macOS default paths (unix socket, /data)
 internal/hostinfo/    — PCI + disk detection (sysfs, system_profiler, PowerShell), cached 30s
 internal/metrics/     — Prometheus counters/gauges
-internal/proxy/docker.go — reverse proxy to the Docker socket and its request filter
+internal/proxy/       — Docker proxy: allow-list (routes.go), request and target checks
+                        (filter.go, policy.go), inspect redaction (redact.go), and the
+                        target checks the WebSocket console shares (target.go)
 internal/register/    — EOS registration, 30s heartbeat, token renewal, server-cert pinning
 internal/server/      — HTTP mux, TLS, registration gate, health check, graceful shutdown
 internal/tlsutil/tls.go — self-signed cert generation and reuse
@@ -343,12 +349,12 @@ internal/winacl/      — Windows access lists for the data folder, state, secre
 
 | Workflow | Trigger | What it does |
 |:---------|:--------|:-------------|
-| **CI** | Push/PR to `main`, `dev` | Lint (vet, staticcheck, govulncheck, gosec, golangci-lint, all pinned) → Test (race, 50% coverage floor), Test on Windows (GitHub-hosted: named pipe, access lists and owners) → image reaps orphans → Build matrix (linux/amd64, linux/arm64, linux/arm, darwin/amd64, darwin/arm64, windows/amd64) |
+| **CI** | Push/PR to `main`, `dev` | Lint (vet, staticcheck, govulncheck, gosec, golangci-lint, all pinned) → Test (race, per-package coverage floors in `scripts/coverage-check.sh`), Test on Windows (GitHub-hosted: named pipe, access lists and owners) → image reaps orphans → end-to-end test against a real Docker daemon → Build matrix (linux/amd64, linux/arm64, linux/arm, darwin/amd64, darwin/arm64, windows/amd64) |
 | **Pentest Gate** | Push/PR to `main`, `dev` | Security regression tests for auth, proxy, browse, register and websocket; govulncheck and gosec gates |
 | **CodeQL** | Push/PR to `main`, weekly | Go analysis; any finding fails the job |
 | **Docs** | Push/PR touching the docs | `mkdocs build --strict`; on `main` publishes the [docs site](https://imogenlabs.github.io/eightly-agent/) to GitHub Pages once the repo is public |
-| **Docker Publish** | Push to `main`, tags | Multi-arch build → GHCR + Docker Hub, signed with cosign |
-| **Release** | Tags (`v*`) or manual dispatch | 6 platform binaries + `.deb`/`.rpm` packages (amd64, arm64) → GitHub Release with SHA256 checksums, cosign signatures and an SBOM |
+| **Docker Publish** | Push to `main`, tags | Multi-arch build → GHCR + Docker Hub, signed with cosign; `latest` moves only for the newest released version |
+| **Release** | Tags (`v*`) or manual dispatch | Builds the exact commit the tag points to: 6 platform binaries + `.deb`/`.rpm` packages (amd64, arm64) → GitHub Release with SHA256 checksums, cosign signatures and an SBOM |
 | **OpenSSF Scorecard** | Push to `main`, weekly | Supply-chain checks |
 
 A pull request from a fork runs on GitHub-hosted runners only. The self-hosted runners, which keep state between jobs and can sign releases, take pushes, tags, manual runs and pull requests from branches of this repo. Signing and publishing run only on pushes, tags and manual runs here, never for a pull request.
@@ -416,11 +422,11 @@ gh attestation verify eightly-agent-linux-amd64 --owner imogenlabs \
 
 Eight.ly Agent mediates access to the Docker daemon. Understanding the trust model is critical before deploying it.
 
-**Who's trusted:** Anyone with a valid HMAC-signed Bearer token for this agent. A token must name this agent's ID, come from Eight.ly OS (issuer `eightly-server`, type `agent`) and carry an issue time and an expiry at most 30 days later; anything else gets 401. A valid token reaches the Docker API on the host through the agent's request filter, which refuses the known ways out of a container (privileged mode, host namespaces, dangerous capabilities, sensitive host mounts, devices and more), but a filter cannot be complete, so treat the token and the shared secret as root-level credentials.
+**Who's trusted:** Anyone with a valid HMAC-signed Bearer token for this agent. A token must name this agent's ID, come from Eight.ly OS (issuer `eightly-server`, type `agent`) and carry an issue time and an expiry at most 30 days later; anything else gets 401. A valid token reaches the Docker API on the host through the agent's proxy. It forwards only an allow-list of Docker endpoints and refuses the ways out of a container it knows (privileged mode, host namespaces, extra capabilities, devices, host folders outside `--allowed-bind-roots`, and exec or attach into a container that already reaches the host). Treat the token and the shared secret as root-level credentials all the same.
 
 **What the secret protects:** The shared secret (`EIGHTLY_AGENT_SECRET`) gates all Docker operations, file browser access, host info queries, and WebSocket console sessions. Without it, the agent rejects every request.
 
-**What happens if it leaks:** An attacker with the secret can sign tokens for any agent that uses it and drive the Docker API on every one of those hosts. The request filter stands in the way of the known container escapes, but **rotate the secret immediately** if you suspect compromise.
+**What happens if it leaks:** An attacker with the secret can sign tokens for any agent that uses it and drive the Docker API on every one of those hosts. The proxy stands in the way of the known container escapes, but **rotate the secret immediately** if you suspect compromise.
 
 **Network exposure:**
 - Bind the agent to a private interface or VPN -- never expose port 9001 to the public internet.

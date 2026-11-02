@@ -1,5 +1,7 @@
 # Security Gauntlet Verdict (eightly-agent)
 
+> **Note, 2026-11-02 (release 2.1.0):** this is a historical record of the June 2026 audit and its findings are left as written. Since then the Docker proxy has become an allow-list of methods and paths, host bind mounts are limited to `--allowed-bind-roots` (none by default), exec, attach, file upload and the WebSocket console check the container they reach, and container inspect redacts the agent's secrets. Where this record says "deny-list", read the current design in [SECURITY.md](../../SECURITY.md) and the [threat model](../threat-model/06-control-mapping.md).
+
 **Status:** PASS — remediation independently re-proven by sabotage tests; safe to take public.
 **Audit:** Eight.ly remote Docker agent security gauntlet, phases 0–11
 **Verdict date:** 2026-06-19

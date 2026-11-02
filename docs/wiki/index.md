@@ -18,7 +18,7 @@ Eight.ly Agent is a lightweight, cross-platform Docker management daemon written
 
 | Feature | Description |
 |---------|-------------|
-| Docker API Proxy | Forwards authenticated requests to the local Docker socket over HTTPS, refusing requests that would reach the host |
+| Docker API Proxy | Forwards authenticated requests on an allow-list of Docker endpoints to the local Docker socket, refusing requests that would reach the host |
 | WebSocket Console | Interactive container attach and exec via WebSocket |
 | File Browser | List, upload, download, delete, and rename files in Docker volumes |
 | Host Info | Reports PCI devices, physical disks, and system metadata |
@@ -78,12 +78,17 @@ internal/auth/jwt.go    -- HMAC shared-secret token validation middleware
 internal/browse/        -- file browser (ls, get, put, delete, rename), confined to each volume
 internal/config/
   config.go             -- CLI flags + env var parsing and validation
-  secretfile.go         -- --secret-file reading
+  secretfile.go         -- --secret-file and --enroll-token-file reading
   defaults_other.go     -- Linux/macOS default paths (unix socket, /data)
   defaults_windows.go   -- Windows default paths (named pipe, ProgramData)
 internal/hostinfo/      -- PCI devices and physical disks (sysfs, system_profiler, PowerShell), cached 30s
 internal/metrics/       -- Prometheus counters and gauges
-internal/proxy/docker.go -- reverse proxy to the Docker socket and its request filter
+internal/dockerdial/    -- connects to Docker: named pipe on Windows, Unix socket elsewhere
+internal/proxy/
+  routes.go             -- the allow-list of Docker methods and paths
+  filter.go, policy.go  -- body, bind-root and target-container checks
+  redact.go             -- environment values hidden from container inspect
+  target.go             -- the same target checks for the WebSocket console
 internal/register/
   register.go           -- EOS registration + 30s heartbeat loop
   renew.go              -- token renewal from half-life

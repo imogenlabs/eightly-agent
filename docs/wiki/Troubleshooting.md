@@ -234,6 +234,21 @@ Docker rejected the attach or exec request. Common causes:
 
 ---
 
+## Docker Requests Refused With 403
+
+**Symptoms**: Installing, updating or recreating an app from the dashboard fails, or a console will not open, with `{"message":"forbidden: <reason>"}`. The agent logs `[SECURITY] proxy.denied` (or `websocket.denied` for the console) with the same reason.
+
+The Docker proxy forwards only an allow-list of endpoints and refuses requests that would let a container reach the host. The reason names the rule:
+
+1. **`host bind mount rejected: <path> (no --allowed-bind-roots are set; use a named volume)`** or **`... is outside --allowed-bind-roots`**: the container binds a host folder the agent does not allow. Add the folder, or a parent of it, to `EIGHTLY_ALLOWED_BIND_ROOTS` (for example `/opt/appdata`) and restart the agent, or give the container a named volume. See [Configuration](Configuration.md#security).
+2. **`bind source ... runs through the symlink ...`**: a component of the path below the bind root is a symlink. Replace it with a real folder.
+3. **`volume <name>: ...`**: a named volume was made with bind options pointing outside the bind roots, or with options for a non-local driver.
+4. **`the agent's own container is off limits`**, **`container ... holds the Docker socket`** or **`container <id>: <rule>`** on exec, attach, the console or a file upload: the target container itself reaches the host (privileged, a host namespace, the Docker socket, a host folder outside the roots, an extra capability or a device). Such a container keeps running and can be started and stopped, but nothing can be run inside it through the agent.
+5. **`endpoint not allowed: <METHOD> <path>`**: the Docker endpoint is not on the [allow-list](API-Reference.md#allowed-docker-endpoints). Image builds, commits, exports, image load and push, and Swarm are not available through the agent.
+6. **`--allowed-bind-roots: ... is, holds or is inside the system directory ...`** at startup: a root names a system folder or a parent of one, such as `/opt` or `/var`. Name the app data folder itself, such as `/opt/appdata`.
+
+---
+
 ## File Browser 403 / Permission Denied
 
 **Symptoms**: File browser operations fail with `403` or `500` errors.

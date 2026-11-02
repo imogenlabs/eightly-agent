@@ -13,7 +13,7 @@ flowchart TB
   subgraph AGENT["eightly-agent process (host root reach)"]
     HDR[headerMiddleware<br/>HSTS / nosniff / DENY]:::ours
     AUTH[auth.Middleware<br/>A-02 HMAC fail-closed]:::ours
-    PROXY[proxy.NewDockerProxy<br/>TB-2 deny-list]:::ours
+    PROXY[proxy.NewDockerProxy<br/>TB-2 allow-list + checks]:::ours
     WS[websocket Attach/Exec<br/>TB-3 CSWSH + DoS]:::ours
     BROWSE[browse.Handler<br/>TB-4 confine + audit]:::ours
     HOST[hostinfo.Handler<br/>TB-5 minimized]:::ours
@@ -35,12 +35,14 @@ flowchart TB
   AUTH -- authed --> BROWSE
   AUTH -- authed --> HOST
 
-  PROXY -. unix create/exec deny-list .-> DOCKER
+  PROXY -. allow-listed calls, checked bodies and targets .-> DOCKER
+  WS -- target check --> PROXY
   WS -. unix hijack exec/attach .-> DOCKER
   BROWSE -. O_NOFOLLOW confined .-> VOL
   BROWSE -- mutate audit --> LOG
   HOST -- read minimized --> HW
   PROXY -- denied --> LOG
+  WS -- denied --> LOG
 
   REG <-- HTTPS register/heartbeat<br/>TB-6 pin --> EOS
   REG -- read/write --> STATE
@@ -63,11 +65,15 @@ flowchart TB
 2. **Authenticated request fans out** to one of four host-reaching handlers.
    Each applies its own boundary control *after* auth (defense in depth).
 3. **Docker proxy** cleans the path, strips every version prefix, rewrites
-   convenience paths, refuses the Swarm API and writes to the plugin and
-   Swarm-object APIs, and — on container create, exec create, container update
-   and volume create — buffers the body (refused over 1 MiB) and inspects it for
-   host-escape config before replaying exactly those bytes to the socket.
-4. **WebSocket exec/attach** validates the Docker ID, checks Origin (CSWSH),
+   convenience paths, and refuses any method + path not on the allow-list. On
+   container create, exec create, container update, volume create and network
+   create it buffers the body (refused over 1 MiB), inspects it for host-escape
+   config (host paths only under `--allowed-bind-roots`; named volumes looked up)
+   and replays exactly those bytes to the socket. Exec, attach, exec start and
+   archive upload look up the target container and go on under its full ID;
+   container inspect responses have environment values redacted on the way back.
+4. **WebSocket exec/attach** validates the Docker ID, checks the target container
+   with the proxy's rules (refused with 403 before the upgrade), checks Origin (CSWSH),
    enforces the concurrency cap, dials Docker with bounded timeouts, hijacks, and
    bridges with frame-size limits, a write deadline, and idle/absolute timeouts.
 5. **Browse** refuses `..` and hidden segments, runs every operation through an
