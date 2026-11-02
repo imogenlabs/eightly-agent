@@ -16,6 +16,7 @@ import (
 	"path"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -38,9 +39,13 @@ type filter struct {
 	roots  []string
 	daemon daemon
 	// hostFS is true when the agent sees the host's own filesystem, so bind
-	// sources can be checked for symlinks. Inside a container it does not.
+	// sources can be checked for symlinks. Inside a container it sees only
+	// the roots mounted into it at the same path (see visible).
 	hostFS bool
 	lstat  func(string) (fs.FileInfo, error)
+	// mountPoints lists where things are mounted in the agent's own
+	// filesystem (/proc/self/mountinfo).
+	mountPoints func() []string
 	// selfIDs identify the agent's own container: full IDs, or the 12-char
 	// prefix Docker uses as the default hostname.
 	selfIDs []string
@@ -55,10 +60,11 @@ type filter struct {
 // the WebSocket target checker use it.
 func newChecker(roots []string, d daemon, opts []Option) *filter {
 	f := &filter{
-		roots:  roots,
-		daemon: d,
-		hostFS: seesHostFS(),
-		lstat:  os.Lstat,
+		roots:       roots,
+		daemon:      d,
+		hostFS:      seesHostFS(),
+		lstat:       os.Lstat,
+		mountPoints: ownMountPoints,
 	}
 	f.selfIDs = selfContainerIDs(!f.hostFS)
 	for _, o := range opts {
@@ -70,10 +76,75 @@ func newChecker(roots []string, d daemon, opts []Option) *filter {
 func newFilter(next http.Handler, roots []string, d daemon, opts ...Option) *filter {
 	f := newChecker(roots, d, opts)
 	f.next = next
-	if len(roots) > 0 && !f.hostFS {
-		log.Warn().Strs("roots", roots).Msg("[SECURITY] proxy: the agent runs in a container and cannot see the host's filesystem, so bind sources cannot be checked for symlinks; keep --allowed-bind-roots to directories no container can write to. A restart policy is refused on containers that mount a path under them.")
+	var hidden []string
+	for _, r := range roots {
+		if !f.visible(r) {
+			hidden = append(hidden, r)
+		}
+	}
+	if len(hidden) > 0 {
+		log.Warn().Strs("roots", hidden).Msg("[SECURITY] proxy: these bind roots are not mounted into the agent's container at the same path, so binds under them cannot be checked for symlinks, and a restart policy is refused on containers that mount them; mount each root into the agent at the same path, read-only")
 	}
 	return f
+}
+
+// visible reports whether the agent can check paths under root itself:
+// always on the host, and in a container when the root is mounted into it at
+// the same path. A directory that merely exists in the image is not the
+// host's, so the root must lie at or under a mount point other than "/".
+func (f *filter) visible(root string) bool {
+	if f.hostFS {
+		return true
+	}
+	if f.lstat == nil || f.mountPoints == nil {
+		return false
+	}
+	fi, err := f.lstat(root)
+	if err != nil || !fi.IsDir() || fi.Mode()&fs.ModeSymlink != 0 {
+		return false
+	}
+	for _, m := range f.mountPoints() {
+		if m != "/" && (root == m || strings.HasPrefix(root, m+"/")) {
+			return true
+		}
+	}
+	return false
+}
+
+// ownMountPoints reads the agent's mount points. Only Linux has them to
+// read; elsewhere a container install sees no roots.
+func ownMountPoints() []string {
+	b, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, line := range strings.Split(string(b), "\n") {
+		// Fields: id parent major:minor root mountpoint ...
+		if fields := strings.Fields(line); len(fields) >= 5 {
+			out = append(out, unescapeMount(fields[4]))
+		}
+	}
+	return out
+}
+
+// unescapeMount undoes mountinfo's octal escapes (\040 for a space).
+func unescapeMount(s string) string {
+	if !strings.Contains(s, "\\") {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+3 < len(s) {
+			if n, err := strconv.ParseUint(s[i+1:i+4], 8, 8); err == nil {
+				b.WriteByte(byte(n))
+				i += 3
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 func (f *filter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -365,25 +436,25 @@ func (f *filter) checkUpdateTarget(ctx context.Context, id string, r *http.Reque
 	var hc hostConfig
 	body, _ := io.ReadAll(r.Body)
 	r.Body = io.NopCloser(bytes.NewReader(body))
-	if len(body) == 0 || json.Unmarshal(body, &hc) != nil || !hc.RestartPolicy.restarts() || f.hostFS || len(f.roots) == 0 {
+	if len(body) == 0 || json.Unmarshal(body, &hc) != nil || !hc.RestartPolicy.restarts() || len(f.roots) == 0 {
 		return c.ID, ""
 	}
 	for _, m := range c.Mounts {
-		var onRoot bool
+		var root string
 		switch strings.ToLower(m.Type) {
 		case "bind":
-			onRoot = f.rootFor(path.Clean(m.Source)) != ""
+			root = f.rootFor(path.Clean(m.Source))
 		case "volume":
 			if m.Name == "" {
 				continue
 			}
 			var reason string
-			if onRoot, reason = f.volumeOnRoot(ctx, m.Name); reason != "" {
+			if root, reason = f.volumeRoot(ctx, m.Name); reason != "" {
 				return "", reason
 			}
 		}
-		if onRoot {
-			return "", restartOnRootsRefused
+		if root != "" && !f.visible(root) {
+			return "", restartRefused(root)
 		}
 	}
 	return c.ID, ""
@@ -403,7 +474,7 @@ func (f *filter) checkStart(ctx context.Context, id string, restart bool) (strin
 	if restart && f.isSelf(c.ID) {
 		return "", "the agent's own container is off limits"
 	}
-	if !f.hostFS || len(f.roots) == 0 {
+	if len(f.roots) == 0 {
 		return c.ID, ""
 	}
 	for _, m := range c.Mounts {
@@ -437,48 +508,73 @@ func (f *filter) checkStart(ctx context.Context, id string, restart bool) (strin
 	return c.ID, ""
 }
 
-// restartOnRootsRefused explains the refusal of checkRestartOnRoots.
-const restartOnRootsRefused = "a restart policy is refused on a container that mounts a path under --allowed-bind-roots while the agent runs in a container: the daemon restarts it without asking the agent, which cannot see the host's files to check them for symlinks; use RestartPolicy \"no\" or a named volume"
+// restartRefused explains the refusal of a restart policy on a container
+// mounting a path under a root the agent cannot see.
+func restartRefused(root string) string {
+	return "a restart policy is refused on a container that mounts a path under the bind root " + root +
+		", which is not mounted into the agent's container: the daemon restarts the container on its own, and the agent cannot check that path for symlinks. Mount " +
+		root + " into the agent's container at the same path, read-only, or use RestartPolicy \"no\""
+}
 
 // checkRestartOnRoots refuses a restart policy on a container whose binds or
-// local bind volumes lie under a bind root, when the agent runs in a
-// container. Such a container is mounted again on every automatic restart
-// without passing through /start, and the agent, not seeing the host's
-// files, could not have checked the paths for symlinks anyway.
+// local bind volumes lie under a bind root the agent cannot see. Such a
+// container is mounted again on every automatic restart without passing
+// through /start, and nothing was checked for symlinks at create either.
+// Under a root the agent can see, the checks at create and start are the
+// same on the host and in a container, and so is what a daemon-driven
+// restart can still slip past them.
 func (f *filter) checkRestartOnRoots(ctx context.Context, hc *hostConfig) string {
-	if f.hostFS || len(f.roots) == 0 || !hc.RestartPolicy.restarts() {
+	if len(f.roots) == 0 || !hc.RestartPolicy.restarts() {
 		return ""
 	}
-	onRoot := func(src string) bool {
+	hidden := func(src string) string {
 		src = strings.TrimSpace(src)
-		return strings.HasPrefix(src, "/") && f.rootFor(path.Clean(src)) != ""
+		if !strings.HasPrefix(src, "/") {
+			return ""
+		}
+		if root := f.rootFor(path.Clean(src)); root != "" && !f.visible(root) {
+			return restartRefused(root)
+		}
+		return ""
+	}
+	volume := func(name string) string {
+		root, reason := f.volumeRoot(ctx, name)
+		if reason != "" {
+			return reason
+		}
+		if root != "" && !f.visible(root) {
+			return restartRefused(root)
+		}
+		return ""
 	}
 	for _, b := range hc.Binds {
 		src, _, _ := strings.Cut(b, ":")
-		if onRoot(src) {
-			return restartOnRootsRefused
+		if reason := hidden(src); reason != "" {
+			return reason
 		}
 		if dockerVolumeName.MatchString(src) {
-			if yes, reason := f.volumeOnRoot(ctx, src); reason != "" || yes {
-				return firstNonEmpty(reason, restartOnRootsRefused)
+			if reason := volume(src); reason != "" {
+				return reason
 			}
 		}
 	}
 	for _, m := range hc.Mounts {
 		switch strings.ToLower(strings.TrimSpace(m.Type)) {
 		case "bind":
-			if onRoot(m.Source) {
-				return restartOnRootsRefused
+			if reason := hidden(m.Source); reason != "" {
+				return reason
 			}
 		case "volume":
 			if m.VolumeOptions != nil && m.VolumeOptions.DriverConfig != nil {
-				if dev, ok := localBindDevice(m.VolumeOptions.DriverConfig.Options); ok && onRoot(dev) {
-					return restartOnRootsRefused
+				if dev, ok := localBindDevice(m.VolumeOptions.DriverConfig.Options); ok {
+					if reason := hidden(dev); reason != "" {
+						return reason
+					}
 				}
 			}
 			if m.Source != "" {
-				if yes, reason := f.volumeOnRoot(ctx, m.Source); reason != "" || yes {
-					return firstNonEmpty(reason, restartOnRootsRefused)
+				if reason := volume(m.Source); reason != "" {
+					return reason
 				}
 			}
 		}
@@ -486,25 +582,21 @@ func (f *filter) checkRestartOnRoots(ctx context.Context, hc *hostConfig) string
 	return ""
 }
 
-// volumeOnRoot reports whether an existing named volume is a local bind of
-// a path under a bind root.
-func (f *filter) volumeOnRoot(ctx context.Context, name string) (bool, string) {
+// volumeRoot returns the bind root an existing named volume's local bind
+// lies under, or "".
+func (f *filter) volumeRoot(ctx context.Context, name string) (string, string) {
 	v, err := f.daemon.volume(ctx, name)
 	switch {
 	case errors.Is(err, errNotFound):
-		return false, ""
+		return "", ""
 	case err != nil:
-		return false, "volume " + name + " could not be checked: " + err.Error()
+		return "", "volume " + name + " could not be checked: " + err.Error()
 	}
 	dev, ok := localBindDevice(v.Options)
-	return ok && strings.HasPrefix(dev, "/") && f.rootFor(path.Clean(dev)) != "", ""
-}
-
-func firstNonEmpty(a, b string) string {
-	if a != "" {
-		return a
+	if !ok || !strings.HasPrefix(dev, "/") {
+		return "", ""
 	}
-	return b
+	return f.rootFor(path.Clean(dev)), ""
 }
 
 // checkPull allows a registry pull and nothing else. The daemon imports an
@@ -546,7 +638,7 @@ func (f *filter) checkTag(ctx context.Context, q url.Values) string {
 // to the host's administrator. A component that does not exist yet ends the
 // walk: the daemon creates it as a directory.
 func (f *filter) checkSymlinks(root, p string) string {
-	if !f.hostFS {
+	if !f.visible(root) {
 		return ""
 	}
 	cur := root

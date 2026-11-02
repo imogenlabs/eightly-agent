@@ -86,9 +86,11 @@ func TestFilter_EightlyTrafficForwarded(t *testing.T) {
 		rr, sink := host(c.method, c.target, c.body)
 		wantForwarded(t, c.name, rr, sink)
 	}
-	// In a container the agent cannot check them, and the daemon restarts
-	// a container without asking: a restart policy is refused where a bind
-	// reaches a root (README, "Bind roots in a container"). Without the
+	// In a container whose roots are not mounted into it, the agent cannot
+	// check them, and the daemon restarts a container without asking: a
+	// restart policy is refused where a bind reaches such a root (README,
+	// "Bind roots and symlinks"; with the roots mounted, see
+	// TestRestartPolicy_VisibleRootInAContainer). Without the
 	// policy, or with named volumes only, the same app goes through.
 	rr, sink := send(t, http.MethodPost, "/containers/create", cases[0].body)
 	wantRefused(t, "typical create in a container", rr, sink, http.StatusForbidden)

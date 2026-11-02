@@ -111,12 +111,12 @@ GOAL: Execute arbitrary code as root on a managed host
 │   └── 2.10 Escape via a vector the allow-list still admits
 │       ├── 2.10.1 A future HostConfig field that grants host reach      [RESIDUAL]
 │       ├── 2.10.2 A container that can write under a bind root plants a symlink, and a second
-│       │          bind (or a local volume bound under the root) follows it. On the host: checked
-│       │          at create and at start/restart, binds and bound volumes alike; a link planted
-│       │          in the window, or before a daemon-driven restart, still works  [RESIDUAL].
-│       │          In a container the agent cannot see the host's paths: restart policies are
-│       │          refused on containers that mount under a root, so every mount passes /start,
-│       │          but nothing is checked there  [RESIDUAL]
+│       │          bind (or a local volume bound under the root) follows it. Checked at create
+│       │          and at start/restart, binds and bound volumes alike, on the host and, in a
+│       │          container, under every root mounted into it at the same path (read-only).
+│       │          A root a containerized agent cannot see gets no check, and restart policies
+│       │          on containers under it are refused. Both modes: a link planted in the window,
+│       │          or before a daemon-driven restart, still works  [RESIDUAL]
 │       └── 2.10.3 NFS/CIFS volumes pointed at the host's own exports      [RESIDUAL]
 └── 3. Bypass the proxy filter entirely
     ├── 3.1 Smuggle the body past inspection

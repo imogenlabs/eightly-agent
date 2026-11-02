@@ -8,6 +8,9 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	goruntime "runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -320,5 +323,85 @@ func TestRestartPolicy_OnRootsRefusedInAContainer(t *testing.T) {
 	down := &filter{roots: testRoots, daemon: failingDaemon{}}
 	if reason := down.checkRestartOnRoots(context.Background(), &hostConfig{Binds: strOrList{"appbind:/x"}, RestartPolicy: restartPolicy{Name: "always"}}); !strings.Contains(reason, "could not be checked") {
 		t.Errorf("restart policy with the daemon down: %q", reason)
+	}
+}
+
+// containerWithRoot is the agent in a container with /opt/appdata and
+// /mnt/user mounted into it at the same path, but not /srv:
+// /opt/appdata/evil is a symlink there, every other path a directory.
+func containerWithRoot(roots []string) *filter {
+	f := testFilter(nil, roots)
+	f.lstat = func(p string) (fs.FileInfo, error) {
+		switch {
+		case p == "/opt/appdata/evil":
+			return fakeInfo{mode: fs.ModeSymlink}, nil
+		case p == "/opt/appdata" || strings.HasPrefix(p, "/opt/appdata/") || p == "/mnt/user" || strings.HasPrefix(p, "/mnt/user/"):
+			return fakeInfo{mode: fs.ModeDir}, nil
+		}
+		return nil, fs.ErrNotExist
+	}
+	f.mountPoints = func() []string { return []string{"/", "/data", "/opt/appdata", "/mnt/user"} }
+	return f
+}
+
+// A root mounted into the agent's container at the same path is checked as
+// on the host: a symlink under it is refused, and a real folder with a
+// restart policy goes through, as Eight.ly OS installs every app.
+func TestRestartPolicy_VisibleRootInAContainer(t *testing.T) {
+	f := containerWithRoot(testRoots)
+	refusedBy(t, f, http.MethodPost, "/containers/create", `{"Image":"a","HostConfig":{"Binds":["/opt/appdata/evil:/x"],"RestartPolicy":{"Name":"unless-stopped"}}}`)
+	refusedBy(t, f, http.MethodPost, "/containers/create", `{"Image":"a","HostConfig":{"Binds":["/opt/appdata/evil/sub:/x"]}}`)
+	forwardedBy(t, f, http.MethodPost, "/containers/create", `{"Image":"a","HostConfig":{"Binds":["/opt/appdata/sonarr:/config"],"RestartPolicy":{"Name":"unless-stopped"}}}`)
+	forwardedBy(t, f, http.MethodPost, "/containers/app/update", `{"RestartPolicy":{"Name":"always"}}`)
+	fakeContainers["evilbind"] = `{"Id":"` + strings.Repeat("e", 63) + `1","HostConfig":{},
+		"Mounts":[{"Type":"bind","Source":"/opt/appdata/evil","Destination":"/x","RW":true}]}`
+	refusedBy(t, f, http.MethodPost, "/containers/evilbind/start", "")
+
+	// /srv is a root too, but not mounted into the agent: refused, saying how
+	// to fix it.
+	rr, sink := sendTo(t, f, http.MethodPost, "/containers/create", `{"Image":"a","HostConfig":{"Binds":["/srv/x:/x"],"RestartPolicy":{"Name":"unless-stopped"}}}`)
+	if rr.Code != http.StatusForbidden || sink.reached || !strings.Contains(rr.Body.String(), "Mount /srv into the agent's container at the same path, read-only") {
+		t.Errorf("root not visible: %d reached=%v %s", rr.Code, sink.reached, rr.Body)
+	}
+	// A volume bound under the visible root is fine with a policy too.
+	forwardedBy(t, f, http.MethodPost, "/containers/volbind/update", `{"RestartPolicy":{"Name":"always"}}`)
+
+	// A directory the image happens to have is not the host's.
+	img := containerWithRoot(testRoots)
+	img.mountPoints = func() []string { return []string{"/"} }
+	if img.visible("/opt/appdata") {
+		t.Error("a root that is not a mount point counted as visible")
+	}
+	refusedBy(t, img, http.MethodPost, "/containers/create", `{"Image":"a","HostConfig":{"Binds":["/opt/appdata/sonarr:/config"],"RestartPolicy":{"Name":"unless-stopped"}}}`)
+	if unescapeMount(`/mnt/my\040disk`) != "/mnt/my disk" || unescapeMount(`/a\04`) != `/a\04` {
+		t.Error("mountinfo escapes misread")
+	}
+}
+
+// The agent's own mount of a root, there only so it can see it, does not
+// make every app bind under that root its own data; its data folder does.
+func TestSelf_RootMountedIntoTheAgent(t *testing.T) {
+	id := strings.Repeat("d", 63) + "e"
+	fakeContainers["agent-rootmount"] = `{"Id":"` + id + `","HostConfig":{},
+		"Mounts":[{"Type":"bind","Source":"/opt/appdata","Destination":"/opt/appdata","RW":false},
+		{"Type":"bind","Source":"/mnt/user","Destination":"/mnt/user","RW":false},
+		{"Type":"bind","Source":"/opt/appdata/eightly-agent","Destination":"/data","RW":true}]}`
+	f := containerWithRoot(testRoots)
+	f.selfIDs = []string{id}
+	forwardedBy(t, f, http.MethodPost, "/containers/create", `{"Image":"a","HostConfig":{"Binds":["/opt/appdata/sonarr:/config","/mnt/user/media:/tv"],"RestartPolicy":{"Name":"unless-stopped"}}}`)
+	refusedBy(t, f, http.MethodPost, "/containers/create", `{"Image":"a","HostConfig":{"Binds":["/opt/appdata/eightly-agent:/steal"]}}`)
+	refusedBy(t, f, http.MethodPost, "/containers/create", `{"Image":"a","HostConfig":{"Binds":["/opt/appdata/eightly-agent/key.pem:/k"]}}`)
+}
+
+// On Linux the agent's own mount table always has "/"; elsewhere there is
+// none to read, and a containerized agent sees no root.
+func TestOwnMountPoints(t *testing.T) {
+	mps := ownMountPoints()
+	if goruntime.GOOS == "linux" && !slices.Contains(mps, "/") {
+		t.Errorf("mount points %v lack /", mps)
+	}
+	f := &filter{roots: testRoots, lstat: os.Lstat, mountPoints: ownMountPoints}
+	if f.visible("/opt/appdata/surely-not-mounted-here") {
+		t.Error("a missing root counted as visible")
 	}
 }

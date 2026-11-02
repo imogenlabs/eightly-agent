@@ -86,7 +86,7 @@ func (f *filter) selfInfo(ctx context.Context) (*selfInfo, string) {
 						s.volumes[m.Name] = struct{}{}
 					}
 				case "bind":
-					if base := path.Base(m.Source); base != "docker.sock" && strings.HasPrefix(m.Source, "/") {
+					if base := path.Base(m.Source); base != "docker.sock" && strings.HasPrefix(m.Source, "/") && !f.rootMount(m) {
 						s.paths = append(s.paths, path.Clean(m.Source))
 					}
 				}
@@ -98,6 +98,22 @@ func (f *filter) selfInfo(ctx context.Context) (*selfInfo, string) {
 	}
 	f.self = s
 	return s, ""
+}
+
+// rootMount reports whether one of the agent's own binds is there to let it
+// see a bind root: the root itself or a folder holding one, or a folder
+// under a root mounted at its own path. The agent only reads such a mount
+// (lstat), and protecting it would refuse every app bind under the root. A
+// bind under a root mounted elsewhere, such as its data folder at /data,
+// stays protected.
+func (f *filter) rootMount(m mountPoint) bool {
+	src := path.Clean(m.Source)
+	for _, r := range f.roots {
+		if src == r || strings.HasPrefix(r, src+"/") {
+			return true
+		}
+	}
+	return f.rootFor(src) != "" && path.Clean(m.Destination) == src
 }
 
 // selfLookupID is the ID to inspect the agent's own container by: a full ID

@@ -50,7 +50,7 @@ Eight.ly Agent provides authenticated, TLS-encrypted access to a Docker daemon. 
 
 ### What a valid token grants
 
-A valid HMAC-signed token grants control of every container on the host through the allow-listed Docker API: create, start, stop, remove, exec, logs, images, volumes and networks. The proxy is built to stop that control reaching the host itself, but it cannot know every way a future Docker feature might, and a bind root a container can write to weakens it. Treat your `EIGHTLY_AGENT_SECRET` with the same care as a root password.
+A valid HMAC-signed token grants control of every container on the host through the allow-listed Docker API: create, start, stop, remove, exec, logs, images, volumes and networks. The proxy is built to stop that control reaching the host itself, but it cannot know every way a future Docker feature might, and a bind root a container can write to weakens it: the agent checks bind paths for symlinks at create and start (in a container, for roots mounted into it at the same path, read-only), but a link planted after that check, or before the daemon restarts a container on its own after a reboot or crash, is still followed, on the host and in a container alike. Treat your `EIGHTLY_AGENT_SECRET` with the same care as a root password.
 
 ### What the agent trusts
 
