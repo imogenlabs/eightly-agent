@@ -16,7 +16,7 @@ func send(t *testing.T, method, target, body string) (*httptest.ResponseRecorder
 		r = strings.NewReader(body)
 	}
 	rr := httptest.NewRecorder()
-	denyDangerousCreates(sink).ServeHTTP(rr, httptest.NewRequest(method, target, r))
+	testFilter(sink, testRoots).ServeHTTP(rr, httptest.NewRequest(method, target, r))
 	return rr, sink
 }
 
@@ -57,9 +57,9 @@ func TestFilter_EightlyTrafficForwarded(t *testing.T) {
 			}}`},
 		{"lowercase keys", http.MethodPost, "/containers/create", `{"image":"nginx","hostConfig":{"restartPolicy":{"name":"always"},"binds":["/mnt/user/appdata/x:/x"]}}`},
 		{"cap as string", http.MethodPost, "/containers/create", `{"HostConfig":{"CapAdd":"CHOWN"}}`},
-		{"exec shell", http.MethodPost, "/containers/abc/exec", `{"AttachStdin":true,"AttachStdout":true,"AttachStderr":true,"Tty":true,"Cmd":["/bin/sh","-c","exec /bin/bash"]}`},
-		{"exec privileged false", http.MethodPost, "/containers/abc/exec", `{"Privileged":false,"Cmd":["ls"]}`},
-		{"exec start", http.MethodPost, "/exec/abc/start", `{"Detach":false,"Tty":true}`},
+		{"exec shell", http.MethodPost, "/containers/app/exec", `{"AttachStdin":true,"AttachStdout":true,"AttachStderr":true,"Tty":true,"Cmd":["/bin/sh","-c","exec /bin/bash"]}`},
+		{"exec privileged false", http.MethodPost, "/containers/app/exec", `{"Privileged":false,"Cmd":["ls"]}`},
+		{"exec start", http.MethodPost, "/exec/exec-app/start", `{"Detach":false,"Tty":true}`},
 		{"update restart policy", http.MethodPost, "/containers/abc/update", `{"restartPolicy":{"Name":"always"}}`},
 		{"volume create", http.MethodPost, "/volumes/create", `{"name":"data","driver":"local"}`},
 		{"volume create short path", http.MethodPost, "/volumes", `{"name":"data","driver":"local"}`},
@@ -68,8 +68,6 @@ func TestFilter_EightlyTrafficForwarded(t *testing.T) {
 		{"tmpfs volume", http.MethodPost, "/volumes/create", `{"Name":"scratch","DriverOpts":{"type":"tmpfs","o":"size=100m"}}`},
 		{"image pull", http.MethodPost, "/images/create?fromImage=nginx&tag=latest", ""},
 		{"start", http.MethodPost, "/containers/abc/start", ""},
-		{"list secrets", http.MethodGet, "/secrets", ""},
-		{"list plugins", http.MethodGet, "/v1.45/plugins", ""},
 		{"empty create body", http.MethodPost, "/containers/create", ""},
 	}
 	for _, c := range cases {
@@ -118,28 +116,40 @@ func TestFilter_TopLevelHostConfigRefused(t *testing.T) {
 	}
 }
 
-func TestFilter_HostPaths(t *testing.T) {
+func TestFilter_BindSourcePolicy(t *testing.T) {
+	f := testFilter(nil, testRoots)
 	refused := []string{
 		"/", "//", "/./", "/etc", "/etc/", "//etc", "/etc/../etc/shadow", "/tmp/../etc",
 		"/mnt/../../root", "/var/run", "/var/run/docker.sock", "/run", "/run/containerd",
 		"/var/lib/docker", "/var/lib/docker/volumes", "/home", "/home/michael", "/boot",
-		"/dev", "/dev/sda", "/proc/1/root", "/sys/kernel",
-		// parents of a sensitive path
-		"/var", "/var/lib", "/var/./lib/",
+		"/dev", "/dev/sda", "/proc/1/root", "/sys/kernel", "/var", "/var/lib",
+		// What the old deny-list missed (C3).
+		"/usr", "/usr/local/bin", "/bin", "/sbin", "/lib", "/lib64", "/opt", "/var/spool/cron",
+		// A root's prefix is not the root, ".." is never accepted, nor is a
+		// socket under a root, nor a relative or Windows path.
+		"/srvfoo", "/mnt/users", "/opt/appdata/../../etc", "/srv/a/../b", "/srv/docker.sock",
+		"mydata", "../etc", "", `C:\data`, "/srv/x\\y",
+		// The time zone files only read-only.
+		"/etc/localtime",
 	}
 	for _, p := range refused {
-		if !isSensitiveHostPath(p) {
-			t.Errorf("isSensitiveHostPath(%q) = false, want true", p)
+		if f.checkBindSource(p, false) == "" {
+			t.Errorf("checkBindSource(%q) allowed it", p)
 		}
 	}
-	allowed := []string{
-		"/mnt/user/appdata/x", "/opt/appdata/x", "/srv/data", "/etcfoo", "/variable",
-		"/var/log/app", "/var/lib/app", "/media/tv", "mydata", "../etc", "",
-	}
+	allowed := []string{"/mnt/user/appdata/x", "/opt/appdata/x", "/srv", "/srv/data/", "/mnt/user"}
 	for _, p := range allowed {
-		if isSensitiveHostPath(p) {
-			t.Errorf("isSensitiveHostPath(%q) = true, want false", p)
+		if reason := f.checkBindSource(p, false); reason != "" {
+			t.Errorf("checkBindSource(%q) = %q, want allowed", p, reason)
 		}
+	}
+	if reason := f.checkBindSource("/etc/localtime", true); reason != "" {
+		t.Errorf("read-only /etc/localtime refused: %s", reason)
+	}
+	// No roots: no host path at all.
+	none := testFilter(nil, nil)
+	if none.checkBindSource("/opt/appdata/x", false) == "" {
+		t.Error("with no roots configured a host bind was allowed")
 	}
 }
 
@@ -161,6 +171,10 @@ func TestFilter_HostPathBindsRefused(t *testing.T) {
 
 func TestFilter_SwarmAndPluginEndpointsRefused(t *testing.T) {
 	cases := []struct{ method, target string }{
+		{http.MethodGet, "/secrets"},
+		{http.MethodGet, "/v1.45/plugins"},
+		{http.MethodGet, "/services"},
+		{http.MethodGet, "/nodes"},
 		{http.MethodPost, "/plugins/pull?remote=evil/plugin"},
 		{http.MethodPost, "/v1.45/plugins/evil/enable"},
 		{http.MethodPost, "/plugins/create?name=x"},
@@ -249,7 +263,7 @@ func TestFilter_OversizedBodyRefused(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/containers/create", io.MultiReader(strings.NewReader(big)))
 	req.ContentLength = -1
 	rr = httptest.NewRecorder()
-	denyDangerousCreates(sink).ServeHTTP(rr, req)
+	testFilter(sink, testRoots).ServeHTTP(rr, req)
 	wantRefused(t, "oversized chunked create", rr, sink, http.StatusRequestEntityTooLarge)
 
 	// Exactly at the limit still goes through.
