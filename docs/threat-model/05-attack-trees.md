@@ -40,18 +40,24 @@ GOAL: Execute arbitrary code as root on a managed host
 │   │   └── [BLOCKED] allowedCaps is Docker's default set; adding one back is a no-op, anything else is 403
 │   ├── 2.4 Bind-mount a host path (Binds, Mounts Type "bind")
 │   │   └── [BLOCKED] allowed only under --allowed-bind-roots (default: none, named volumes only);
-│   │       ".." refused outright; a Binds source is a named volume only if it is a Docker name,
-│   │       so Windows and relative forms are host paths; /etc/localtime and /etc/timezone read-only
-│   │       only; docker.sock refused; shared/rshared propagation refused
+│   │       ".." refused outright; a source with ":", a "//" prefix or a backslash is refused, and so
+│   │       is any bind starting with a Windows drive ("c:/:c:/host" mounts C: on a Windows daemon);
+│   │       a Binds or Mounts volume source must be a Docker volume name; /etc/localtime and
+│   │       /etc/timezone read-only only; docker.sock refused; shared/rshared propagation refused
 │   ├── 2.5 Volume that mounts a host path or block device
 │   │   ├── 2.5.1 POST /volumes/create DriverOpts type=none/o=bind/device=/path
 │   │   │   └── [BLOCKED] a bind device is held to the bind roots; a local-path device of any other
 │   │   │       type, any type but nfs/nfs4/cifs/smb3/tmpfs, and options for non-local drivers are refused
 │   │   ├── 2.5.2 Mounts Type "volume" with VolumeOptions.DriverConfig options
 │   │   │   └── [BLOCKED] same checkVolumeOptions
-│   │   └── 2.5.3 Mount a named volume made on the host with o=bind,device=/
-│   │       └── [BLOCKED] every named volume a create references is inspected (GET /volumes/{name})
-│   │           and its options held to the same rule
+│   │   ├── 2.5.3 Mount a named volume made on the host with o=bind,device=/
+│   │   │   └── [BLOCKED] every named volume a create references is inspected (GET /volumes/{name})
+│   │   │       and its options held to the same rule
+│   │   └── 2.5.4 Mount the agent's own volume (its state, token and TLS key), or bind the host
+│   │             directory holding them
+│   │       └── [BLOCKED] the agent reads its own container's mounts once; those volumes and bind
+│   │           sources, and on the host its state/key/cert/secret files, are off limits to every
+│   │           bind, mount and local bind volume, whatever the roots say
 │   ├── 2.6 Weaken the sandbox
 │   │   ├── 2.6.1 SecurityOpt: seccomp unconfined or custom profile, apparmor other than docker-default,
 │   │   │         label=disable or label=type:*, systempaths=unconfined, writable-cgroups=true
@@ -72,28 +78,52 @@ GOAL: Execute arbitrary code as root on a managed host
 │   │   └── [BLOCKED] not on the allow-list, for any method, reads included
 │   ├── 2.8 Copy another container's mounts with VolumesFrom (e.g. the agent's socket bind)
 │   │   └── [BLOCKED] VolumesFrom refused outright; Eight.ly OS never sends it
+│   ├── 2.8a Import an image from a URL or the body (POST /images/create fromSrc, in the query or a
+│   │         form body the daemon reads first), or tag one into the agent's own repository
+│   │   └── [BLOCKED] /images/create is a registry pull only: fromImage required, fromSrc refused,
+│   │       no body accepted (so no form can override the query); /images/{name}/tag accepts no body
+│   │       and refuses ghcr.io/imogenlabs/eightly-agent, smashingtags/eightly-agent and the
+│   │       repository of the image the agent runs
 │   ├── 2.9 Get inside a container that already reaches the host
 │   │   ├── 2.9.1 Exec, attach or upload files (PUT archive) into the agent's own container or any
 │   │   │         container that is privileged, shares a host or container namespace, holds the
 │   │   │         socket, binds a path outside the roots, has an extra capability or a host device
 │   │   │   └── [BLOCKED] the target is inspected for every such call; the forwarded path carries the
-│   │   │       full ID that was checked, so a rename between check and use cannot swap containers
+│   │   │       full ID that was checked, so a rename between check and use cannot swap containers.
+│   │   │       A target the daemon does not know is answered 404 by the agent, never forwarded by
+│   │   │       name (a protected container renamed to that name meanwhile would be reached unchecked);
+│   │   │       the same holds for top, start, restart, stop, kill, pause, update, rename and delete,
+│   │   │       all pinned to the inspected ID, and for /websocket/attach
 │   │   ├── 2.9.2 POST /exec/{id}/start on an exec made elsewhere
 │   │   │   └── [BLOCKED] the exec is inspected, its container checked as above, privileged execs refused
-│   │   ├── 2.9.3 Read the agent's EIGHTLY_AGENT_SECRET from container inspect or top
+│   │   ├── 2.9.3 Read the agent's EIGHTLY_AGENT_SECRET from container inspect, list or top
 │   │   │   └── [BLOCKED] inspect output: all Env values of a socket holder or the agent redacted,
-│   │   │       EIGHTLY_* values redacted everywhere, secret flag values redacted; top refused there
-│   │   └── 2.9.4 /websocket/attach or /websocket/exec, which reach Docker without passing the proxy
-│   │       └── [BLOCKED] proxy.TargetChecker applies the same target rules before the upgrade (403);
-│   │           attach goes to the checked full ID; privileged exec instances refused
+│   │   │       EIGHTLY_* values redacted everywhere, secret flag values redacted; GET /containers/json
+│   │   │       shows no command line for those containers and no secret flag value for any; top
+│   │   │       refused there
+│   │   ├── 2.9.4 /websocket/attach or /websocket/exec, which reach Docker without passing the proxy
+│   │   │   └── [BLOCKED] proxy.TargetChecker applies the same target rules before the upgrade (403);
+│   │   │       attach goes to the checked full ID, an unknown container is answered 404; privileged
+│   │   │       and unknown exec instances refused
+│   │   └── 2.9.5 Stop, kill, pause, remove, restart, update (memory=6m) or rename the agent's own
+│   │             container; rename a socket holder
+│   │       └── [BLOCKED] checkNotSelf on each of those routes
 │   └── 2.10 Escape via a vector the allow-list still admits
 │       ├── 2.10.1 A future HostConfig field that grants host reach      [RESIDUAL]
 │       ├── 2.10.2 A container that can write under a bind root plants a symlink, and a second
-│       │          bind follows it. Checked at create and start when the agent runs on the host;
-│       │          a race remains, and an agent in a container cannot see the host's paths  [RESIDUAL]
+│       │          bind (or a local volume bound under the root) follows it. On the host: checked
+│       │          at create and at start/restart, binds and bound volumes alike; a link planted
+│       │          in the window, or before a daemon-driven restart, still works  [RESIDUAL].
+│       │          In a container the agent cannot see the host's paths: restart policies are
+│       │          refused on containers that mount under a root, so every mount passes /start,
+│       │          but nothing is checked there  [RESIDUAL]
 │       └── 2.10.3 NFS/CIFS volumes pointed at the host's own exports      [RESIDUAL]
 └── 3. Bypass the proxy filter entirely
     ├── 3.1 Smuggle the body past inspection
+    │   ├── 3.1.0 Say a key twice ({"Privileged":true,"Privileged":null}, or a case variant): the
+    │   │         daemon's bool keeps true where a pointer would read nil
+    │   │   └── [BLOCKED] any object, at any depth, with two keys Go's decoder folds alike is refused;
+    │   │       Privileged is a bool, as it is in Docker
     │   ├── 3.1.1 Oversized body (padding past the inspection buffer)
     │   │   └── [BLOCKED] bodies over 1 MiB are refused with 413, never truncated and forwarded
     │   ├── 3.1.2 Body the filter cannot parse (wrong types, trailing data)
@@ -142,9 +172,17 @@ GOAL: Read or write a host path outside the volume root
 ├── 3. Escape via rename newName
 │   └── [BLOCKED] validIdentifier (no /, no .., no leading .) + rename inside the os.Root
 ├── 4. Exfiltrate a hidden file or directory (.env, .ssh)
-│   └── [BLOCKED] any path segment starting with . refused with 403 on every route
-└── 5. Read a host disk through a device node a container created in its volume
-    └── [BLOCKED] get/put serve regular files only, checked on the opened file
+│   ├── 4.1 Name it
+│   │   └── [BLOCKED] any path segment starting with . refused with 403 on every route
+│   └── 4.2 Reach it through a symlink alias (alias -> .ssh) the Root would follow
+│       └── [BLOCKED] a directory on the way that is a symlink is refused, and ls refuses a final
+│           one; a swap during the request stays inside the volume  [RESIDUAL, see 07]
+├── 5. Read a host disk through a device node a container created in its volume
+│   └── [BLOCKED] get/put serve regular files only, checked on the opened file
+└── 6. Open the agent's own volume (state, token, key.pem), or a local volume bound to a
+       host path outside the roots
+    └── [BLOCKED] the browser asks the proxy's volume check before opening a volume: 403 for
+        the agent's own volumes and out-of-root binds, 404 for an unknown volume
 ```
 
 ## Tree 4 — Impersonate the EOS server to the agent (A-06)
