@@ -38,7 +38,7 @@ the gauntlet ticket. All remediation landed under **EA-24** across rounds r1–r
 | **TLS 1.2+ with restricted cipher suites** | r1 | Tampering (weak transport) | `internal/server/server.go` `srv.TLSConfig` | EA-24 |
 | **Security response headers** (HSTS/nosniff/DENY) | r1 | Tampering (clickjack/sniff) | `internal/server/server.go` `headerMiddleware` | EA-24 |
 | **Listener DoS bounds** (header timeout, 1 MiB max header) | r1 | DoS (slowloris) | `internal/server/server.go` `ReadHeaderTimeout`, `MaxHeaderBytes` | EA-24 |
-| **Go 1.26.4 pinned toolchain** | r5 | Tampering (known CVEs) | `go.mod` (`go 1.26.4`); govulncheck 0 findings | EA-24 |
+| **Go 1.26.10 pinned toolchain** | r5 | Tampering (known CVEs) | `go.mod` (`toolchain go1.26.10`); govulncheck 0 findings | EA-24 |
 | **Digest-pinned base images + SHA-pinned Actions** | r5 | Tampering (supply chain) | `Dockerfile`, `.github/workflows/*` | EA-24 |
 
 Every threat enumerated in `04-stride-per-element.md` and every **[BLOCKED]** leaf
