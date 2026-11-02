@@ -177,31 +177,40 @@ The agent binary has built-in Windows service support via the Service Control Ma
 
 ```powershell
 eightly-agent.exe install
+Set-Content -NoNewline -Path C:\ProgramData\eightly-agent\secret -Value 'your-shared-secret'
 eightly-agent.exe start
 ```
 
-**Set environment variables before installing** so the service picks them up:
+`install` creates `C:\ProgramData\eightly-agent`, replaces its access list with SYSTEM and Administrators only (nothing inherited from ProgramData, where every local user can read), and registers the service with `--secret-file C:\ProgramData\eightly-agent\secret`. Because the folder is locked down first, the secret file you write into it afterwards is closed to other users too. To keep the secret elsewhere, pass `eightly-agent.exe install --secret-file D:\path\secret`.
+
+**Do not put the secret in a Machine environment variable.** Every local user can read those. The service refuses to start while `EIGHTLY_AGENT_SECRET` is set alongside the secret file. When upgrading an install that used one, run `eightly-agent.exe uninstall`, then `install`, write the file, and remove the variable:
 
 ```powershell
-[System.Environment]::SetEnvironmentVariable("EIGHTLY_AGENT_SECRET", "your-shared-secret", "Machine")
+[System.Environment]::SetEnvironmentVariable("EIGHTLY_AGENT_SECRET", $null, "Machine")
+```
+
+The server URL and the single-use enrollment token are still read from the environment:
+
+```powershell
 [System.Environment]::SetEnvironmentVariable("EIGHTLY_SERVER_URL", "https://your-eos-server:8080", "Machine")
 [System.Environment]::SetEnvironmentVariable("EIGHTLY_ENROLL_TOKEN", "your-enrollment-token", "Machine")
-eightly-agent.exe install
-eightly-agent.exe start
 ```
 
 **Other service commands:**
 
 ```powershell
+eightly-agent.exe status     # Show the service state
 eightly-agent.exe stop       # Stop the service
-eightly-agent.exe restart    # Restart the service
 eightly-agent.exe uninstall  # Remove the service
 ```
 
-The service runs as `EightlyAgent` in the Windows Services panel. Default paths on Windows:
+The service runs as `EightlyAgent` (LocalSystem) in the Windows Services panel. Default paths on Windows:
 - Docker socket: `//./pipe/docker_engine`
 - Data directory: `C:\ProgramData\eightly-agent`
 - State file: `C:\ProgramData\eightly-agent\state.json`
+- Secret file: `C:\ProgramData\eightly-agent\secret`
+
+**File access on Windows.** Windows ignores unix file modes, so the agent sets an explicit, protected access list (SYSTEM and Administrators full control, plus the agent's own account when it is run by hand) on the data folder, state file, secret file, TLS key and certificate whenever it creates or reuses them. It refuses to load the state, secret or key if any other account still has access after that. A folder that also holds other things (a volume, a home directory) keeps its access list; the agent's files in it are protected one by one. Check with `icacls C:\ProgramData\eightly-agent\*`.
 
 ## Build from Source
 
