@@ -99,6 +99,89 @@ func TestResume_FirstStartEnrolls(t *testing.T) {
 	}
 }
 
+// Codex round 3: with --secret-file in a fresh 0755 data folder the agent
+// enrolled, then the next start refused the folder (the secret counted as
+// somebody else's) and the saved state with it. The folder is made right
+// before the token is spent, and the restart resumes.
+func TestResume_SecretFileInDataFolderSurvivesRestart(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; ownership checks behave differently")
+	}
+	srv, calls := registerCounter(t)
+	dir := filepath.Join(t.TempDir(), "data")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(dir, "secret")
+	if err := os.WriteFile(secret, []byte("s"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		ServerURL:   srv.URL,
+		EnrollToken: "eos_enroll_fresh",
+		DataPath:    dir,
+		StatePath:   filepath.Join(dir, "eightly-agent.json"),
+		SecretFile:  secret,
+		SocketPath:  "/nonexistent.sock",
+		Port:        "9001",
+		Version:     "test",
+	}
+	tlsCfg, err := register.BuildServerTLSConfig("", true, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("tls: %v", err)
+	}
+	if state, _, err := resume(cfg, tlsCfg); err != nil || state == nil {
+		t.Fatalf("first start: %+v, %v", state, err)
+	}
+	state, _, err := resume(cfg, tlsCfg)
+	if err != nil || state == nil || state.AgentID != "agent-new" {
+		t.Fatalf("restart did not resume the saved registration: %+v, %v", state, err)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("%d register calls, want 1", n)
+	}
+}
+
+// A state folder shared with other files that the next start would refuse is
+// refused before enrolling, so the single-use token is not spent.
+func TestResume_SharedStateFolderDoesNotSpendTheToken(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; ownership checks behave differently")
+	}
+	srv, calls := registerCounter(t)
+	dir := filepath.Join(t.TempDir(), "home")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		ServerURL:   srv.URL,
+		EnrollToken: "eos_enroll_fresh",
+		StatePath:   filepath.Join(dir, "eightly-agent.json"),
+		SocketPath:  "/nonexistent.sock",
+		Port:        "9001",
+		Version:     "test",
+	}
+	tlsCfg, err := register.BuildServerTLSConfig("", true, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("tls: %v", err)
+	}
+	if state, _, _ := resume(cfg, tlsCfg); state != nil {
+		t.Fatalf("enrolled into a folder the next start refuses: %+v", state)
+	}
+	if n := calls.Load(); n != 0 {
+		t.Fatalf("%d register calls; the token must not be spent", n)
+	}
+}
+
 // Re-enrolling an agent whose token lapsed means running the install
 // command again with a fresh enrollment token. If the saved state survived in
 // the volume, the agent used to load it and never look at the new token, so

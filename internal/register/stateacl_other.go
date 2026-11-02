@@ -11,3 +11,7 @@ func secureState(string) error { return nil }
 // prepareStateWrite is a no-op outside Windows, where os.WriteFile's 0600
 // already applies.
 func prepareStateWrite(string) error { return nil }
+
+// checkStateDirACL is a no-op outside Windows, where CheckStateDir checks the
+// unix mode and owner instead.
+func checkStateDirACL(string) error { return nil }

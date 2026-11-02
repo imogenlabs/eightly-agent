@@ -11,5 +11,10 @@ func Protect(string) error { return nil }
 // Check does nothing outside Windows.
 func Check(string) error { return nil }
 
-// CheckOwner does nothing outside Windows.
-func CheckOwner(string) error { return nil }
+// guardsFolders is false outside Windows: the unix mode and owner checks of
+// each caller cover the folder.
+const guardsFolders = false
+
+func checkShared(string) error { return nil }
+
+func checkAncestors(string) error { return nil }
