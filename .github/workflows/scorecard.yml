@@ -6,19 +6,31 @@ on:
   schedule:
     - cron: '0 6 * * 1'
 
-permissions:
-  security-events: write
-  id-token: write
+# Scorecard's results API accepts a run only if the workflow has no
+# workflow-level write permission, only the Scorecard job holds id-token:
+# write, and that job runs on a GitHub-hosted Ubuntu runner.
+permissions: read-all
 
 jobs:
   scorecard:
     name: Scorecard
-    runs-on: self-hosted
+    # Public repos only. While the repo is private, Scorecard cannot publish
+    # and the SARIF upload needs Advanced Security, so the job could only fail.
+    # `!= true` so an event without the field still runs it once public.
+    if: github.event.repository.private != true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+      id-token: write
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
-      - uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46 # v2
+      # v2.4.1 and later pull their image from ghcr.io; the v2.4.0 image on
+      # gcr.io stopped being served, which failed every run.
+      - uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
         with:
           results_file: results.sarif
           results_format: sarif
@@ -27,6 +39,6 @@ jobs:
         with:
           name: scorecard-results
           path: results.sarif
-      - uses: github/codeql-action/upload-sarif@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3
+      - uses: github/codeql-action/upload-sarif@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3.35.5
         with:
           sarif_file: results.sarif

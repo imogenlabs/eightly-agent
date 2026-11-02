@@ -7,9 +7,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
-  attestations: write
 
 # One publish at a time per stream, so two releases cannot race each other to
 # `latest`. Release tags share one group; branch pushes queue per branch.
@@ -23,19 +20,73 @@ env:
   DOCKERHUB_IMAGE: smashingtags/eightly-agent
 
 jobs:
+  # A release tag goes through the same check as release.yml
+  # (scripts/release-tag.sh): semver, exists, on main. A tag that fails it is
+  # never built, logged in for, signed or pushed. This job holds no secrets.
+  resolve:
+    name: Resolve commit and tags
+    # Org self-hosted runners do not serve public repositories. `!= true`
+    # rather than `== false`, so an event without the field goes to a runner
+    # that exists.
+    runs-on: ${{ github.event.repository.private != true && 'ubuntu-latest' || 'self-hosted' }}
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      version: ${{ steps.resolve.outputs.version }}
+      release: ${{ steps.resolve.outputs.release }}
+      latest: ${{ steps.resolve.outputs.latest }}
+      minor_alias: ${{ steps.resolve.outputs.minor_alias }}
+      minor_tag: ${{ steps.resolve.outputs.minor_tag }}
+      major_alias: ${{ steps.resolve.outputs.major_alias }}
+      major_tag: ${{ steps.resolve.outputs.major_tag }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0  # every tag and origin/main, for the checks below
+          persist-credentials: false
+      - name: Resolver self-test
+        run: scripts/release-tag.sh --self-test
+      - name: Resolve
+        id: resolve
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            scripts/release-tag.sh resolve "$GITHUB_REF_NAME" > resolved.txt
+            cat resolved.txt
+            echo "release=true" >> resolved.txt
+          else
+            # A branch push publishes :<branch> and :<sha> only, never an alias.
+            {
+              echo "sha=$GITHUB_SHA"
+              echo "version=latest"
+              echo "release=false"
+              echo "latest=false"
+              echo "minor_alias=false"
+              echo "minor_tag=unused"
+              echo "major_alias=false"
+              echo "major_tag=unused"
+            } > resolved.txt
+          fi
+          cat resolved.txt >> "$GITHUB_OUTPUT"
+
   docker:
     name: Build & Push Multi-Arch
+    needs: resolve
     # This job builds with buildx and signs with cosign on
     # the runner itself, so it needs a runner proven to do both: `docker-build`
     # (builds and runs an image) and `can-sign` (can reach Sigstore's Fulcio).
     # A runner that cannot reach Fulcio pushes the image and then fails to sign.
     # Org self-hosted runners do not serve public repositories, so a public repo
     # uses GitHub-hosted runners, which have Docker, buildx and Fulcio access.
-    runs-on: ${{ github.event.repository.private == false && 'ubuntu-latest' || fromJSON('["self-hosted","docker-build","can-sign"]') }}
+    runs-on: ${{ github.event.repository.private != true && 'ubuntu-latest' || fromJSON('["self-hosted","docker-build","can-sign"]') }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      # The resolved commit, checked out before any registry login.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          fetch-depth: 0  # every tag, for the `latest` check below
+          ref: ${{ needs.resolve.outputs.sha }}
           persist-credentials: false
 
       - name: Set up QEMU
@@ -57,32 +108,10 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Determine version
-        id: version
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION="latest"
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      # metadata-action's latest=auto tags every stable release push as
-      # `latest`, so publishing an older release moved `latest` backwards.
-      # Promote only the highest stable tag in the repo. Prereleases never.
-      - name: Decide whether this release becomes latest
-        id: latest
-        run: |
-          PROMOTE=false
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            HIGHEST=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
-            if [ "$GITHUB_REF_NAME" = "$HIGHEST" ]; then
-              PROMOTE=true
-            fi
-            echo "This tag: $GITHUB_REF_NAME, highest stable tag: ${HIGHEST:-none}, promote latest: $PROMOTE"
-          fi
-          echo "promote=$PROMOTE" >> "$GITHUB_OUTPUT"
-
+      # Every alias comes from the resolver: `latest`, MAJOR.MINOR and MAJOR
+      # each move only for the highest stable tag in their line, so
+      # republishing an older release never moves one backwards, and a
+      # prerelease gets its exact version only.
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
@@ -91,13 +120,13 @@ jobs:
             ${{ env.GHCR_IMAGE }}
             ${{ env.DOCKERHUB_IMAGE }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ needs.resolve.outputs.version }},enable=${{ needs.resolve.outputs.release == 'true' }}
+            type=raw,value=${{ needs.resolve.outputs.minor_tag }},enable=${{ needs.resolve.outputs.minor_alias == 'true' }}
+            type=raw,value=${{ needs.resolve.outputs.major_tag }},enable=${{ needs.resolve.outputs.major_alias == 'true' }}
+            type=raw,value=latest,enable=${{ needs.resolve.outputs.latest == 'true' }}
             type=ref,event=branch
             type=sha,prefix=
-            type=raw,value=latest,enable=${{ steps.latest.outputs.promote }}
-          # `latest` comes only from the step above. main pushes produce
-          # :main + :<sha> (a dev image), never :latest.
+          # main pushes produce :main + :<sha> (a dev image), never :latest.
           flavor: |
             latest=false
 
@@ -111,7 +140,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ steps.version.outputs.version }}
+            VERSION=${{ needs.resolve.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -121,10 +150,12 @@ jobs:
       - name: Sign container images
         env:
           COSIGN_EXPERIMENTAL: "1"
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.docker.outputs.digest }}
         run: |
-          echo "${{ steps.meta.outputs.tags }}" | while IFS= read -r tag; do
+          printf '%s\n' "$TAGS" | while IFS= read -r tag; do
             [ -n "$tag" ] || continue
-            cosign sign --yes "${tag}@${{ steps.docker.outputs.digest }}"
+            cosign sign --yes "${tag}@${DIGEST}"
           done
 
       - name: Attest GHCR image provenance

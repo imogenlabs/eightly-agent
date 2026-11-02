@@ -28,7 +28,9 @@ permissions:
 
 jobs:
   jira:
-    runs-on: self-hosted
+    # Org self-hosted runners do not serve public repositories. `!= true`
+    # rather than `== false`, so an event without the field gets a runner.
+    runs-on: ${{ github.event.repository.private != true && 'ubuntu-latest' || 'self-hosted' }}
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
       # keen at a reviewed commit that has `release sync`; move it deliberately.
@@ -48,16 +50,18 @@ jobs:
             echo "have=true" >> "$GITHUB_OUTPUT"
           fi
       - if: steps.creds.outputs.have == 'true'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ env.TAG }}
           fetch-depth: 0
+          persist-credentials: false
       - if: steps.creds.outputs.have == 'true'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: imogenlabs/keen
           ref: ${{ env.KEEN_REF }}
           path: .keen-src
+          persist-credentials: false
       - if: steps.creds.outputs.have == 'true'
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
