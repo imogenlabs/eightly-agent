@@ -17,6 +17,7 @@ type Config struct {
 	Addr              string
 	Port              string
 	Secret            string
+	SecretFile        string
 	ServerURL         string
 	EnrollToken       string
 	StatePath         string
@@ -48,6 +49,7 @@ func ParseArgs(fs *flag.FlagSet, args []string, version string) (*Config, error)
 	fs.StringVar(&c.Addr, "addr", "0.0.0.0", "listen address")
 	fs.StringVar(&c.Port, "port", "9001", "listen port")
 	fs.StringVar(&c.Secret, "secret", "", "HMAC shared secret")
+	fs.StringVar(&c.SecretFile, "secret-file", "", "file holding the HMAC shared secret (instead of --secret)")
 	fs.StringVar(&c.ServerURL, "server-url", "", "EOS server URL for registration")
 	fs.StringVar(&c.EnrollToken, "enroll-token", "", "first-time registration token")
 	fs.StringVar(&c.StatePath, "state-path", "", "agent state file (default: "+filepath.Base(DefaultStatePath)+" in the data directory)")
@@ -70,6 +72,7 @@ func ParseArgs(fs *flag.FlagSet, args []string, version string) (*Config, error)
 
 	envOverride(&c.Port, "AGENT_PORT")
 	envOverride(&c.Secret, "EIGHTLY_AGENT_SECRET")
+	envOverride(&c.SecretFile, "EIGHTLY_AGENT_SECRET_FILE")
 	envOverride(&c.ServerURL, "EIGHTLY_SERVER_URL")
 	envOverride(&c.EnrollToken, "EIGHTLY_ENROLL_TOKEN")
 	envOverride(&c.StatePath, "EIGHTLY_STATE_PATH")
@@ -157,6 +160,9 @@ func envOverrideBool(target *bool, key string) error {
 func (c *Config) Validate() error {
 	if len(c.envErrs) > 0 {
 		return errors.Join(c.envErrs...)
+	}
+	if err := c.loadSecretFile(); err != nil {
+		return err
 	}
 	if c.Secret == "" && !c.InsecureNoAuth {
 		return errors.New("EIGHTLY_AGENT_SECRET is required; use --insecure-no-auth to explicitly disable authentication")
