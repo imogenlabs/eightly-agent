@@ -27,7 +27,7 @@ func clearEnv(t *testing.T) {
 		"EIGHTLY_ENROLL_TOKEN", "EIGHTLY_STATE_PATH", "DATA_PATH",
 		"LOG_LEVEL", "DOCKER_SOCKET", "EIGHTLY_SERVER_CA",
 		"EIGHTLY_ADVERTISE_IP", "EIGHTLY_TLS_SANS",
-		"EIGHTLY_ALLOWED_ORIGINS",
+		"EIGHTLY_ALLOWED_ORIGINS", "EIGHTLY_ALLOWED_BIND_ROOTS",
 		"EIGHTLY_INSECURE_NO_AUTH", "EIGHTLY_INSECURE_SERVER_TLS",
 		"EIGHTLY_METRICS_ENABLED", "EIGHTLY_BROWSE_READ_ONLY",
 	} {
@@ -498,5 +498,39 @@ func TestExplicitStatePathWins(t *testing.T) {
 	t.Setenv("DATA_PATH", "/var/lib/eightly-agent")
 	if c := parseTestArgs(t, []string{"--state-path", "/flag/state.json"}, "v1"); c.StatePath != "/flag/state.json" {
 		t.Fatalf("flag StatePath ignored: %q", c.StatePath)
+	}
+}
+
+func TestBindRoots(t *testing.T) {
+	clearEnv(t)
+	c := parseTestArgs(t, nil, "v")
+	if roots, err := c.BindRoots(); err != nil || len(roots) != 0 {
+		t.Fatalf("default: got %v, %v; want no roots", roots, err)
+	}
+
+	t.Setenv("EIGHTLY_ALLOWED_BIND_ROOTS", " /opt/appdata, /mnt/user/media ,")
+	c = parseTestArgs(t, []string{"--allowed-bind-roots", "/ignored"}, "v")
+	roots, err := c.BindRoots()
+	if err != nil || len(roots) != 2 || roots[0] != "/opt/appdata" || roots[1] != "/mnt/user/media" {
+		t.Fatalf("env: got %v, %v", roots, err)
+	}
+
+	for _, bad := range []string{
+		"/", "/etc", "/etc/app", "/usr/local", "/var", "/var/run", "/run/user",
+		"/var/lib/docker/volumes", "/opt", "/home/../etc", "/srv/", "relative", "/root/x",
+	} {
+		c := &Config{AllowedBindRoots: bad, InsecureNoAuth: true}
+		if _, err := c.BindRoots(); err == nil {
+			t.Errorf("BindRoots(%q) accepted a root it must refuse", bad)
+		}
+		if err := c.Validate(); err == nil {
+			t.Errorf("Validate accepted --allowed-bind-roots=%q", bad)
+		}
+	}
+	for _, good := range []string{"/srv", "/mnt/user/appdata", "/opt/appdata", "/data", "/var/lib/apps", "/home/user/media"} {
+		c := &Config{AllowedBindRoots: good}
+		if _, err := c.BindRoots(); err != nil {
+			t.Errorf("BindRoots(%q): %v", good, err)
+		}
 	}
 }
