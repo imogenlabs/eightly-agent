@@ -40,3 +40,13 @@ func prepareStateWrite(tmp string) error {
 	}
 	return winacl.Secure(tmp)
 }
+
+// checkStateDirACL refuses a state folder that secureState would refuse once a
+// registration is saved there: a shared folder others can change, or one under
+// a folder that lets them move it aside.
+func checkStateDirACL(dir string) error {
+	if _, err := winacl.ProtectDir(dir); err != nil {
+		return fmt.Errorf("cannot restrict access to %s: %w", dir, err)
+	}
+	return nil
+}

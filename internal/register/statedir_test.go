@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/imogenlabs/eightly-agent/internal/winacl"
 )
 
 // volumeDir makes a directory with the mode Docker gives a new volume, holding
@@ -48,7 +50,7 @@ func TestPrepareStateDir_TightensOwnedVolumeDir(t *testing.T) {
 	}
 	dir, statePath := volumeDir(t)
 
-	tightened, err := PrepareStateDir(statePath, "")
+	tightened, err := PrepareStateDir(winacl.AgentFiles{State: statePath})
 	if err != nil {
 		t.Fatalf("PrepareStateDir: %v", err)
 	}
@@ -79,14 +81,14 @@ func TestPrepareStateDir_LeavesTightDirAlone(t *testing.T) {
 	if err := (&State{AgentID: "agent-1", Token: "tok"}).Save(statePath); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	tightened, err := PrepareStateDir(statePath, "")
+	tightened, err := PrepareStateDir(winacl.AgentFiles{State: statePath})
 	if err != nil || tightened {
 		t.Fatalf("PrepareStateDir on a 0700 dir = (%v, %v), want (false, nil)", tightened, err)
 	}
 }
 
 func TestPrepareStateDir_MissingDirIsFirstStart(t *testing.T) {
-	tightened, err := PrepareStateDir(filepath.Join(t.TempDir(), "absent", "eightly-agent.json"), "")
+	tightened, err := PrepareStateDir(winacl.AgentFiles{State: filepath.Join(t.TempDir(), "absent", "eightly-agent.json")})
 	if err != nil || tightened {
 		t.Fatalf("PrepareStateDir on a missing dir = (%v, %v), want (false, nil)", tightened, err)
 	}
@@ -102,7 +104,7 @@ func TestPrepareStateDir_CannotTightenKeepsRefusal(t *testing.T) {
 	chmodDir = func(string, os.FileMode) error { return &os.PathError{Op: "chmod", Path: dir, Err: syscall.EROFS} }
 	t.Cleanup(func() { chmodDir = os.Chmod })
 
-	tightened, err := PrepareStateDir(statePath, "")
+	tightened, err := PrepareStateDir(winacl.AgentFiles{State: statePath})
 	if err == nil {
 		t.Fatal("a failed chmod was reported as success")
 	}
@@ -135,7 +137,7 @@ func TestPrepareStateDir_ForeignOwnedDirIsNotTouched(t *testing.T) {
 	// /etc is root-owned and 0755 on every unix this runs on, and /etc/hosts
 	// exists, so this reaches the ownership check rather than the
 	// missing-file early return.
-	_, err := PrepareStateDir("/etc/hosts", "")
+	_, err := PrepareStateDir(winacl.AgentFiles{State: "/etc/hosts"})
 	if err == nil || !strings.Contains(err.Error(), "owned by uid 0") {
 		t.Fatalf("expected a plain ownership refusal, got %v", err)
 	}
@@ -151,7 +153,7 @@ func TestPrepareStateDir_DoesNotLoosenFileGuard(t *testing.T) {
 	if err := os.Chmod(statePath, 0o644); err != nil {
 		t.Fatalf("chmod file: %v", err)
 	}
-	if _, err := PrepareStateDir(statePath, ""); err != nil {
+	if _, err := PrepareStateDir(winacl.AgentFiles{State: statePath}); err != nil {
 		t.Fatalf("PrepareStateDir: %v", err)
 	}
 	if _, err := LoadState(statePath); err == nil || !strings.Contains(err.Error(), "broader than 0600") {
@@ -180,7 +182,7 @@ func TestPrepareStateDir_MissingFileLeavesDirAlone(t *testing.T) {
 	}
 	t.Cleanup(func() { chmodDir = os.Chmod })
 
-	tightened, err := PrepareStateDir(filepath.Join(dir, "eightly-agent.json"), "")
+	tightened, err := PrepareStateDir(winacl.AgentFiles{State: filepath.Join(dir, "eightly-agent.json")})
 	if err != nil || tightened {
 		t.Fatalf("PrepareStateDir with no state file = (%v, %v), want (false, nil)", tightened, err)
 	}
@@ -209,7 +211,7 @@ func TestPrepareStateDir_PopulatedFolderIsNotTightened(t *testing.T) {
 	}
 	t.Cleanup(func() { chmodDir = os.Chmod })
 
-	tightened, err := PrepareStateDir(statePath, "")
+	tightened, err := PrepareStateDir(winacl.AgentFiles{State: statePath})
 	if tightened || err == nil {
 		t.Fatalf("PrepareStateDir on a populated folder = (%v, %v), want (false, a reason)", tightened, err)
 	}
@@ -236,7 +238,7 @@ func TestPrepareStateDir_DataFolderWithOwnFilesIsTightened(t *testing.T) {
 			t.Fatalf("write: %v", err)
 		}
 	}
-	tightened, err := PrepareStateDir(statePath, dir)
+	tightened, err := PrepareStateDir(winacl.AgentFiles{State: statePath, Data: dir})
 	if err != nil || !tightened {
 		t.Fatalf("PrepareStateDir on the agent's own data folder = (%v, %v), want (true, nil)", tightened, err)
 	}
@@ -256,7 +258,7 @@ func TestPrepareStateDir_CertFilesOutsideTheDataFolderAreNotOurs(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	elsewhere := t.TempDir() // a real folder, so the comparison is actually made
-	if tightened, err := PrepareStateDir(statePath, elsewhere); tightened || err == nil {
+	if tightened, err := PrepareStateDir(winacl.AgentFiles{State: statePath, Data: elsewhere}); tightened || err == nil {
 		t.Fatalf("got (%v, %v); a cert.pem outside the data folder is not the agent's", tightened, err)
 	}
 }
@@ -278,8 +280,118 @@ func TestPrepareStateDir_DataFolderNamedDifferentlyIsStillOurs(t *testing.T) {
 	if err := os.Symlink(dir, link); err != nil {
 		t.Fatalf("symlink: %v", err)
 	}
-	tightened, err := PrepareStateDir(statePath, link)
+	tightened, err := PrepareStateDir(winacl.AgentFiles{State: statePath, Data: link})
 	if err != nil || !tightened {
 		t.Fatalf("data folder given through a symlink = (%v, %v), want (true, nil)", tightened, err)
+	}
+}
+
+// Codex round 3: with --secret-file inside the data folder, the secret was
+// counted as somebody else's, so a restart refused to repair the folder and
+// then refused the saved state. The configured secret and enrollment token,
+// and the backup a server switch leaves, are the agent's own.
+func TestPrepareStateDir_SecretAndTokenFilesAreOurs(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; ownership checks behave differently")
+	}
+	dir, statePath := volumeDir(t)
+	for _, name := range []string{"secret", "enroll-token", "eightly-agent.json.bak", "eightly-agent.json.bak.tmp"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	files := winacl.AgentFiles{
+		State:       statePath,
+		Data:        dir,
+		Secret:      filepath.Join(dir, "secret"),
+		EnrollToken: filepath.Join(dir, "enroll-token"),
+	}
+	tightened, err := PrepareStateDir(files)
+	if err != nil || !tightened {
+		t.Fatalf("PrepareStateDir with the secret in the data folder = (%v, %v), want (true, nil)", tightened, err)
+	}
+	if _, err := LoadState(statePath); err != nil {
+		t.Fatalf("the saved state is still refused after the repair: %v", err)
+	}
+}
+
+// A secret file somewhere else does not make a file of the same name in the
+// state folder the agent's.
+func TestPrepareStateDir_SecretElsewhereIsNotOurs(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; ownership checks behave differently")
+	}
+	dir, statePath := volumeDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "secret"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	files := winacl.AgentFiles{State: statePath, Secret: filepath.Join(t.TempDir(), "secret")}
+	if tightened, err := PrepareStateDir(files); tightened || err == nil || !strings.Contains(err.Error(), "secret") {
+		t.Fatalf("got (%v, %v); a secret file that is not the configured one is not the agent's", tightened, err)
+	}
+}
+
+// Before enrolling, an agent-only 0755 folder is tightened, so the
+// registration saved there loads on the next start.
+func TestCheckStateDir_TightensBeforeEnrolling(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; ownership checks behave differently")
+	}
+	dir := filepath.Join(t.TempDir(), "data")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "secret"), []byte("s"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(dir, "eightly-agent.json")
+	files := winacl.AgentFiles{State: statePath, Data: dir, Secret: filepath.Join(dir, "secret")}
+	if err := CheckStateDir(files); err != nil {
+		t.Fatalf("CheckStateDir on the agent's own 0755 folder: %v", err)
+	}
+	if perm := dirPerm(t, dir); perm != 0o700 {
+		t.Fatalf("folder left at %04o", perm)
+	}
+	if err := (&State{AgentID: "a", Token: "t"}).Save(statePath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadState(statePath); err != nil {
+		t.Fatalf("the registration saved after the check is refused: %v", err)
+	}
+}
+
+// A shared 0755 folder is not tightened, and enrolling into it is refused
+// before the token is spent rather than after.
+func TestCheckStateDir_RefusesASharedFolder(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; ownership checks behave differently")
+	}
+	dir := filepath.Join(t.TempDir(), "home")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckStateDir(winacl.AgentFiles{State: filepath.Join(dir, "eightly-agent.json")})
+	if err == nil || !strings.Contains(err.Error(), "notes.txt") {
+		t.Fatalf("CheckStateDir on a shared 0755 folder = %v, want a refusal naming notes.txt", err)
+	}
+	if perm := dirPerm(t, dir); perm != 0o755 {
+		t.Errorf("shared folder changed to %04o", perm)
+	}
+}
+
+// A folder already at 0700 passes untouched.
+func TestCheckStateDir_TightFolderPasses(t *testing.T) {
+	dir := t.TempDir()
+	if err := CheckStateDir(winacl.AgentFiles{State: filepath.Join(dir, "eightly-agent.json")}); err != nil {
+		t.Fatalf("CheckStateDir on a 0700 folder: %v", err)
 	}
 }

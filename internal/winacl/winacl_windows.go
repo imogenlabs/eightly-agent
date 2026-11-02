@@ -7,6 +7,7 @@ package winacl
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"unsafe"
 
@@ -166,59 +167,135 @@ func withPrivileges(names []string, fn func() error) error {
 	return fn()
 }
 
-// CheckOwner refuses path unless SYSTEM, Administrators or the agent's own
-// account owns it.
-func CheckOwner(path string) error {
-	trusted, err := trustedSIDs()
-	if err != nil {
-		return err
-	}
-	o, err := owner(path)
-	if err != nil {
-		return err
-	}
-	return ownerVerdict(path, o, trusted)
-}
+// guardsFolders makes Secure check the folder a file lives in: on Windows
+// nothing else does.
+const guardsFolders = true
 
-// Check refuses path unless SYSTEM, Administrators or the agent's own account
-// owns it and only those are granted access to it.
-func Check(path string) error {
-	if err := CheckOwner(path); err != nil {
-		return err
-	}
-	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+// inheritOnlyACE marks an entry that only passes access down to children.
+const inheritOnlyACE = 0x8
+
+// readACL returns path's owner and access list, reduced to what the verdicts
+// need. present is false for a NULL DACL, which grants everyone everything.
+func readACL(path string) (owner string, present bool, entries []ace, err error) {
+	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
-		return fmt.Errorf("cannot read the access list of %s: %w", path, err)
+		return "", false, nil, fmt.Errorf("cannot read the access list of %s: %w", path, err)
 	}
-	trusted, err := trustedSIDs()
-	if err != nil {
-		return err
+	if o, _, err := sd.Owner(); err == nil && o != nil {
+		owner = o.String()
 	}
 	dacl, _, err := sd.DACL()
 	if err == windows.ERROR_OBJECT_NOT_FOUND || (err == nil && dacl == nil) {
-		return verdict(path, false, nil, trusted)
+		return owner, false, nil, nil
 	}
 	if err != nil {
-		return fmt.Errorf("cannot read the access list of %s: %w", path, err)
+		return "", false, nil, fmt.Errorf("cannot read the access list of %s: %w", path, err)
 	}
-	entries := make([]ace, 0, dacl.AceCount)
+	entries = make([]ace, 0, dacl.AceCount)
 	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
 		var a *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(dacl, i, &a); err != nil {
-			return fmt.Errorf("cannot read the access list of %s: %w", path, err)
+			return "", false, nil, fmt.Errorf("cannot read the access list of %s: %w", path, err)
 		}
 		switch a.Header.AceType {
 		case windows.ACCESS_ALLOWED_ACE_TYPE, windows.ACCESS_DENIED_ACE_TYPE:
 			sid := (*windows.SID)(unsafe.Pointer(&a.SidStart)) // #nosec G103 -- the SID starts at SidStart inside the ACE, as the Win32 ACE layout defines
 			entries = append(entries, ace{
-				sid:   sid.String(),
-				allow: a.Header.AceType == windows.ACCESS_ALLOWED_ACE_TYPE,
-				known: true,
-				mask:  uint32(a.Mask),
+				sid:         sid.String(),
+				allow:       a.Header.AceType == windows.ACCESS_ALLOWED_ACE_TYPE,
+				known:       true,
+				inheritOnly: a.Header.AceFlags&inheritOnlyACE != 0,
+				mask:        uint32(a.Mask),
 			})
 		default:
 			entries = append(entries, ace{})
 		}
 	}
-	return verdict(path, true, entries, trusted)
+	return owner, true, entries, nil
+}
+
+// Check refuses path unless SYSTEM, Administrators or the agent's own account
+// owns it and only those are granted access to it.
+func Check(path string) error {
+	trusted, err := trustedSIDs()
+	if err != nil {
+		return err
+	}
+	o, present, entries, err := readACL(path)
+	if err != nil {
+		return err
+	}
+	if err := ownerVerdict(path, o, trusted); err != nil {
+		return err
+	}
+	return verdict(path, present, entries, trusted)
+}
+
+// folderTrust is who may own or change a folder holding the agent's files:
+// the accounts trusted with the files, and TrustedInstaller, which owns the
+// system drive's root.
+func folderTrust() (map[string]bool, error) {
+	trusted, err := trustedSIDs()
+	if err != nil {
+		return nil, err
+	}
+	trusted[sidTrustedInstaller] = true
+	return trusted, nil
+}
+
+// sharedFix is what an operator does about a shared folder others can change.
+const sharedFix = "keep the agent's state, secret, enrollment token and TLS files in a folder of their own (the default is C:\\ProgramData\\eightly-agent) or remove that access"
+
+// ancestorFix is what an operator does about a folder above the agent's that
+// others can change.
+func ancestorFix(dir string) string {
+	return "it holds " + dir + ", so move the agent's folder somewhere only SYSTEM and Administrators can change, such as C:\\ProgramData\\eightly-agent"
+}
+
+// checkShared refuses a folder that holds other files when anyone untrusted
+// owns it or may add, delete or rename what is in it.
+func checkShared(dir string) error {
+	trusted, err := folderTrust()
+	if err != nil {
+		return err
+	}
+	o, present, entries, err := readACL(dir)
+	if err != nil {
+		return err
+	}
+	return mutationVerdict(dir, o, present, entries, trusted, sharedDirMask, sharedFix)
+}
+
+// checkAncestors walks from dir's parent to the volume root and refuses any
+// folder there that an untrusted account owns or may delete children of,
+// rename, or re-permission: with any of those the agent's whole folder can be
+// moved aside and replaced. A volume root cannot itself be renamed.
+func checkAncestors(dir string) error {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	trusted, err := folderTrust()
+	if err != nil {
+		return err
+	}
+	for child := abs; ; {
+		parent := filepath.Dir(child)
+		if parent == child {
+			return nil
+		}
+		mask := uint32(ancestorMask)
+		if filepath.Dir(parent) == parent {
+			mask &^= deleteRight
+		}
+		o, present, entries, err := readACL(parent)
+		if err != nil {
+			return err
+		}
+		if err := mutationVerdict(parent, o, present, entries, trusted, mask, ancestorFix(abs)); err != nil {
+			return err
+		}
+		child = parent
+	}
 }

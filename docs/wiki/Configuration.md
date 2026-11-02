@@ -163,6 +163,8 @@ Comma-separated host directories that containers created through the agent may b
 
 Each root must be an absolute path in `/` form with no trailing slash, `.` or `..`. A system directory, a directory inside one, or a parent of one is refused at startup. The system directories are `/bin`, `/boot`, `/dev`, `/etc`, `/lib`, `/lib32`, `/lib64`, `/libx32`, `/opt/cni`, `/opt/containerd`, `/proc`, `/root`, `/run`, `/sbin`, `/sys`, `/usr`, `/var/lib/containerd`, `/var/lib/docker` and `/var/run`, so `/`, `/opt` and `/var` are refused as their parents while `/opt/appdata` and `/srv/media` are fine. The agent's paths are host paths: it does not need the folders mounted into its own container. Set the same roots on every host whose containers bind them.
 
+On Windows a root may also be a drive path, written `C:\AppData` or `C:/AppData`; the agent compares it without case, as NTFS does. A whole drive, Windows itself, the Program Files folders, ProgramData (Docker's state and the agent's own secrets live there) and the system drive's recovery folders are refused, as are spellings that name one folder two ways: a segment ending in a dot or a space, an 8.3 short name such as `PROGRA~1`, `.` or `..`, and UNC or `\\?\` paths.
+
 Any container that can write under a root can plant a symlink there, and the kernel follows a symlink when it mounts a bind. When the agent runs directly on the host it refuses a bind that runs through a symlink, at create and again at start; when it runs in a container it cannot see the host's paths and does not check. Choose roots that hold app data and nothing the host trusts.
 
 Example: `--allowed-bind-roots "/opt/appdata,/mnt/user/media"` (the app catalog's default app data folder is `/opt/appdata`)

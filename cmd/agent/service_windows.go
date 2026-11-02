@@ -111,7 +111,7 @@ func protectDataDirs(cfg *config.Config) {
 		case err != nil:
 			log.Warn().Err(err).Str("dir", dir).Msg("cannot restrict access to folder")
 		case !done:
-			log.Info().Str("dir", dir).Msg("folder holds files that are not the agent's; leaving its access list alone and protecting the agent's files one by one")
+			log.Info().Str("dir", dir).Msg("folder holds files that are not the agent's and nobody else can change it; leaving its access list alone and protecting the agent's files one by one")
 		}
 	}
 }
@@ -165,6 +165,15 @@ func installService() error {
 		return fmt.Errorf("failed to get executable path: %w", err)
 	}
 
+	// The service runs with the default data folder and state file, so those
+	// and the two files named here are the agent's; anything else in their
+	// folders keeps its access list.
+	winacl.SetAgentFiles(winacl.AgentFiles{
+		State:       config.DefaultStatePath,
+		Data:        config.DefaultDataPath,
+		Secret:      path,
+		EnrollToken: tokenPath,
+	})
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("failed to create %s: %w", dir, err)

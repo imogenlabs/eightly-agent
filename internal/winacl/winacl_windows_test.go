@@ -156,3 +156,105 @@ func TestProtectDirRefusesASharedFolderSomeoneElseOwns(t *testing.T) {
 		t.Fatalf("ProtectDir on a foreign-owned shared folder = %v, %v; want a refusal", done, err)
 	}
 }
+
+// setDACL replaces path's access list with sddl, where %s stands for the
+// agent's own account.
+func setDACL(t *testing.T, path, sddl string) {
+	t.Helper()
+	self, err := selfSID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sd, err := windows.SecurityDescriptorFromString(strings.ReplaceAll(sddl, "%s", self))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dacl, _, err := sd.DACL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Codex round 3: a shared folder where Users may add and delete files passed,
+// so they could swap the protected state or key for their own and Secure
+// would then trust it. It is refused now, and its access list is left alone.
+func TestProtectDirRefusesASharedFolderUsersCanChange(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "shared")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(dir, "secret")
+	useFiles(t, AgentFiles{Secret: secret})
+	touch(t, dir, "notes.txt", "secret")
+	setDACL(t, dir, "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;%s)(A;;0x100042;;;BU)")
+
+	if done, err := ProtectDir(dir); done || err == nil || !strings.Contains(err.Error(), usersSID) {
+		t.Fatalf("ProtectDir on a folder Users can change = %v, %v; want a refusal naming Users", done, err)
+	}
+	if err := Secure(secret); err == nil {
+		t.Fatal("Secure trusted a file in a folder Users can swap it in")
+	}
+	_, _, entries, err := readACL(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasSID(entries, usersSID) {
+		t.Fatal("the shared folder's access list was rewritten")
+	}
+}
+
+// Codex round 3: a folder holding another program's app.json beside the
+// agent's secret is that program's too; its access list is not rewritten, and
+// the secret is still protected on its own.
+func TestProtectDirLeavesAnotherProgramsFolderAlone(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "shared")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(dir, "secret")
+	useFiles(t, AgentFiles{Secret: secret})
+	touch(t, dir, "app.json", "secret")
+	openToUsers(t, dir)
+
+	if done, err := ProtectDir(dir); done || err != nil {
+		t.Fatalf("ProtectDir on a folder Users can only read = %v, %v; want it left alone", done, err)
+	}
+	if err := Check(dir); err == nil || !strings.Contains(err.Error(), usersSID) {
+		t.Fatalf("the other program's folder was re-permissioned: %v", err)
+	}
+	if err := Secure(secret); err != nil {
+		t.Fatalf("Secure on the secret in a read-only shared folder: %v", err)
+	}
+}
+
+// A folder above the agent's that lets Users delete its children lets them
+// move the agent's whole folder aside, so it is refused too.
+func TestProtectDirRefusesAFolderOthersCanEmpty(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "parent")
+	if err := os.Mkdir(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	setDACL(t, parent, "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;%s)(A;;0x100040;;;BU)")
+	dir := filepath.Join(parent, "data")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	useFiles(t, AgentFiles{Data: dir})
+	_, err := ProtectDir(dir)
+	if err == nil || !strings.Contains(err.Error(), usersSID) || !strings.Contains(err.Error(), parent) {
+		t.Fatalf("ProtectDir under a folder Users can empty = %v; want a refusal naming the folder and Users", err)
+	}
+}
+
+func hasSID(entries []ace, sid string) bool {
+	for _, e := range entries {
+		if e.sid == sid {
+			return true
+		}
+	}
+	return false
+}
