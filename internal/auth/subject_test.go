@@ -41,7 +41,7 @@ func handlerFor(agentID string) http.Handler {
 	return Middleware(testSecret, false, func() string { return agentID })(ok)
 }
 
-// The whole point of EA-35: every agent verifies with the same shared server
+// The whole point of per-agent token binding: every agent verifies with the same shared server
 // secret, so a token minted for agent A used to open agent B's API — and this API
 // fronts the Docker socket.
 func TestTokenForAnotherAgentIsRejected(t *testing.T) {

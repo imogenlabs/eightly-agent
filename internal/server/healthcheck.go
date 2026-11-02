@@ -19,11 +19,11 @@ import (
 // only on a 200. It is what the image's HEALTHCHECK runs (`eightly-agent
 // healthcheck`), and it does the request in-process on purpose.
 //
-// EOS-2533: the image used to run busybox `wget --spider https://...`, which
+// The image used to run busybox `wget --spider https://...`, which
 // forks an ssl_client helper. When the listener stopped answering, Docker
 // killed wget at the 5s timeout, the helper was reparented to PID 1 (the agent,
 // which never reaps), and one zombie was left every 10 seconds: 115,420 of them
-// on eightly-ms01. This check starts no child process, so there is nothing to
+// on a production host. This check starts no child process, so there is nothing to
 // orphan, and it gives up on ctx's deadline rather than waiting to be killed.
 //
 // It trusts exactly the certificate at certPath, the one the listener loads, so

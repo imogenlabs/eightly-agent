@@ -38,7 +38,7 @@ type Claims struct {
 // agentID reports this agent's own registered ID and is called on every request,
 // because an agent learns its ID only once registration succeeds — which can be
 // long after the middleware is built. "" means "identity not known yet", which
-// keeps the pre-EA-35 behaviour instead of locking the agent out of itself.
+// keeps the behaviour from before tokens were bound to one agent instead of locking the agent out of itself.
 func Middleware(secret string, insecureNoAuth bool, agentID func() string) func(http.Handler) http.Handler {
 	if agentID == nil {
 		agentID = func() string { return "" }
@@ -100,7 +100,7 @@ func Middleware(secret string, insecureNoAuth bool, agentID func() string) func(
 				return
 			}
 
-			// A token is only good for the agent it names (EA-35). Every agent in
+			// A token is only good for the agent it names. Every agent in
 			// a fleet verifies with the same shared server secret, so without this
 			// check any agent's token — including an enrollment token, which is
 			// pasted into install commands — opened every other agent's API, and

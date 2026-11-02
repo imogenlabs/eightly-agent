@@ -40,7 +40,7 @@ func dirPerm(t *testing.T, dir string) os.FileMode {
 	return fi.Mode().Perm()
 }
 
-// EOS-2534 AC1: an owned 0755 directory is tightened, after which the saved
+// An owned 0755 directory is tightened, after which the saved
 // state loads.
 func TestPrepareStateDir_TightensOwnedVolumeDir(t *testing.T) {
 	if os.Getuid() == 0 {
@@ -189,7 +189,7 @@ func TestPrepareStateDir_MissingFileLeavesDirAlone(t *testing.T) {
 	}
 }
 
-// EOS-2544. --state-path can point anywhere, for example into a home
+// --state-path can point anywhere, for example into a home
 // directory. The first restart used to narrow that whole directory to 0700,
 // locking everything else in it away from every other user and process. Only
 // a directory holding nothing but the agent's own files is the agent's to

@@ -17,7 +17,7 @@ var chmodDir = os.Chmod
 // PrepareStateDir brings the state file's directory down to 0700 when the agent
 // owns it and it is broader than that, and reports whether it changed anything.
 //
-// EOS-2534: Docker creates a new volume directory 0755. The agent saved its
+// Docker creates a new volume directory 0755. The agent saved its
 // registration there, and on the next start LoadState refused the directory, so
 // the agent discarded its saved identity and tried to enroll again with a
 // single-use token that was already spent. Tightening a directory the agent
@@ -27,7 +27,7 @@ var chmodDir = os.Chmod
 // LoadState goes on refusing exactly as before. The file check is untouched:
 // a state file broader than 0600 is still refused.
 //
-// EOS-2544: it also tightens only a folder that holds nothing but the agent's
+// It also tightens only a folder that holds nothing but the agent's
 // own files (the state file and its .tmp, and the TLS key pair when the folder
 // is dataPath). A shared folder such as a home directory is left alone with
 // the reason, and the saved state stays refused.
@@ -58,7 +58,7 @@ func PrepareStateDir(statePath, dataPath string) (bool, error) {
 	if other, err := otherFiles(dir, statePath, dataPath); err != nil {
 		return false, fmt.Errorf("cannot tighten %s (mode %04o): its contents could not be listed: %w", dir, perm, err)
 	} else if len(other) > 0 {
-		// EOS-2544: --state-path can point into a shared folder such as a home
+		// --state-path can point into a shared folder such as a home
 		// directory. Narrowing it would lock everything else there away from
 		// every other user, so only a folder that is wholly the agent's is.
 		return false, fmt.Errorf("not tightening %s (mode %04o): it also holds %s, which are not the agent's; point --state-path at a folder of its own", dir, perm, strings.Join(other, ", "))

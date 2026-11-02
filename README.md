@@ -10,12 +10,6 @@
 
 Run on every Docker host. Manage them all from one dashboard.
 
-> **Repository status:** this repo (and its GHCR package) is **private** right now, so GitHub
-> Releases, GHCR, Homebrew, and Scoop are not reachable publicly yet — those links will 404/403
-> until the repo is made public. The only install path that works today is the Docker Hub image
-> below, and it's a few months stale. See [Quick Start](#quick-start) for the current state of
-> each method.
-
 <br />
 
 <img src="docs/images/agent-environments.webp" alt="Remote Environments — connected agents with heartbeat status" width="100%" />
@@ -64,7 +58,7 @@ Switch between local and remote hosts from the environment dropdown. Every conta
 
 ## Quick Start
 
-### Docker Hub (the only method that works publicly today)
+### Docker
 
 ```bash
 docker run -d --init \
@@ -73,16 +67,14 @@ docker run -d --init \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
   -e EIGHTLY_ENROLL_TOKEN="your-enrollment-token" \
-  smashingtags/eightly-agent:latest
+  ghcr.io/imogenlabs/eightly-agent:latest
 ```
 
 `--init` gives the container a process reaper. Images from this release on carry tini for the same job, and their health check is `eightly-agent healthcheck`. That is an in-process HTTPS GET of the agent's own `/healthz` that exits 0 or 1 and starts no child process. Do not override the health check with that command on an older image: before the subcommand existed, the agent ignored the extra word and would start a second agent.
 
 > `EIGHTLY_SERVER_URL` is your Eight.ly OS dashboard URL — the agent register/heartbeat endpoints live on the same host and port EOS serves the UI from (default `8080`). Eight.ly OS generates a ready-to-paste `docker run` command with a one-time enrollment token under **Environments → Add host**.
 
-> This image was last published 2026-05-21 — it predates the repo going private and may not reflect
-> the current codebase. Verify `docker pull smashingtags/eightly-agent:latest` succeeds before relying
-> on it; it is served from Docker Hub, not GHCR.
+The same image is mirrored on Docker Hub as `smashingtags/eightly-agent`.
 
 ### Docker Compose
 
@@ -94,18 +86,17 @@ docker compose up -d
 
 A `docker-compose.yml` and `.env.example` are included in the repo.
 
-### GHCR, Homebrew, Scoop, .deb/.rpm, and standalone binaries — not available yet
+### Homebrew, Scoop, packages and binaries
 
-These all depend on this repo's GitHub Releases and container registry package, both of which
-require the repo to be **public**. It's private today, so:
+```bash
+brew install imogenlabs/tap/eightly-agent                     # macOS, Linux
+scoop bucket add eightly https://github.com/imogenlabs/scoop-eightly
+scoop install eightly-agent                                   # Windows
+```
 
-- `ghcr.io/imogenlabs/eightly-agent` — 403, no anonymous pull
-- `brew install imogenlabs/tap/eightly-agent` and the `imogenlabs/scoop-eightly` bucket — the
-  tap/bucket repos themselves are public, but their formula/manifest download from this repo's
-  GitHub Releases, which 404s while the repo is private
-- `.deb` / `.rpm` / standalone binary downloads from [Releases](https://github.com/imogenlabs/eightly-agent/releases) — 404, private repo
-
-Once the repo is public these will work as documented in the [Install Methods](#install-methods) table below. Until then, use the Docker Hub image above, or build from source (see [CONTRIBUTING.md](CONTRIBUTING.md) — note that cloning also requires repo access while it's private).
+`.deb` and `.rpm` packages (amd64, arm64) and binaries for five platforms are on the
+[Releases](https://github.com/imogenlabs/eightly-agent/releases) page. Every method is listed under
+[Install Methods](#install-methods).
 
 ---
 
@@ -264,29 +255,28 @@ flowchart TB
 
 ```
 cmd/agent/
-  main.go                       71 LOC — entry point, subcommands, signal handling
-  service_windows.go           260 LOC — Windows service (install/uninstall/start/stop/status)
-  service_other.go              32 LOC — no-op stubs for non-Windows platforms
-internal/auth/jwt.go           127 LOC — HMAC shared-secret token validation middleware
-internal/browse/browse.go      372 LOC — file browser (ls, get, put, delete, rename)
+  main.go  — entry point, subcommands, signal handling
+  service_windows.go  — Windows service (install/uninstall/start/stop/status)
+  service_other.go  — no-op stubs for non-Windows platforms
+internal/auth/jwt.go  — HMAC shared-secret token validation middleware
+internal/browse/browse.go  — file browser (ls, get, put, delete, rename)
 internal/config/
-  config.go                    135 LOC — CLI flags + env var parsing
-  defaults_windows.go           11 LOC — Windows default paths (named pipes, ProgramData)
-  defaults_other.go             11 LOC — Linux/macOS default paths (unix socket, /data)
+  config.go  — CLI flags + env var parsing
+  defaults_windows.go  — Windows default paths (named pipes, ProgramData)
+  defaults_other.go  — Linux/macOS default paths (unix socket, /data)
 internal/hostinfo/
-  hostinfo.go                   67 LOC — handler + shared types
-  hostinfo_linux.go             62 LOC — PCI + disk detection (Linux, sysfs)
-  hostinfo_darwin.go           130 LOC — system_profiler parsing (macOS)
-  hostinfo_windows.go           91 LOC — PowerShell Get-PnpDevice / Get-PhysicalDisk (Windows)
-internal/metrics/metrics.go     45 LOC — Prometheus counters/gauges
-internal/proxy/docker.go       406 LOC — reverse proxy to Docker socket
-internal/register/register.go  475 LOC — EOS registration + 30s heartbeat loop
-internal/register/pin.go       106 LOC — TOFU server-cert leaf-SPKI pinning
-internal/server/server.go      206 LOC — HTTP mux, TLS, graceful shutdown
-internal/tlsutil/tls.go        118 LOC — self-signed cert generation
-internal/websocket/websocket.go 369 LOC — WebSocket attach + exec handlers
+  hostinfo.go  — handler + shared types
+  hostinfo_linux.go  — PCI + disk detection (Linux, sysfs)
+  hostinfo_darwin.go  — system_profiler parsing (macOS)
+  hostinfo_windows.go  — PowerShell Get-PnpDevice / Get-PhysicalDisk (Windows)
+internal/metrics/metrics.go  — Prometheus counters/gauges
+internal/proxy/docker.go  — reverse proxy to Docker socket
+internal/register/register.go  — EOS registration + 30s heartbeat loop
+internal/register/pin.go  — TOFU server-cert leaf-SPKI pinning
+internal/server/server.go  — HTTP mux, TLS, graceful shutdown
+internal/tlsutil/tls.go  — self-signed cert generation
+internal/websocket/websocket.go  — WebSocket attach + exec handlers
                                ─────
-                             ~3,150 LOC total
 ```
 
 </details>
@@ -315,23 +305,20 @@ internal/websocket/websocket.go 369 LOC — WebSocket attach + exec handlers
 
 ### Install Methods
 
-> ⚠️ Every row below except Docker (Hub) requires this repo or its GHCR package to be public.
-> Both are private today — see the [Quick Start](#quick-start) notes above before using these.
-
 | Method | Platform | Command / Source |
 |:-------|:---------|:-----------------|
-| Docker (Hub) | Linux, macOS | `docker pull smashingtags/eightly-agent:latest` (works today; stale since 2026-05-21) |
-| Docker (GHCR) | Linux, macOS | `docker pull ghcr.io/imogenlabs/eightly-agent:latest` — not reachable while the package is private |
-| Homebrew | macOS, Linux | `brew install imogenlabs/tap/eightly-agent` — formula exists but its release asset 404s while the repo is private |
-| Scoop | Windows | `scoop bucket add eightly https://github.com/imogenlabs/scoop-eightly && scoop install eightly-agent` — manifest exists but its release asset 404s while the repo is private |
-| .deb package | Debian, Ubuntu | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (amd64, arm64) — not reachable while the repo is private |
-| .rpm package | RHEL, Fedora | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (amd64, arm64) — not reachable while the repo is private |
-| Windows service | Windows | Download `.exe` from [Releases](https://github.com/imogenlabs/eightly-agent/releases), then `eightly-agent.exe install && eightly-agent.exe start` — not reachable while the repo is private |
-| Binary | Linux, macOS, Windows | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (5 platform builds) — not reachable while the repo is private |
+| Docker (GHCR) | Linux, macOS | `docker pull ghcr.io/imogenlabs/eightly-agent:latest` |
+| Docker (Hub) | Linux, macOS | `docker pull smashingtags/eightly-agent:latest` (mirror) |
+| Homebrew | macOS, Linux | `brew install imogenlabs/tap/eightly-agent` |
+| Scoop | Windows | `scoop bucket add eightly https://github.com/imogenlabs/scoop-eightly && scoop install eightly-agent` |
+| .deb package | Debian, Ubuntu | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (amd64, arm64) |
+| .rpm package | RHEL, Fedora | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (amd64, arm64) |
+| Windows service | Windows | Download `.exe` from [Releases](https://github.com/imogenlabs/eightly-agent/releases), then `eightly-agent.exe install && eightly-agent.exe start` |
+| Binary | Linux, macOS, Windows | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (5 platform builds) |
 
 ## Verifying Releases
 
-All release binaries are signed with [Sigstore cosign](https://sigstore.dev) and include SLSA build provenance. These commands apply once a release asset or image is actually reachable (see the private-repo notes above) — they verify the signature, not availability.
+All release binaries are signed with [Sigstore cosign](https://sigstore.dev) and include SLSA build provenance.
 
 ### Verify a binary
 
@@ -339,7 +326,7 @@ All release binaries are signed with [Sigstore cosign](https://sigstore.dev) and
 cosign verify-blob \
   --certificate eightly-agent-linux-amd64.crt \
   --signature eightly-agent-linux-amd64.sig \
-  --certificate-identity-regexp 'https://github.com/smashingtags/eightly-agent' \
+  --certificate-identity-regexp 'https://github.com/imogenlabs/eightly-agent' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   eightly-agent-linux-amd64
 ```
@@ -348,16 +335,16 @@ cosign verify-blob \
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp 'https://github.com/smashingtags/eightly-agent' \
+  --certificate-identity-regexp 'https://github.com/imogenlabs/eightly-agent' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/imogenlabs/eightly-agent:1.0.0
+  ghcr.io/imogenlabs/eightly-agent:latest
 ```
 
 ### Verify SBOM
 
 ```bash
 gh attestation verify eightly-agent-linux-amd64 \
-  --owner smashingtags \
+  --owner imogenlabs \
   --predicate-type https://spdx.dev/Document
 ```
 
@@ -365,14 +352,10 @@ gh attestation verify eightly-agent-linux-amd64 \
 
 ```bash
 gh attestation verify eightly-agent-linux-amd64 \
-  --owner smashingtags
+  --owner imogenlabs
 ```
 
 ---
-
-## Releases in Jira
-
-Whoever cuts a release records it in Jira with `keen release sync --repo-path . --project EA --tag <tag> --head origin/main` (EOS-2718).
 
 ## Security
 

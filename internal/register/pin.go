@@ -73,7 +73,7 @@ func seedPin(cfg *tls.Config, pin string) {
 
 // SeedServerPin holds cfg to a pin saved in an earlier registration before the
 // state that carried it is discarded. Re-enrolling a lapsed agent with the same
-// server (EOS-2536) must be held to the key it was pinned to, or the fresh
+// server must be held to the key it was pinned to, or the fresh
 // single-use enrollment token goes to whatever certificate answers.
 func SeedServerPin(cfg *tls.Config, pin string) { seedPin(cfg, pin) }
 

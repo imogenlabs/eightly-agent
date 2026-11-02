@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smashingtags/eightly-agent/internal/tlsutil"
+	"github.com/imogenlabs/eightly-agent/internal/tlsutil"
 )
 
 // tlsTarget starts a TLS listener and writes the certificate it presents where
@@ -77,7 +77,7 @@ func TestHealthcheck_ErrorStatusFails(t *testing.T) {
 	}
 }
 
-// EOS-2533: the listener that went bad on ms01 accepted connections and never
+// The listener that went bad in production accepted connections and never
 // answered. The check must give up on its own deadline and say unhealthy, in
 // this process, with nothing left behind.
 func TestHealthcheck_SilentListenerFailsWithinDeadline(t *testing.T) {

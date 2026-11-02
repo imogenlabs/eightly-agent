@@ -19,7 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
-	"github.com/smashingtags/eightly-agent/internal/metrics"
+	"github.com/imogenlabs/eightly-agent/internal/metrics"
 )
 
 const tokenTTL = 30 * 24 * time.Hour
@@ -100,7 +100,7 @@ func startFakeEOS(t *testing.T) (*fakeEOS, *State, *heartbeater) {
 	return f, state, h
 }
 
-// EOS-2536 AC1 + AC3. Driven through 100 days with a beat every day, the agent
+// Driven through 100 days with a beat every day, the agent
 // renews its token before it lapses and every heartbeat is accepted. Before
 // this, nothing renewed it, and on day 31 it was refused for good.
 func TestHeartbeat_RenewsBeforeExpiryAndStaysConnectedFor100Days(t *testing.T) {

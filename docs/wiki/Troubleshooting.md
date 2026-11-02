@@ -46,7 +46,7 @@ WRN registration failed, will retry via heartbeat
 
 1. **Is the server URL correct?**
    ```bash
-   curl -k https://your-eos-server:7001/api/health
+   curl -k https://your-eos-server:8080/api/health
    ```
    If this times out or returns an error, the agent cannot reach EOS.
 
@@ -57,7 +57,7 @@ WRN registration failed, will retry via heartbeat
    The agent needs to reach EOS on the configured port. Check for firewalls, VPN requirements, or DNS resolution issues.
    ```bash
    # From the agent host
-   curl -k -v https://your-eos-server:7001/api/agents/register
+   curl -k -v https://your-eos-server:8080/api/agents/register
    ```
 
 4. **State file from a previous registration**
@@ -310,7 +310,7 @@ eightly-agent.exe start
 1. **Missing environment variables**: The service needs `EIGHTLY_AGENT_SECRET` and `EIGHTLY_SERVER_URL` set as system-level environment variables (not user-level). Set them with:
    ```powershell
    [System.Environment]::SetEnvironmentVariable("EIGHTLY_AGENT_SECRET", "your-secret", "Machine")
-   [System.Environment]::SetEnvironmentVariable("EIGHTLY_SERVER_URL", "https://your-eos-server:7001", "Machine")
+   [System.Environment]::SetEnvironmentVariable("EIGHTLY_SERVER_URL", "https://your-eos-server:8080", "Machine")
    ```
    Then reinstall and start the service.
 

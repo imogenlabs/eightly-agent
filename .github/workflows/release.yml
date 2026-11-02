@@ -46,7 +46,7 @@ jobs:
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          cache: false  # EOS-2461: persistent self-hosted runners keep the Go cache on disk
+          cache: false  # Persistent self-hosted runners keep the Go cache on disk
           go-version: '1.26.10'
 
       - name: Determine version
@@ -85,7 +85,7 @@ jobs:
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          cache: false  # EOS-2461: persistent self-hosted runners keep the Go cache on disk
+          cache: false  # Persistent self-hosted runners keep the Go cache on disk
           go-version: '1.26.10'
 
       - name: Install nfpm
@@ -114,7 +114,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          # sed, not envsubst: gettext's envsubst is missing on some runners (EOS-2728)
+          # sed, not envsubst: gettext's envsubst is missing on some runners
           sed -e "s/\${VERSION}/${VERSION}/g" -e "s/\${GOARCH}/${GOARCH}/g" nfpm.yml > nfpm-resolved.yml
           ! grep -F '${' nfpm-resolved.yml
           nfpm package --config nfpm-resolved.yml --packager deb --target eightly-agent_${{ steps.version.outputs.version }}_${{ matrix.goarch }}.deb
@@ -124,7 +124,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          # sed, not envsubst: gettext's envsubst is missing on some runners (EOS-2728)
+          # sed, not envsubst: gettext's envsubst is missing on some runners
           sed -e "s/\${VERSION}/${VERSION}/g" -e "s/\${GOARCH}/${GOARCH}/g" nfpm.yml > nfpm-resolved.yml
           ! grep -F '${' nfpm-resolved.yml
           nfpm package --config nfpm-resolved.yml --packager rpm --target eightly-agent-${{ steps.version.outputs.version }}.${{ matrix.goarch }}.rpm
@@ -143,7 +143,7 @@ jobs:
 
   release:
     name: Create Release
-    # EOS-2545: signs every artifact with cosign on the runner, so it needs a
+    # Signs every artifact with cosign on the runner, so it needs a
     # runner proven to reach Fulcio (see docker-publish.yml).
     runs-on: [self-hosted, can-sign]
     needs: [build, package]
@@ -250,59 +250,59 @@ jobs:
 
             **Linux (amd64):**
             ```bash
-            wget https://github.com/smashingtags/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-linux-amd64
+            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-linux-amd64
             chmod +x eightly-agent-linux-amd64
             sudo mv eightly-agent-linux-amd64 /usr/bin/eightly-agent
             ```
 
             **Linux (arm64):**
             ```bash
-            wget https://github.com/smashingtags/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-linux-arm64
+            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-linux-arm64
             chmod +x eightly-agent-linux-arm64
             sudo mv eightly-agent-linux-arm64 /usr/bin/eightly-agent
             ```
 
             **macOS (Apple Silicon):**
             ```bash
-            curl -Lo eightly-agent https://github.com/smashingtags/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-darwin-arm64
+            curl -Lo eightly-agent https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-darwin-arm64
             chmod +x eightly-agent
             sudo mv eightly-agent /usr/local/bin/eightly-agent
             ```
 
             **macOS (Intel):**
             ```bash
-            curl -Lo eightly-agent https://github.com/smashingtags/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-darwin-amd64
+            curl -Lo eightly-agent https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-darwin-amd64
             chmod +x eightly-agent
             sudo mv eightly-agent /usr/local/bin/eightly-agent
             ```
 
             **Windows (amd64):**
             ```powershell
-            Invoke-WebRequest -Uri https://github.com/smashingtags/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-windows-amd64.exe -OutFile eightly-agent.exe
+            Invoke-WebRequest -Uri https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-windows-amd64.exe -OutFile eightly-agent.exe
             ```
 
             ### Debian / Ubuntu (.deb)
             ```bash
-            wget https://github.com/smashingtags/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent_${{ steps.version.outputs.version }}_amd64.deb
+            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent_${{ steps.version.outputs.version }}_amd64.deb
             sudo dpkg -i eightly-agent_${{ steps.version.outputs.version }}_amd64.deb
             sudo systemctl enable --now eightly-agent
             ```
 
             ### RHEL / Fedora (.rpm)
             ```bash
-            wget https://github.com/smashingtags/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-${{ steps.version.outputs.version }}.amd64.rpm
+            wget https://github.com/imogenlabs/eightly-agent/releases/download/${{ steps.version.outputs.tag }}/eightly-agent-${{ steps.version.outputs.version }}.amd64.rpm
             sudo rpm -i eightly-agent-${{ steps.version.outputs.version }}.amd64.rpm
             sudo systemctl enable --now eightly-agent
             ```
 
             ### Homebrew (macOS / Linux)
             ```bash
-            brew install smashingtags/tap/eightly-agent
+            brew install imogenlabs/tap/eightly-agent
             ```
 
             ### Scoop (Windows)
             ```powershell
-            scoop bucket add eightly https://github.com/smashingtags/scoop-eightly
+            scoop bucket add eightly https://github.com/imogenlabs/scoop-eightly
             scoop install eightly-agent
             ```
           draft: false

@@ -2,7 +2,7 @@ name: eightly-agent
 arch: "${GOARCH}"
 platform: linux
 version: "${VERSION}"
-maintainer: "Michael Ashley <michael@mjashley.com>"
+maintainer: "Imogen Labs <support@imogenlabs.ai>"
 description: "Lightweight Docker management agent for Eight.ly OS"
 vendor: "Imogen Labs"
 homepage: "https://eight.ly"

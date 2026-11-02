@@ -8,10 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- With `--state-path` pointed into a populated folder (a home directory), the first restart narrowed that whole folder to 0700. The agent now tightens only a folder holding nothing but its own files; otherwise it logs what else is there and keeps refusing the saved state (EOS-2544).
-- Agents lost their connection a month after enrolling. The bearer token lives 30 days, and the only renewal was the re-register after three failed heartbeats, by which time the token had lapsed and the server refused it. The agent now renews from half-life on, while the token is still valid. Once a token has lapsed, it says once that the agent must be re-enrolled and stops sending the dead token to register. A lapsed saved token plus a configured enrollment token now enrolls again instead of reloading the dead state (EOS-2536).
-- A restarted agent kept losing its registration: its own guard refused the 0755 directory Docker gives a new volume, so it ignored the saved state and tried to enroll again with a spent single-use token (`register failed: status 403`). On start the agent now tightens a state directory it owns to 0700 and logs it; when it cannot, it says why and keeps refusing. The 0600 file check is unchanged (EOS-2534).
-- The image left a zombie process every 10 seconds once the agent's listener stopped answering: 115,420 on one host. The busybox `wget` health check forked an `ssl_client` helper, and each timed-out check orphaned it onto PID 1, the agent, which never reaps. The image now runs under `tini -s` (it still reaps, and stays quiet, under `docker run --init`), and the health check is a new `eightly-agent healthcheck` subcommand that does the HTTPS GET in-process and trusts only the agent's own certificate from its data directory, so a listener presenting any other certificate, or a certificate it cannot read, is unhealthy. A CI job builds the image and proves both (EOS-2533).
+- With `--state-path` pointed into a populated folder (a home directory), the first restart narrowed that whole folder to 0700. The agent now tightens only a folder holding nothing but its own files; otherwise it logs what else is there and keeps refusing the saved state.
+- Agents lost their connection a month after enrolling. The bearer token lives 30 days, and the only renewal was the re-register after three failed heartbeats, by which time the token had lapsed and the server refused it. The agent now renews from half-life on, while the token is still valid. Once a token has lapsed, it says once that the agent must be re-enrolled and stops sending the dead token to register. A lapsed saved token plus a configured enrollment token now enrolls again instead of reloading the dead state.
+- A restarted agent kept losing its registration: its own guard refused the 0755 directory Docker gives a new volume, so it ignored the saved state and tried to enroll again with a spent single-use token (`register failed: status 403`). On start the agent now tightens a state directory it owns to 0700 and logs it; when it cannot, it says why and keeps refusing. The 0600 file check is unchanged.
+- The image left a zombie process every 10 seconds once the agent's listener stopped answering: 115,420 on one host. The busybox `wget` health check forked an `ssl_client` helper, and each timed-out check orphaned it onto PID 1, the agent, which never reaps. The image now runs under `tini -s` (it still reaps, and stays quiet, under `docker run --init`), and the health check is a new `eightly-agent healthcheck` subcommand that does the HTTPS GET in-process and trusts only the agent's own certificate from its data directory, so a listener presenting any other certificate, or a certificate it cannot read, is unhealthy. A CI job builds the image and proves both.
 
 ## [1.0.0] - 2026-05-21
 
@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Prometheus `/metrics` endpoint behind `--metrics` flag with heartbeat, registration,
-  WebSocket, and Docker socket reachability gauges/counters (closes [#10](https://github.com/smashingtags/eightly-agent/issues/10))
+  WebSocket, and Docker socket reachability gauges/counters (closes [#10](https://github.com/imogenlabs/eightly-agent/issues/10))
 - `BuildServerTLSConfig` helper centralizes outbound TLS configuration (system trust
   store default, optional `--server-ca` override, `--insecure-server-tls` escape hatch)
 - `--insecure-server-tls` flag to skip server certificate verification
@@ -102,5 +102,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Non-root container execution
 - systemd sandboxing (ProtectSystem=strict, NoNewPrivileges)
 
-[1.0.0-rc1]: https://github.com/smashingtags/eightly-agent/releases/tag/v1.0.0-rc1
-[1.0.0-beta1]: https://github.com/smashingtags/eightly-agent/releases/tag/v1.0.0-beta1
+[1.0.0-rc1]: https://github.com/imogenlabs/eightly-agent/releases/tag/v1.0.0-rc1
+[1.0.0-beta1]: https://github.com/imogenlabs/eightly-agent/releases/tag/v1.0.0-beta1

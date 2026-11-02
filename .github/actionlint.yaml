@@ -1,5 +1,5 @@
 self-hosted-runner:
-  # Capability labels set on the org runners by probe (EOS-2538, EOS-2545).
+  # Capability labels set on the org runners by probe.
   labels:
     - code-quality
     - docker-build

@@ -10,9 +10,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/smashingtags/eightly-agent/internal/config"
-	"github.com/smashingtags/eightly-agent/internal/server"
-	"github.com/smashingtags/eightly-agent/internal/tlsutil"
+	"github.com/imogenlabs/eightly-agent/internal/config"
+	"github.com/imogenlabs/eightly-agent/internal/server"
+	"github.com/imogenlabs/eightly-agent/internal/tlsutil"
 )
 
 // healthcheckTimeout sits under the image's HEALTHCHECK --timeout (5s) so the
