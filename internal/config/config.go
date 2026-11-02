@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path"
@@ -178,9 +179,13 @@ func volumesRoot(set, dataPath, dockerDefault string, exists func(string) bool) 
 	return ""
 }
 
+// dirExists reports whether p is a directory. One the agent may not look into
+// still exists: Docker's own folder is root-only on a host, and an agent
+// running there as another user is answered 403 by name rather than pointed
+// somewhere else.
 func dirExists(p string) bool {
 	fi, err := os.Stat(p)
-	return err == nil && fi.IsDir()
+	return err == nil && fi.IsDir() || errors.Is(err, fs.ErrPermission)
 }
 
 // envOverrideBool sets *target from the environment variable key when it is
