@@ -1,7 +1,9 @@
 package proxy
 
 import (
+	"context"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -60,20 +62,42 @@ func TestFilter_EightlyTrafficForwarded(t *testing.T) {
 		{"exec shell", http.MethodPost, "/containers/app/exec", `{"AttachStdin":true,"AttachStdout":true,"AttachStderr":true,"Tty":true,"Cmd":["/bin/sh","-c","exec /bin/bash"]}`},
 		{"exec privileged false", http.MethodPost, "/containers/app/exec", `{"Privileged":false,"Cmd":["ls"]}`},
 		{"exec start", http.MethodPost, "/exec/exec-app/start", `{"Detach":false,"Tty":true}`},
-		{"update restart policy", http.MethodPost, "/containers/abc/update", `{"restartPolicy":{"Name":"always"}}`},
+		{"update restart policy", http.MethodPost, "/containers/app/update", `{"restartPolicy":{"Name":"always"}}`},
 		{"volume create", http.MethodPost, "/volumes/create", `{"name":"data","driver":"local"}`},
 		{"volume create short path", http.MethodPost, "/volumes", `{"name":"data","driver":"local"}`},
 		{"nfs volume", http.MethodPost, "/volumes/create", `{"Name":"media","Driver":"local","DriverOpts":{"type":"nfs","o":"addr=10.0.0.5,rw","device":":/export/media"}}`},
 		{"cifs volume", http.MethodPost, "/volumes/create", `{"Name":"share","DriverOpts":{"type":"cifs","o":"username=u","device":"//nas/share"}}`},
 		{"tmpfs volume", http.MethodPost, "/volumes/create", `{"Name":"scratch","DriverOpts":{"type":"tmpfs","o":"size=100m"}}`},
 		{"image pull", http.MethodPost, "/images/create?fromImage=nginx&tag=latest", ""},
-		{"start", http.MethodPost, "/containers/abc/start", ""},
+		{"start", http.MethodPost, "/containers/app/start", ""},
 		{"empty create body", http.MethodPost, "/containers/create", ""},
 	}
+	// The agent on the host, where it checks bind sources for symlinks
+	// itself (nothing here exists, so there are none).
+	host := func(method, target, body string) (*httptest.ResponseRecorder, *sinkHandler) {
+		sink := &sinkHandler{}
+		f := testFilter(sink, testRoots)
+		f.hostFS, f.lstat = true, func(string) (fs.FileInfo, error) { return nil, fs.ErrNotExist }
+		rr := httptest.NewRecorder()
+		f.ServeHTTP(rr, httptest.NewRequest(method, target, strings.NewReader(body)))
+		return rr, sink
+	}
 	for _, c := range cases {
-		rr, sink := send(t, c.method, c.target, c.body)
+		rr, sink := host(c.method, c.target, c.body)
 		wantForwarded(t, c.name, rr, sink)
 	}
+	// In a container whose roots are not mounted into it, the agent cannot
+	// check them, and the daemon restarts a container without asking: a
+	// restart policy is refused where a bind reaches such a root (README,
+	// "Bind roots and symlinks"; with the roots mounted, see
+	// TestRestartPolicy_VisibleRootInAContainer). Without the
+	// policy, or with named volumes only, the same app goes through.
+	rr, sink := send(t, http.MethodPost, "/containers/create", cases[0].body)
+	wantRefused(t, "typical create in a container", rr, sink, http.StatusForbidden)
+	rr, sink = send(t, http.MethodPost, "/containers/create", strings.Replace(cases[0].body, "unless-stopped", "no", 1))
+	wantForwarded(t, "typical create in a container, no restart policy", rr, sink)
+	rr, sink = send(t, http.MethodPost, "/containers/create", `{"Image":"nginx","HostConfig":{"RestartPolicy":{"Name":"unless-stopped"},"Binds":["sonarr-config:/config"]}}`)
+	wantForwarded(t, "named volumes in a container", rr, sink)
 }
 
 // Bodies the filter cannot interpret used to be forwarded untouched.
@@ -133,22 +157,22 @@ func TestFilter_BindSourcePolicy(t *testing.T) {
 		"/etc/localtime",
 	}
 	for _, p := range refused {
-		if f.checkBindSource(p, false) == "" {
+		if f.checkBindSource(context.Background(), p, false) == "" {
 			t.Errorf("checkBindSource(%q) allowed it", p)
 		}
 	}
 	allowed := []string{"/mnt/user/appdata/x", "/opt/appdata/x", "/srv", "/srv/data/", "/mnt/user"}
 	for _, p := range allowed {
-		if reason := f.checkBindSource(p, false); reason != "" {
+		if reason := f.checkBindSource(context.Background(), p, false); reason != "" {
 			t.Errorf("checkBindSource(%q) = %q, want allowed", p, reason)
 		}
 	}
-	if reason := f.checkBindSource("/etc/localtime", true); reason != "" {
+	if reason := f.checkBindSource(context.Background(), "/etc/localtime", true); reason != "" {
 		t.Errorf("read-only /etc/localtime refused: %s", reason)
 	}
 	// No roots: no host path at all.
 	none := testFilter(nil, nil)
-	if none.checkBindSource("/opt/appdata/x", false) == "" {
+	if none.checkBindSource(context.Background(), "/opt/appdata/x", false) == "" {
 		t.Error("with no roots configured a host bind was allowed")
 	}
 }

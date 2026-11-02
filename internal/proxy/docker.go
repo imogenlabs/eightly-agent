@@ -22,7 +22,7 @@ var versionPrefix = regexp.MustCompile(`^/v[0-9]+\.[0-9]+`)
 // NewDockerProxy returns a reverse proxy that forwards HTTP requests to the
 // Docker daemon via a Unix socket. Only the endpoints on the allow-list pass,
 // and containers may bind-mount host paths only under bindRoots.
-func NewDockerProxy(socketPath string, bindRoots []string) http.Handler {
+func NewDockerProxy(socketPath string, bindRoots []string, opts ...Option) http.Handler {
 	transport := dockerTransport(socketPath)
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -59,8 +59,8 @@ func NewDockerProxy(socketPath string, bindRoots []string) http.Handler {
 	// The Docker socket is host root: one unchecked request can hand a
 	// container the host. Auth gates *who* reaches the proxy; the filter
 	// gates *what* they can ask for.
-	f := newFilter(proxy, bindRoots, &dockerAPI{client: &http.Client{Transport: transport.Clone()}})
-	proxy.ModifyResponse = f.redactInspect
+	f := newFilter(proxy, bindRoots, &dockerAPI{client: &http.Client{Transport: transport.Clone()}}, opts...)
+	proxy.ModifyResponse = f.redactResponse
 	return f
 }
 
@@ -113,8 +113,11 @@ func deny(w http.ResponseWriter, r *http.Request, status int, reason string) {
 	w.WriteHeader(status)
 	// Encoded, not concatenated: the reason may echo attacker-supplied text.
 	msg := "forbidden: "
-	if status == http.StatusRequestEntityTooLarge {
+	switch status {
+	case http.StatusRequestEntityTooLarge:
 		msg = "too large: "
+	case http.StatusNotFound:
+		msg = "" // the daemon's own words: "No such container: <id>"
 	}
 	_ = json.NewEncoder(w).Encode(map[string]string{"message": msg + reason})
 }

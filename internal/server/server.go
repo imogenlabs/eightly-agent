@@ -130,7 +130,10 @@ func Run(ctx context.Context, cfg *config.Config) error {
 			"api_version": "2",
 		})
 	})
-	targets := proxy.NewTargetChecker(cfg.SocketPath, bindRoots)
+	// The files the agent keeps its keys and state in: no container may
+	// bind them, whatever the bind roots say.
+	protect := proxy.ProtectPaths(cfg.StatePath, certPath, keyPath, cfg.SecretFile, cfg.EnrollTokenFile)
+	targets := proxy.NewTargetChecker(cfg.SocketPath, bindRoots, protect)
 	mux.Handle("/websocket/attach", authed(websocket.AttachHandler(cfg.SocketPath, targets, authEnabled, allowedOrigins)))
 	mux.Handle("/websocket/exec", authed(websocket.ExecHandler(cfg.SocketPath, targets, authEnabled, allowedOrigins)))
 	volumes := cfg.VolumesRoot()
@@ -139,9 +142,9 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	} else {
 		log.Info().Str("path", volumes).Msg("file browser reads volumes from here")
 	}
-	mux.Handle("/browse/", authed(browse.Handler(volumes, browse.ReadOnly(cfg.BrowseReadOnly))))
+	mux.Handle("/browse/", authed(browse.Handler(volumes, browse.ReadOnly(cfg.BrowseReadOnly), browse.AdmitVolume(targets.Volume))))
 	mux.Handle("/host", authed(hostinfo.Handler()))
-	mux.Handle("/", authed(proxy.NewDockerProxy(cfg.SocketPath, bindRoots)))
+	mux.Handle("/", authed(proxy.NewDockerProxy(cfg.SocketPath, bindRoots, protect)))
 
 	handler := headerMiddleware(mux, cfg.Version)
 

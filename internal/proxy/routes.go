@@ -21,10 +21,12 @@ const (
 	checkTarget                // the target container (attach, archive upload)
 	checkPrivateRead           // refuse on the agent's own or a socket-holding container
 	checkStart                 // bind sources re-checked for symlinks
+	checkNotSelf               // refuse on the agent's own container
 	checkVolumeCreate          // body: driver and options
 	checkNetworkCreate         // body: driver
 	checkNetworkConnect        // the network named in the path
-	checkImagePull             // query: no import from a URL or tarball
+	checkImagePull             // a registry pull only, never an import
+	checkImageTag              // never into the agent's own repository
 )
 
 type route struct {
@@ -58,19 +60,19 @@ var routes = []route{
 	{http.MethodGet, "/containers/{id}/top", checkPrivateRead},
 	{http.MethodPost, "/containers/{id}/start", checkStart},
 	{http.MethodPost, "/containers/{id}/restart", checkStart},
-	{http.MethodPost, "/containers/{id}/stop", checkNone},
-	{http.MethodPost, "/containers/{id}/kill", checkNone},
-	{http.MethodPost, "/containers/{id}/pause", checkNone},
+	{http.MethodPost, "/containers/{id}/stop", checkNotSelf},
+	{http.MethodPost, "/containers/{id}/kill", checkNotSelf},
+	{http.MethodPost, "/containers/{id}/pause", checkNotSelf},
 	{http.MethodPost, "/containers/{id}/unpause", checkNone},
 	{http.MethodPost, "/containers/{id}/wait", checkNone},
-	{http.MethodPost, "/containers/{id}/rename", checkNone},
+	{http.MethodPost, "/containers/{id}/rename", checkNotSelf},
 	{http.MethodPost, "/containers/{id}/resize", checkNone},
 	{http.MethodPost, "/containers/{id}/update", checkContainerUpdate},
 	{http.MethodPost, "/containers/{id}/exec", checkExecCreate},
 	{http.MethodPost, "/containers/{id}/attach", checkTarget},
 	{http.MethodGet, "/containers/{id}/attach/ws", checkTarget},
 	{http.MethodPut, "/containers/{id}/archive", checkTarget},
-	{http.MethodDelete, "/containers/{id}", checkNone},
+	{http.MethodDelete, "/containers/{id}", checkNotSelf},
 
 	{http.MethodGet, "/exec/{id}/json", checkNone},
 	{http.MethodPost, "/exec/{id}/start", checkExecStart},
@@ -82,7 +84,7 @@ var routes = []route{
 	{http.MethodPost, "/images/prune", checkNone},
 	{http.MethodGet, "/images/{name+}/json", checkNone},
 	{http.MethodGet, "/images/{name+}/history", checkNone},
-	{http.MethodPost, "/images/{name+}/tag", checkNone},
+	{http.MethodPost, "/images/{name+}/tag", checkImageTag},
 	{http.MethodDelete, "/images/{name+}", checkNone},
 
 	{http.MethodGet, "/volumes", checkNone},

@@ -185,8 +185,38 @@ func TestTarget_ForwardsTheCheckedID(t *testing.T) {
 	}
 	// app binds /opt/appdata/sonarr: without that root it is off limits.
 	refusedBy(t, testFilter(nil, nil), http.MethodPost, "/containers/app/exec", `{"Cmd":["sh"]}`)
-	// A container the daemon does not know goes through for its 404.
-	forwardedBy(t, f, http.MethodPost, "/containers/missing/exec", `{"Cmd":["sh"]}`)
+	// A container the daemon does not know is answered 404 here, never
+	// forwarded by name for some other container to take that name first.
+	for _, c := range []struct{ method, target, body string }{
+		{http.MethodPost, "/containers/missing/exec", `{"Cmd":["sh"]}`},
+		{http.MethodPost, "/containers/missing/attach", ""},
+		{http.MethodPut, "/containers/missing/archive?path=/", "tar"},
+		{http.MethodGet, "/containers/missing/top", ""},
+		{http.MethodPost, "/containers/missing/start", ""},
+		{http.MethodPost, "/containers/missing/stop", ""},
+		{http.MethodPost, "/containers/missing/rename?name=x", ""},
+		{http.MethodDelete, "/containers/missing", ""},
+		{http.MethodPost, "/containers/missing/update", `{}`},
+	} {
+		rr, sink := sendTo(t, f, c.method, c.target, c.body)
+		if rr.Code != http.StatusNotFound || sink.reached {
+			t.Errorf("%s %s: got %d reached=%v, want 404 here", c.method, c.target, rr.Code, sink.reached)
+		}
+	}
+	// Every checked call is pinned to the full ID, the ones without a
+	// trailing segment included.
+	for _, c := range []struct{ method, target, want string }{
+		{http.MethodGet, "/containers/app/top", "/containers/" + idApp + "/top"},
+		{http.MethodPost, "/containers/app/start", "/containers/" + idApp + "/start"},
+		{http.MethodPost, "/containers/app/restart", "/containers/" + idApp + "/restart"},
+		{http.MethodPost, "/containers/app/stop", "/containers/" + idApp + "/stop"},
+		{http.MethodPost, "/containers/app/rename?name=x", "/containers/" + idApp + "/rename"},
+		{http.MethodDelete, "/containers/app", "/containers/" + idApp},
+	} {
+		if sink := forwardedBy(t, f, c.method, c.target, ""); sink.path != c.want {
+			t.Errorf("%s %s forwarded as %q, want %q", c.method, c.target, sink.path, c.want)
+		}
+	}
 }
 
 // C2: VolumesFrom copies another container's mounts, the socket included.

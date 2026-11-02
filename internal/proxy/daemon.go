@@ -29,7 +29,10 @@ var errNotFound = errors.New("not found")
 
 // containerInfo is the part of GET /containers/{id}/json the filter reads.
 type containerInfo struct {
-	ID         string       `json:"Id"`
+	ID     string `json:"Id"`
+	Config struct {
+		Image string `json:"Image"`
+	} `json:"Config"`
 	HostConfig hostConfig   `json:"HostConfig"`
 	Mounts     []mountPoint `json:"Mounts"`
 }

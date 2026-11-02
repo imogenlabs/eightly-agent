@@ -33,7 +33,7 @@ var fakeContainers = map[string]string{
 		{"Type":"bind","Source":"/etc/localtime","Destination":"/etc/localtime","RW":false},
 		{"Type":"volume","Name":"cache","Source":"/var/lib/docker/volumes/cache/_data","Destination":"/cache","RW":true}]}`,
 	// The agent as docker-compose.yml runs it.
-	"eightly-agent": `{"Id":"` + idAgent + `","HostConfig":{"NetworkMode":"bridge","Binds":["/var/run/docker.sock:/var/run/docker.sock","agent-data:/data"]},
+	"eightly-agent": `{"Id":"` + idAgent + `","Config":{"Image":"registry.example:5000/ops/agent:2.1"},"HostConfig":{"NetworkMode":"bridge","Binds":["/var/run/docker.sock:/var/run/docker.sock","agent-data:/data"]},
 		"Mounts":[{"Type":"bind","Source":"/var/run/docker.sock","Destination":"/var/run/docker.sock","RW":true},
 		{"Type":"volume","Name":"agent-data","Destination":"/data","RW":true}]}`,
 	"priv":    `{"Id":"` + idPriv + `","HostConfig":{"Privileged":true}}`,

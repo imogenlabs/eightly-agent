@@ -194,7 +194,7 @@ Leave the bind out to turn the file browser off; it then answers `503`. If Docke
 | 201 | File uploaded |
 | 204 | File or directory deleted |
 | 400 | Path traversal or invalid `volumeID`, missing `file` field or upload over 100 MB, invalid `newName`, bad JSON body, target is a directory, target is not a regular file, or delete/rename of the volume root |
-| 403 | Hidden path (a segment starting with `.`), read-only mode, or the volume directory is not readable by the agent |
+| 403 | Hidden path (a segment starting with `.`), a path whose directories include a symlink (or, for `ls`, a symlink itself), read-only mode, the volume directory is not readable by the agent, or a volume the agent keeps to itself: its own data volume, or a local volume bound to a host path outside `--allowed-bind-roots` |
 | 404 | Volume not found, or (`get`) file not found or a symlink |
 | 500 | Filesystem error (permission denied, path not found, not a directory for `ls`, disk full) |
 | 501 | No volumes folder on this host: Docker Desktop keeps volumes inside its VM. Set `--volumes-path` if they can be reached |
