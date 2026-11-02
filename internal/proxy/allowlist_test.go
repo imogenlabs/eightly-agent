@@ -361,7 +361,7 @@ func TestRedact_ContainerInspect(t *testing.T) {
 // End to end: the inspect response from the daemon reaches the caller
 // redacted, and other responses are untouched.
 func TestRedact_ThroughTheProxy(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "dp")
+	dir, err := os.MkdirTemp(socketBase(), "dp")
 	if err != nil {
 		t.Fatal(err)
 	}
