@@ -10,7 +10,7 @@ cd eightly-agent
 go build ./cmd/agent/
 ```
 
-Requirements: Go 1.26.4 or later (`go.mod` pins toolchain 1.26.10, which Go fetches automatically), Docker (for integration testing), no CGO.
+Requirements: Go 1.26.11 or later (`go.mod` pins toolchain 1.26.11, which Go fetches automatically), Docker (for integration testing), no CGO.
 
 ## Running Tests
 

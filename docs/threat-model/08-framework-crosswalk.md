@@ -35,7 +35,7 @@ technique. Rows are keyed to the controls in `06-control-mapping.md`.
 | TLS 1.2+ restricted ciphers | T | V9.1 / V9.3 | A02 | CWE-326 Inadequate Encryption | SC-8, SC-13 | T1557 |
 | Security headers (HSTS/nosniff/DENY) | T | V14.4 HTTP Headers | A05 | CWE-693 Protection Mechanism Failure, CWE-1021 | SC-18 | T1189 Drive-by |
 | Listener DoS bounds | D | V13.4 | A05 | CWE-400 | SC-5 | T1499 |
-| Go 1.26.10 pinned + govulncheck 0 | T | V14.2 Dependency | A06 Vulnerable Components | CWE-1104 Unmaintained, CWE-937 | SA-11, RA-5 | T1195 Supply Chain |
+| Go 1.26.11 pinned + govulncheck 0 | T | V14.2 Dependency | A06 Vulnerable Components | CWE-1104 Unmaintained, CWE-937 | SA-11, RA-5 | T1195 Supply Chain |
 | Digest-pinned bases + SHA-pinned Actions | T | V14.2 / V10.3 | A08 Integrity Failures | CWE-494 Download w/o Integrity Check, CWE-829 | SA-12, CM-7 | T1195.002 Compromise SW Supply |
 
 ## Coverage notes

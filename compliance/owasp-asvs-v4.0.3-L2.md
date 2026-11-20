@@ -82,7 +82,7 @@ Status legend: **Met** / **Partial** / **Gap** / **N/A**.
 
 | Req | Requirement | Status | Implementing artifact |
 |-----|-------------|--------|-----------------------|
-| V14.1.1 | Build is reproducible & uses a defined toolchain | **Met** | Go toolchain `1.26.10`: the `toolchain` line in `go.mod`, `go-version` in `ci.yml`, `pentest.yml` and `release.yml`, and the digest-pinned builder image in `Dockerfile` (used by `docker-publish.yml`) |
+| V14.1.1 | Build is reproducible & uses a defined toolchain | **Met** | Go toolchain `1.26.11`: the `toolchain` line in `go.mod`, `go-version` in `ci.yml`, `pentest.yml` and `release.yml`, and the digest-pinned builder image in `Dockerfile` (used by `docker-publish.yml`) |
 | V14.2.1 | Dependencies kept up to date | **Met** | Dependabot weekly (gomod / github-actions / docker); `govulncheck` gates PRs |
 | V14.2.6 | Unintended features disabled by default | **Met** | `--insecure-no-auth` and `--insecure-server-tls` default `false` and must be typed explicitly (`config.go`) |
 | V14.4.1 | Security response headers set | **Met** | `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` set globally via `headerMiddleware` (`server.go`) |

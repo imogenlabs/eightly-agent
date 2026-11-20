@@ -230,7 +230,7 @@ The service runs as `EightlyAgent` (LocalSystem) in the Windows Services panel. 
 
 ## Build from Source
 
-Requires Go 1.26.4 or later; the module pins toolchain `go1.26.10`, which Go downloads for you when your installed version is older.
+Requires Go 1.26.11 or later; the module pins toolchain `go1.26.11`, which Go downloads for you when your installed version is older.
 
 ```bash
 git clone https://github.com/imogenlabs/eightly-agent.git

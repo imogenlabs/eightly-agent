@@ -51,7 +51,7 @@ Every shipped control → the threat it mitigates → the code that implements i
 | **TLS 1.2+ with restricted cipher suites** | r1 | Tampering (weak transport) | `internal/server/server.go` `srv.TLSConfig` |
 | **Security response headers** (HSTS/nosniff/DENY) | r1 | Tampering (clickjack/sniff) | `internal/server/server.go` `headerMiddleware` |
 | **Listener DoS bounds** (header timeout, 1 MiB max header) | r1 | DoS (slowloris) | `internal/server/server.go` `ReadHeaderTimeout`, `MaxHeaderBytes` |
-| **Go 1.26.10 pinned toolchain** | r5 | Tampering (known CVEs) | `go.mod` (`toolchain go1.26.10`); govulncheck 0 findings |
+| **Go 1.26.11 pinned toolchain** | r5 | Tampering (known CVEs) | `go.mod` (`toolchain go1.26.11`); govulncheck 0 findings |
 | **Digest-pinned base images + SHA-pinned Actions** | r5 | Tampering (supply chain) | `Dockerfile`, `.github/workflows/*` |
 | **Fork pull requests on GitHub-hosted runners only** | — | Tampering (untrusted code on signing runners) | `.github/workflows/ci.yml`, `pentest.yml`, `codeql.yml` (`runs-on` expressions) |
 

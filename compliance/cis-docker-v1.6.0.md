@@ -35,7 +35,7 @@ host whose socket has another group adds it with `--group-add` (compose:
 Evidence: `evidence/CIS-4.1-user.txt`
 
 ### 4.2 Ensure containers use only trusted base images — **Met**
-`golang:1.26.10-alpine` (builder) and `alpine:3.23` (runtime), both official images
+`golang:1.26.11-alpine` (builder) and `alpine:3.23` (runtime), both official images
 **pinned by `@sha256:` digest**, not floating tags. Dependabot's `docker`
 ecosystem watches them (`.github/dependabot.yml`).
 Evidence: `evidence/CIS-4.2-base-images.txt`
