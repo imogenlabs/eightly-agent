@@ -64,10 +64,10 @@ Images are built for amd64, arm64 and arm v7. Before updating, read [Upgrading](
 
 The agent sits in front of the Docker socket, so it is built to refuse what would hand over the host:
 
-- **Signed requests only.** Protected calls need an unexpired token signed with the shared secret, with at most 30 days between issue and expiry. After registration, it must name this agent. Health and version probes are public; development mode can explicitly disable authentication. [Authentication](https://imogenlabs.github.io/eightly-agent/Authentication/)
-- **An allow-list, not a pass-through.** Only listed Docker endpoints are forwarded. Creation requests cannot ask for privileged mode, host namespaces, capabilities outside Docker's default set or host devices. Exec and attach check existing containers too. [Allowed endpoints](https://imogenlabs.github.io/eightly-agent/API-Reference/#allowed-docker-endpoints)
-- **Host folders are opt-in.** Host folder binds need `--allowed-bind-roots`. Only `/etc/localtime` and `/etc/timezone` may be bound read-only without it. Ordinary named volumes need no bind root. [Configuration](https://imogenlabs.github.io/eightly-agent/Configuration/)
-- **Encrypted, and pinned.** By default, the agent serves TLS and pins the Eight.ly OS server's key the first time it connects. [TLS](https://imogenlabs.github.io/eightly-agent/TLS/)
+- **Signed requests only.** Every protected call needs a token signed with the shared secret that names this agent and expires within 30 days. Only the health and version probes are open. [Authentication](https://imogenlabs.github.io/eightly-agent/Authentication/)
+- **An allow-list, not a pass-through.** Only listed Docker endpoints are forwarded. A container cannot be created with privileged mode, host namespaces, host devices or extra capabilities. [Allowed endpoints](https://imogenlabs.github.io/eightly-agent/API-Reference/#allowed-docker-endpoints)
+- **Host folders are opt-in.** Containers use named volumes until you name the host folders they may bind with `--allowed-bind-roots`. [Configuration](https://imogenlabs.github.io/eightly-agent/Configuration/)
+- **Encrypted, and pinned.** The agent serves TLS and pins the Eight.ly OS server's key the first time it connects. [TLS](https://imogenlabs.github.io/eightly-agent/TLS/)
 - **It protects itself.** Its own container cannot be stopped, restarted or removed through it. Its state and key cannot be mounted or read through it.
 
 Keep port 9001 on a private network or VPN, never on the public internet. The full trust model, and what to do if the secret leaks, is in the [security model](https://imogenlabs.github.io/eightly-agent/Security-Model/). To report a vulnerability, see [SECURITY.md](SECURITY.md).
@@ -91,7 +91,7 @@ cd eightly-agent
 make build        # the binary lands in build/eightly-agent
 ```
 
-Go 1.26.4 or newer (`go.mod` selects toolchain 1.26.10). Targets, cross-compiling and the test suites are in [Build from source](https://imogenlabs.github.io/eightly-agent/Installation/#build-from-source) and [Development](https://imogenlabs.github.io/eightly-agent/Development/).
+Go 1.26.4 or newer. Targets, cross-compiling and the test suites are in [Build from source](https://imogenlabs.github.io/eightly-agent/Installation/#build-from-source) and [Development](https://imogenlabs.github.io/eightly-agent/Development/).
 
 ## License
 
