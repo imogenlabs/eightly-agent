@@ -15,7 +15,7 @@ Keep only the secret file. On Windows remove the old Machine variable: `[Environ
 The agent can't write to the data directory. Check permissions: the directory should be writable by the eightly-agent user (or root if running as root).
 
 **"cannot use the saved registration at ..."**
-The state file (`EIGHTLY_STATE_PATH`) exists but cannot be read or parsed. The agent will not start rather than enroll over the identity and server pin it holds, and it leaves the file as it is. If the error names permissions or an owner, fix those. If the file is damaged, move it aside and run a new install command from the Agents page.
+The state file (`EIGHTLY_STATE_PATH`) exists but cannot be read or parsed. The agent will not start rather than enroll over the identity and server pin it holds, and it leaves the file as it is. If the error names permissions or an owner, fix those. If the file is damaged, move it aside and run a new install command from **Environments → Add Agent**.
 
 **"the saved registration at ... is for server A, but the configured server URL is B"**
 The agent is registered with another server. To keep it there, set `EIGHTLY_SERVER_URL` back to the old URL. To move it, run an install command generated on the new server: its enrollment token tells the agent to enroll there, and the old state is copied to `<state path>.bak` first (replacing any older backup). Differences in case, a trailing slash or a default port do not count as another server.
@@ -41,13 +41,13 @@ The agent can't reach the EOS server, or the server failed. The agent keeps retr
 3. If using `--server-ca`, the CA cert matches the server's certificate
 
 **"the server refused the enrollment token"**
-The server answered 401, 403 or 410: the enrollment token is unknown, expired or already used, or the agent it was made for has been deleted. Tokens are single-use, so this also happens when the server accepted the token but its answer never reached the agent. Retrying cannot help, so the agent stops trying, keeps running, and answers 503 on authenticated routes. Generate a new install command on the Agents page and run it on the host.
+The server answered 401, 403 or 410: the enrollment token is unknown, expired or already used, or the agent it was made for has been deleted. Tokens are single-use, so this also happens when the server accepted the token but its answer never reached the agent. Retrying cannot help, so the agent stops trying, keeps running, and answers 503 on authenticated routes. Generate a new install command under **Environments → Add Agent** and run it on the host.
 
 **"not registering: the registration state cannot be saved"**
 The agent will not spend its single-use enrollment token while it cannot save the result. Make the state directory writable by the agent's user, or set `EIGHTLY_STATE_PATH` to a writable file.
 
 **"agent token expired, so this agent must be re-enrolled"**
-The agent was off for longer than its 30-day token lasts. Generate a new install command on the Agents page and run it on the host.
+The agent was off for longer than its 30-day token lasts. Generate a new install command under **Environments → Add Agent** and run it on the host.
 
 ## Docker socket errors
 
@@ -136,4 +136,4 @@ For the Windows service, run the agent by hand as shown above; the service disca
 
 ## Platform testing limitations
 
-Linux CI runs on GitHub-hosted runners once the repository is public and for pull requests from forks, and on self-hosted runners for this repository's own branches while it is private. The test suite also runs on a GitHub-hosted Windows runner; macOS builds are verified by cross-compilation only. Community testing on Windows and macOS is encouraged. If you encounter platform-specific issues, please file a bug report with your platform details.
+Linux CI runs on GitHub-hosted runners. The test suite also runs on a GitHub-hosted Windows runner; macOS builds are verified by cross-compilation only. Community testing on Windows and macOS is encouraged. If you encounter platform-specific issues, please file a bug report with your platform details.

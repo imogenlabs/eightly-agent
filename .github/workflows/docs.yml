@@ -2,7 +2,7 @@ name: Docs
 
 # Builds the docs site from docs/wiki with MkDocs Material. Pull requests only
 # build it (--strict, so a broken link or a page without a description fails).
-# A push to main also publishes it to GitHub Pages, once the repo is public.
+# A push to main also publishes it to GitHub Pages.
 
 on:
   push:
@@ -57,8 +57,7 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     needs: build
-    # Skipped while the repo is private: Pages on a private repo needs a paid
-    # plan, and the site would be public while the code is not.
+    # Publish from main in the public repository.
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.event.repository.private == false
     runs-on: ubuntu-latest
     permissions:

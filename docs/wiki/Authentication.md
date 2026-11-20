@@ -176,28 +176,15 @@ This is only appropriate for local development and testing. In production, alway
 
 ## Setting Up Shared Secrets
 
-The same secret must be configured on both sides:
+Eight.ly OS creates the shared secret and includes it in the install command under **Environments → Add Agent**. That command carries the server URL, the shared secret and a one-time enrollment token. You do not generate a secret by hand.
 
-1. **On the agent**: Set `EIGHTLY_AGENT_SECRET` or `--secret`, or put the secret in a file and point `--secret-file` / `EIGHTLY_AGENT_SECRET_FILE` at it. The packaged Linux service reads `/etc/eightly-agent/agent.env`; the Windows service reads `C:\ProgramData\eightly-agent\secret`.
-2. **On EOS**: Configure the agent's secret in the remote environment settings. EOS will use this secret to sign tokens when making API calls to the agent.
-
-Choose a strong random secret. Example generation:
-
-```bash
-openssl rand -hex 32
-```
-
-This produces a 64-character hex string (256 bits of entropy).
+For a package or binary install, use those values with `EIGHTLY_AGENT_SECRET` or `--secret`, or put the secret in a file and use `--secret-file` / `EIGHTLY_AGENT_SECRET_FILE`. The packaged Linux service reads `/etc/eightly-agent/agent.env`; the Windows service reads `C:\ProgramData\eightly-agent\secret`.
 
 ## Secret Rotation
 
-To rotate the shared secret:
+The agent reads one shared secret at startup. To change it, update its environment, `agent.env` or secret file, then restart the agent. There is no grace period or dual-secret support: tokens signed with the old secret are refused after the restart.
 
-1. Generate a new secret
-2. Update the EOS remote environment configuration with the new secret
-3. Restart the agent with the new secret (environment variable, `agent.env` or secret file)
-
-There is no grace period or dual-secret support. Both sides must switch at the same time, which means a brief window where requests may fail. For zero-downtime rotation in a fleet, roll agents one at a time and update EOS between each.
+The server and agents must use the same secret. See the Eight.ly OS documentation for server-side rotation and coordination.
 
 ## See Also
 

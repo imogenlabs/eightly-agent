@@ -9,8 +9,7 @@ on:
     - cron: '0 6 * * 1'
 
 # A permissions block replaces the default scopes, so contents: read
-# must be named or checkout of this private repo is refused ("repository not
-# found") -- which is how this scan failed every week from August unseen.
+# is declared explicitly for checkout and analysis.
 permissions:
   contents: read
   actions: read
@@ -22,13 +21,7 @@ jobs:
     # Some self-hosted runners have no `file` program, so CodeQL cannot
     # find the Go binary there and extracts nothing ("could not process any
     # code written in Go"). The code-quality runners have it.
-    # GitHub-hosted when the repo is public (org self-hosted runners do not
-    # serve public repos; `!= true` so an event without the field still gets a
-    # runner) and for every pull request from a fork, which must never reach
-    # the persistent self-hosted runners: those keep state between jobs and
-    # some hold release signing access. While the repo is private, its own
-    # pushes and pull requests use the self-hosted runners (hosted minutes are
-    # limited).
+    # Public repositories and fork pull requests use GitHub-hosted runners.
     runs-on: ${{ fromJSON((github.event.repository.private != true || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && '"ubuntu-latest"' || '["self-hosted", "code-quality"]') }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -56,10 +49,7 @@ jobs:
           build-mode: manual
       - name: Build
         run: go build ./...
-      # Code scanning upload needs GitHub Advanced Security, which a
-      # private repo on the free plan does not have ("Advanced Security must be
-      # enabled"). Keep the results here and fail the job on any finding, so the
-      # scan is a real gate instead of a weekly red nobody reads.
+      # Keep SARIF artifacts and fail the job on findings.
       - uses: github/codeql-action/analyze@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3.35.5
         with:
           upload: never

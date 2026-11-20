@@ -2,7 +2,7 @@
 
 > **Note, 2026-11-02 (release 2.1.0):** this is a historical record of the June 2026 audit and its findings are left as written. Since then the Docker proxy has become an allow-list of methods and paths, host bind mounts are limited to `--allowed-bind-roots` (none by default), exec, attach, file upload and the WebSocket console check the container they reach, and container inspect redacts the agent's secrets. Where this record says "deny-list", read the current design in [SECURITY.md](../../SECURITY.md) and the [threat model](../threat-model/06-control-mapping.md).
 
-**Status:** PASS — remediation independently re-proven by sabotage tests; safe to take public.
+**Status at the audit date:** PASS — remediation independently re-proven by sabotage tests.
 **Audit:** Eight.ly remote Docker agent security gauntlet, phases 0–11
 **Verdict date:** 2026-06-19
 **Auditor:** internal security gauntlet (audit → remediate → validate-by-breaking → adversarial loop)
@@ -15,11 +15,11 @@
 |-------|-------|
 | Repository | `imogenlabs/eightly-agent` |
 | Component | Eight.ly remote Docker host agent (clean-room v2) — Go single binary |
-| Reviewed at | `gauntlet/ea-integration` @ `c3f810a43dd1679c4dd4ca4b7b3eb3d0638bc3a5` |
-| Remediation branches | `gauntlet/r1`..`r5` (TLS/register, websocket, auth/proxy, browse/hostinfo, supply-chain) folded into `gauntlet/ea-integration` |
+| Reviewed at | `c3f810a43dd1679c4dd4ca4b7b3eb3d0638bc3a5` |
+| Remediation history | Five remediation commits covering TLS/registration, WebSocket, auth/proxy, browsing/host information and supply chain, combined at the reviewed commit |
 | Go toolchain | `go 1.26.4` (pinned in `go.mod` and every workflow) |
 | Owned target | **local only** — a branch deployed on our own lab hosts; no third-party system was touched |
-| Authorization | Owner-operated infrastructure (Eight.ly OS dev/prod VMs + agent test host); source review on the private repo |
+| Authorization | Owner-operated infrastructure (Eight.ly OS dev/prod VMs + agent test host); source review of the repository as it stood in June 2026 |
 
 **Surface in scope.** The agent exposes a small HTTP/WebSocket surface over TLS: bearer-token auth middleware (`internal/auth`), a Docker socket reverse proxy (`internal/proxy`), a per-volume file browser (`internal/browse`), server enrollment + heartbeat with TOFU cert pinning (`internal/register`, `internal/tlsutil`), a container-attach WebSocket bridge (`internal/websocket`), host-info reporting (`internal/hostinfo`), `/metrics`, and config (`internal/config`). The agent runs adjacent to the Docker daemon, so any auth/proxy weakness is effectively host-root exposure — the threat model treats every finding at that blast radius.
 

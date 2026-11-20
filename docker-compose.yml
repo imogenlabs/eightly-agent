@@ -1,7 +1,7 @@
 services:
   eightly-agent:
-    # Also mirrored on Docker Hub as smashingtags/eightly-agent.
     image: ghcr.io/imogenlabs/eightly-agent:latest
+    # A mirror on Docker Hub: smashingtags/eightly-agent.
     container_name: eightly-agent
     restart: unless-stopped
     # A second reaper for images built before tini was added to the image.

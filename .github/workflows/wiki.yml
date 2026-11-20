@@ -1,0 +1,61 @@
+name: Wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/wiki/**'
+      - 'docs/images/**'
+      - 'mkdocs.yml'
+      - 'scripts/publish-wiki.py'
+      - '.github/workflows/wiki.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Finish each publication before starting another. Each run reads the latest main.
+concurrency:
+  group: wiki
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish repository docs to the wiki
+    if: github.ref == 'refs/heads/main' && github.repository == 'imogenlabs/eightly-agent'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: main
+          path: source
+          persist-credentials: false
+
+      - name: Check the publisher and source pages
+        run: python3 source/scripts/publish-wiki.py --check --source source
+
+      - name: Check out the wiki
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: imogenlabs/eightly-agent.wiki
+          ref: master
+          path: wiki
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rebuild wiki pages
+        run: python3 source/scripts/publish-wiki.py --source source --wiki wiki
+
+      - name: Push changed pages
+        working-directory: wiki
+        run: |
+          git add --all
+          if git diff --cached --quiet; then
+            echo 'The wiki already matches docs/wiki/.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: publish repository documentation'
+          git push origin HEAD:master
+          echo 'Published the updated wiki.' >> "$GITHUB_STEP_SUMMARY"

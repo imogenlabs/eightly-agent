@@ -12,7 +12,7 @@ Eight.ly Agent is configured entirely through command-line flags and environment
 |------|---------|---------|----------|-------------|
 | `--addr` | -- | `0.0.0.0` | Network | Listen address |
 | `--port` | `AGENT_PORT` | `9001` | Network | Listen port |
-| `--socket` | `DOCKER_SOCKET` | `/var/run/docker.sock` | Network | Path to the Docker daemon socket (named pipe on Windows) |
+| `--socket` | `DOCKER_SOCKET` | `/var/run/docker.sock` (`//./pipe/docker_engine` on Windows) | Network | Path to the Docker daemon socket (named pipe on Windows) |
 | `--secret` | `EIGHTLY_AGENT_SECRET` | (empty) | Authentication | HMAC shared secret for token validation. **Required** (here or in a secret file) unless `--insecure-no-auth` is set. |
 | `--secret-file` | `EIGHTLY_AGENT_SECRET_FILE` | (empty) | Authentication | File holding the shared secret, instead of `--secret`. Setting both is refused. |
 | `--server-url` | `EIGHTLY_SERVER_URL` | (empty) | Registration | EOS server URL for registration and heartbeat. Must be `https` unless `--insecure-server-tls`. When empty, registration is skipped. |
@@ -20,10 +20,10 @@ Eight.ly Agent is configured entirely through command-line flags and environment
 | `--enroll-token-file` | `EIGHTLY_ENROLL_TOKEN_FILE` | (empty) | Registration | File holding the enrollment token, instead of `--enroll-token`. Setting both is refused; a missing or empty file means no token. |
 | `--state-path` | `EIGHTLY_STATE_PATH` | `eightly-agent.json` in the data directory | Storage | JSON file that stores registration state |
 | `--data` | `DATA_PATH` | `/data` | Storage | Data directory: TLS certificate, key and state. |
-| `--volumes-path` | `EIGHTLY_VOLUMES_PATH` | `/var/lib/docker/volumes` where it exists | Storage | Folder holding Docker's named volumes, for the file browser. See [below](#storage) for the full default. |
+| `--volumes-path` | `EIGHTLY_VOLUMES_PATH` | `/var/lib/docker/volumes` (`C:\ProgramData\docker\volumes` on Windows) where it exists, else `<data>/volumes` where it exists | Storage | Docker's named volumes, read by the file browser. On Docker Desktop they are inside its VM and the browser answers `501`; a folder that does not exist gets `503`. See [below](#storage) for the full default. |
 | `--metrics` | `EIGHTLY_METRICS_ENABLED` | `false` | Monitoring | Enable the Prometheus `/metrics` endpoint |
 | `--allowed-origins` | `EIGHTLY_ALLOWED_ORIGINS` | (empty) | Security | Comma-separated WebSocket origin allowlist (empty = same-origin check) |
-| `--allowed-bind-roots` | `EIGHTLY_ALLOWED_BIND_ROOTS` | (empty) | Security | Comma-separated host directories containers may bind-mount. Empty: named volumes only. See [below](#security). |
+| `--allowed-bind-roots` | `EIGHTLY_ALLOWED_BIND_ROOTS` | (empty) | Security | Comma-separated host directories containers may bind-mount (empty = named volumes only). Absolute, no trailing slash; a system directory, one inside it or a parent of it stops the agent at startup. On Windows also drive paths such as `C:\AppData`. See [below](#security). |
 | `--browse-read-only` | `EIGHTLY_BROWSE_READ_ONLY` | `false` | Security | Serve the file browser read-only (refuse upload, delete and rename) |
 | `--advertise-ip` | `EIGHTLY_ADVERTISE_IP` | (auto-detected) | Network | Override the detected local IP sent during registration |
 | `--tls-san` | `EIGHTLY_TLS_SANS` | (empty) | TLS | Extra SANs (DNS names or IPs) to include in the auto-generated TLS certificate |
@@ -103,7 +103,7 @@ When set, allows the agent to start without a shared secret. Authentication is b
 
 **`--server-url` / `EIGHTLY_SERVER_URL`**
 
-The URL of the EOS server this agent should register with. Example: `https://your-eos-server:8080` or `https://os.eight.ly`. When set, the agent will attempt to register on startup and begin sending heartbeats every 30 seconds. When empty, registration and heartbeat are both disabled. See [Registration and Heartbeat](Registration-and-Heartbeat.md) for details.
+The URL of the EOS server this agent should register with. Example: `https://your-eos-server:8080` or `https://eos.example.com`. When set, the agent will attempt to register on startup and begin sending heartbeats every 30 seconds. When empty, registration and heartbeat are both disabled. See [Registration and Heartbeat](Registration-and-Heartbeat.md) for details.
 
 **`--enroll-token` / `EIGHTLY_ENROLL_TOKEN`**
 
@@ -155,7 +155,7 @@ When set to `true`, exposes a Prometheus-compatible `/metrics` endpoint. This en
 
 Comma-separated list of allowed origins for WebSocket upgrade requests. When set, a present `Origin` header must match an entry exactly (scheme, host and port). When empty (default), a present `Origin` must match the host the request was sent to. In both cases a request with no `Origin` is accepted only when it carries a valid token. See [WebSocket Console](WebSocket-Console.md).
 
-Example: `--allowed-origins "https://os.eight.ly,https://os-dev.eight.ly"`
+Example: `--allowed-origins "https://eos.example.com"`
 
 **`--allowed-bind-roots` / `EIGHTLY_ALLOWED_BIND_ROOTS`**
 
@@ -183,7 +183,7 @@ Path to a CA certificate file used to verify the EOS server's certificate chain.
 
 Extra Subject Alternative Names to include in auto-generated TLS certificates. Comma-separated list of DNS names or IP addresses. Useful when the agent is accessed by hostname or LAN IP in addition to localhost.
 
-Example: `--tls-san "docker-host-01.local,192.168.1.50"`
+Example: `--tls-san "docker-host-01.local,192.0.2.50"`
 
 **`--advertise-ip` / `EIGHTLY_ADVERTISE_IP`**
 
@@ -241,7 +241,7 @@ Standard deployment for a single remote Docker host managed by EOS. Containers m
 Deploy the same image to each host with the same shared secret but unique enrollment tokens:
 
 ```bash
-# Host A (192.168.1.50)
+# Host A (192.0.2.50)
 docker run -d --init --name eightly-agent --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock --group-add "$(stat -c %g /var/run/docker.sock)" \
   -v agent-data:/data -p 9001:9001 \
@@ -250,7 +250,7 @@ docker run -d --init --name eightly-agent --restart unless-stopped \
   -e EIGHTLY_ENROLL_TOKEN="token-host-a" \
   ghcr.io/imogenlabs/eightly-agent:latest
 
-# Host B (192.168.1.51)
+# Host B (192.0.2.51)
 docker run -d --init --name eightly-agent --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock --group-add "$(stat -c %g /var/run/docker.sock)" \
   -v agent-data:/data -p 9001:9001 \

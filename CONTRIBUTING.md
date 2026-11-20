@@ -7,10 +7,12 @@ Thanks for your interest in contributing. This document covers the basics.
 ```bash
 git clone https://github.com/imogenlabs/eightly-agent.git
 cd eightly-agent
-go build ./cmd/agent/
+make build
 ```
 
-Requirements: Go 1.26.11 or later (`go.mod` pins toolchain 1.26.11, which Go fetches automatically), Docker (for integration testing), no CGO.
+Build from a clone with `make build`; `go install` is not supported for the v2.x tags because the module path has no `/v2` suffix.
+
+Requirements: Go 1.26.4 or later (`go.mod` pins toolchain 1.26.11, which Go fetches automatically), Docker (for integration testing), no CGO.
 
 ## Running Tests
 
@@ -51,6 +53,8 @@ Set `EIGHTLY_E2E_DOCKER_SOCKET` if the socket is not `/var/run/docker.sock` (or 
 - Keep packages small and focused. Handler logic stays thin; business logic goes in `internal/`.
 
 ## Documentation
+
+The [GitHub wiki](https://github.com/imogenlabs/eightly-agent/wiki) is generated; edit `docs/wiki/` in this repository.
 
 The docs site is built from `docs/wiki` with MkDocs. Check a docs change the way CI does:
 

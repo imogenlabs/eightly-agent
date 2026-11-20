@@ -108,8 +108,12 @@ nav:
   - Home: index.md
   - Getting Started:
       - Installation: Installation.md
+      - Upgrading: UPGRADING.md
+      - Verifying Releases: Verifying-Releases.md
       - Configuration: Configuration.md
   - Core Concepts:
+      - Architecture: Architecture.md
+      - Security Model: Security-Model.md
       - Authentication: Authentication.md
       - Registration and Heartbeat: Registration-and-Heartbeat.md
       - TLS: TLS.md
@@ -119,3 +123,5 @@ nav:
       - WebSocket Console: WebSocket-Console.md
   - Help:
       - Troubleshooting: Troubleshooting.md
+  - Contributing:
+      - Development: Development.md

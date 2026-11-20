@@ -46,7 +46,7 @@ The data directory is created with mode `0700` if it does not exist. The key fil
 To include additional DNS names or IP addresses in the auto-generated certificate, use the `--tls-san` flag (or `EIGHTLY_TLS_SANS` env var) with a comma-separated list:
 
 ```bash
-./eightly-agent --tls-san "docker-host-01.local,192.168.1.50"
+./eightly-agent --tls-san "docker-host-01.local,192.0.2.50"
 ```
 
 This is useful when the agent is accessed by hostname or LAN IP in addition to localhost, avoiding certificate name mismatch warnings without needing to generate custom certificates.
@@ -99,7 +99,7 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -keyout key.pem -out cert.pem \
   -days 3650 \
   -subj "/CN=eightly-agent" \
-  -addext "subjectAltName=DNS:localhost,DNS:docker-host-01.local,IP:192.168.1.50,IP:127.0.0.1"
+  -addext "subjectAltName=DNS:localhost,DNS:docker-host-01.local,IP:192.0.2.50,IP:127.0.0.1"
 ```
 
 This creates a cert valid for 10 years with your host's DNS name and IP in the SAN.

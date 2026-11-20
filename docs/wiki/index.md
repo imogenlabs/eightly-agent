@@ -4,15 +4,19 @@ description: "Eight.ly Agent is a small Go daemon that lets Eight.ly OS manage t
 
 # Eight.ly Agent
 
-Eight.ly Agent is a lightweight, cross-platform Docker management daemon written in Go. It runs on remote Docker hosts (Linux, macOS, and Windows) and lets [Eight.ly OS](https://eight.ly) manage them from a single dashboard. Deploy the agent on any machine with Docker, and EOS gains full container management, WebSocket console access, volume file browsing, and host monitoring -- all over authenticated TLS.
+Eight.ly Agent is a single Go binary that turns any Docker host into a managed node for Eight.ly OS. Deploy the agent on Linux, macOS, or Windows, point EOS at it, and get full container management, WebSocket console, file browsing, and system monitoring — all over authenticated TLS.
 
-**One Go binary. Apache 2.0 license. Hardened through 6 rounds of security review.** The newest release is on the [Releases](https://github.com/imogenlabs/eightly-agent/releases) page.
+**About 4,800 lines of Go. Five dependencies. Zero config files.**
 
-![Remote Environments — connected agents with heartbeat status](https://imogenlabs.ai/images/eightly/agent/agent-environments.webp)
+**One Go binary. Apache 2.0 license. Hardened through security review.** The newest release is on the [Releases](https://github.com/imogenlabs/eightly-agent/releases) page.
+
+![Remote Environments — connected agents with heartbeat status](https://raw.githubusercontent.com/imogenlabs/eightly-agent/main/docs/images/agent-environments.webp)
+
+Switch between local and remote hosts from the environment dropdown. Every container, on every host, from one UI.
 
 | | |
 |---|---|
-| ![Container list on local host](https://imogenlabs.ai/images/eightly/agent/agent-containers-local.webp) | ![Containers on remote agent host](https://imogenlabs.ai/images/eightly/agent/agent-containers-remote.webp) |
+| ![Container list on local host](https://raw.githubusercontent.com/imogenlabs/eightly-agent/main/docs/images/agent-containers-local.webp) | ![Containers on remote agent host](https://raw.githubusercontent.com/imogenlabs/eightly-agent/main/docs/images/agent-containers-remote.webp) |
 
 ## Key Capabilities
 
@@ -22,8 +26,8 @@ Eight.ly Agent is a lightweight, cross-platform Docker management daemon written
 | WebSocket Console | Interactive container attach and exec via WebSocket |
 | File Browser | List, upload, download, delete, and rename files in Docker volumes |
 | Host Info | Reports PCI devices, physical disks, and system metadata |
-| Registration | Auto-registers with Eight.ly OS and sends 30-second heartbeats |
-| Auto-TLS | Generates self-signed certificates on first start if none are provided |
+| Registration | Enrolls with Eight.ly OS using a one-time enrollment token and sends 30-second heartbeats |
+| Auto-TLS | Serves a self-signed cert; pins the EOS server cert on first use (TOFU) |
 | Prometheus Metrics | Optional `/metrics` endpoint for monitoring (behind `--metrics` flag) |
 
 ## Architecture
@@ -113,18 +117,26 @@ About 4,800 lines of Go, not counting tests.
 | `github.com/rs/zerolog` | Structured JSON logging |
 | `github.com/prometheus/client_golang` | Prometheus metrics exposition |
 | `golang.org/x/sys` | Windows service management and access lists |
+| `github.com/Microsoft/go-winio` | Docker's named pipe on Windows |
 
 No frameworks, no ORM, no config libraries.
 
 ## Documentation
 
+The [GitHub wiki](https://github.com/imogenlabs/eightly-agent/wiki) is generated; edit `docs/wiki/` in the repository.
+
 **Getting Started**
 
+- [Connect to Eight.ly OS](Installation.md#connect-to-eightly-os) -- From install command to an online host
 - [Installation](Installation.md) -- Docker, binary, and build-from-source instructions
+- [Upgrading](UPGRADING.md) -- Upgrade steps and security changes
+- [Uninstall](Installation.md#uninstall) -- Remove the agent
 - [Configuration](Configuration.md) -- All flags and environment variables
 
 **Core Concepts**
 
+- [Architecture](Architecture.md) -- Request flow, package layout, and dependencies
+- [Security Model](Security-Model.md) -- Trust, bind roots, and network exposure
 - [Authentication](Authentication.md) -- HMAC-SHA256 token validation
 - [Registration and Heartbeat](Registration-and-Heartbeat.md) -- How agents register with EOS and maintain connectivity
 - [TLS](TLS.md) -- Auto-generated certificates and custom cert support
@@ -137,12 +149,20 @@ No frameworks, no ORM, no config libraries.
 
 **Help**
 
+- [Verifying Releases](Verifying-Releases.md) -- Checksums, signatures, provenance, and SBOM attestations
 - [Troubleshooting](Troubleshooting.md) -- Common issues and debug procedures
+- [Development](Development.md) -- CI/CD and install methods
+
+## License Commitment
+
+This repository will remain Apache License 2.0 in perpetuity. Future versions of the EOS protocol may be implemented in closed-source server components, but the agent itself will not change license.
+
+Apache License 2.0 — see [LICENSE](https://github.com/imogenlabs/eightly-agent/blob/main/LICENSE) for details.
 
 ## Links
 
 - [Eight.ly OS](https://eight.ly)
 - [Source on GitHub](https://github.com/imogenlabs/eightly-agent)
 - [GitHub Container Registry](https://github.com/imogenlabs/eightly-agent/pkgs/container/eightly-agent)
-- [Docker Hub mirror](https://hub.docker.com/r/smashingtags/eightly-agent)
+- [A mirror on Docker Hub](https://hub.docker.com/r/smashingtags/eightly-agent)
 - [Imogen Labs](https://imogenlabs.ai)

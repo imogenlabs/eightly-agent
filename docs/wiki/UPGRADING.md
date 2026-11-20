@@ -1,3 +1,7 @@
+---
+description: "Upgrade Eight.ly Agent and prepare for security changes in 2.1.0."
+---
+
 # Upgrading
 
 ## General upgrade process
@@ -29,7 +33,7 @@ For Homebrew: `brew upgrade eightly-agent`
     EIGHTLY_ALLOWED_BIND_ROOTS=/opt/appdata,/mnt/media
     ```
 
-    `/opt/appdata` is where the Eight.ly OS app catalog puts app data by default. Without it, installing or recreating such an app from the dashboard, opening its console and uploading files into it are refused with `403`. Each root must be an absolute path with no trailing slash. A system folder, a folder inside one or a parent of one (`/`, `/etc`, `/usr`, `/var`, `/run`, `/opt`, `/root`, `/var/lib/docker` and others) stops the agent at startup. `docker-compose.yml` does not pass this variable; add `- EIGHTLY_ALLOWED_BIND_ROOTS=/opt/appdata` under `environment:`. The time zone files `/etc/localtime` and `/etc/timezone` may still be bound read-only without a root.
+    `/opt/appdata` is where the Eight.ly OS app catalog puts app data by default. Without it, installing or recreating such an app from the dashboard, opening its console and uploading files into it are refused with `403`. Each root must be an absolute path with no trailing slash. A system folder, a folder inside one or a parent of one (`/`, `/etc`, `/usr`, `/var`, `/run`, `/opt`, `/root`, `/var/lib/docker` and others) stops the agent at startup. `docker-compose.yml` passes this variable from `.env`; set it in `.env` and uncomment the matching read-only mount (`- /opt/appdata:/opt/appdata:ro` for `/opt/appdata`). The time zone files `/etc/localtime` and `/etc/timezone` may still be bound read-only without a root.
 
 2. **Docker installs: mount Docker's volumes folder for the file browser.** The browser now reads `/var/lib/docker/volumes` (`--volumes-path` / `EIGHTLY_VOLUMES_PATH`). Add `-v /var/lib/docker/volumes:/var/lib/docker/volumes` to `docker run`; the current `docker-compose.yml` already has it. An install that bound the folder at `/data/volumes`, as older instructions said, keeps working. If Docker keeps its data elsewhere (`data-root` in `daemon.json`), mount `<data-root>/volumes` and set `--volumes-path`.
 
@@ -44,7 +48,7 @@ For Homebrew: `brew upgrade eightly-agent`
 
     The service refuses to start while a variable is set alongside its file. On first start the agent locks the data folder, state file, secret and TLS key to SYSTEM, Administrators and its own account, takes ownership of any of them another account owns, and refuses them if another account keeps access. Rotate the fleet secret if a Windows host ran an older version: the secret was readable by every local user there.
 
-5. **Tokens you sign yourself** (scripts, monitoring) must carry `"iss":"eightly-server"`, `"type":"agent"`, an `iat`, an `exp` at most 30 days later, and this agent's ID in `sub`. Tokens from Eight.ly OS already do. See [Authentication](wiki/Authentication.md).
+5. **Tokens you sign yourself** (scripts, monitoring) must carry `"iss":"eightly-server"`, `"type":"agent"`, an `iat`, an `exp` at most 30 days later, and this agent's ID in `sub`. Tokens from Eight.ly OS already do. See [Authentication](Authentication.md).
 
 6. **Check your service command line.** An unknown word, such as a misspelt subcommand or a stray argument after the flags, now stops the agent with exit status 2 instead of starting it without the flags that followed.
 
@@ -56,7 +60,7 @@ Every refusal names its reason in the response and in a `[SECURITY] proxy.denied
 |---------|-----|------------------------|
 | Create or recreate a container that binds a host folder outside the bind roots | `403` | `host bind mount rejected: … (no --allowed-bind-roots are set; use a named volume)` or `… is outside --allowed-bind-roots` |
 | Exec, attach, the WebSocket console, or file upload (`PUT /containers/{id}/archive`) into the agent's own container, or one that is privileged, shares a host namespace, holds the Docker socket, binds a host folder outside the roots, has a capability beyond Docker's defaults or a host device | `403` | `the agent's own container is off limits`, `container … holds the Docker socket`, `container …: <rule>` |
-| Any Docker method and path not on the [allow-list](wiki/API-Reference.md#allowed-docker-endpoints): image builds, `commit`, container export, archive download, image load, save and push, registry login, Swarm, services, tasks, nodes, secrets, configs, plugins | `403` | `endpoint not allowed: <method> <path>` |
+| Any Docker method and path not on the [allow-list](API-Reference.md#allowed-docker-endpoints): image builds, `commit`, container export, archive download, image load, save and push, registry login, Swarm, services, tasks, nodes, secrets, configs, plugins | `403` | `endpoint not allowed: <method> <path>` |
 | `VolumesFrom`, a non-local volume driver, a runtime other than `runc`, runtime annotations, `OomKillDisable`, `DeviceRequests` (GPUs) | `403` | names the field |
 | A volume with local bind options outside the bind roots, a host block device, or options for a non-local driver | `403` | `volume …` / `driver options for volume driver … rejected` |
 | A network with a driver other than `bridge`, `macvlan` or `ipvlan` | `403` | `network driver rejected: …` |

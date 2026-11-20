@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking changes
 
-Read [Upgrading to 2.1.0](docs/UPGRADING.md#upgrading-to-210) before you upgrade. These used to work and are now refused:
+Read [Upgrading to 2.1.0](docs/wiki/UPGRADING.md#upgrading-to-210) before you upgrade. These used to work and are now refused:
 
 - **Host folders in containers.** A container may bind a host folder only under `--allowed-bind-roots` / `EIGHTLY_ALLOWED_BIND_ROOTS`, which is empty by default: containers get named volumes only. Set it to the folders your apps keep their data in, for example `/opt/appdata`, or creating and recreating those apps from the Eight.ly OS dashboard is refused with `403`.
 - **Consoles and file uploads into containers that reach the host.** Exec, attach, the WebSocket console and file uploads (`PUT /containers/{id}/archive`) are refused with `403` for the agent's own container and for any container that is privileged, shares a host namespace, holds the Docker socket, binds a host folder outside the bind roots, has a capability beyond Docker's defaults or a host device. Containers like that keep running and can still be started, stopped and restarted.
@@ -65,7 +65,7 @@ Read [Upgrading to 2.1.0](docs/UPGRADING.md#upgrading-to-210) before you upgrade
 - `--enroll-token-file` / `EIGHTLY_ENROLL_TOKEN_FILE` read the enrollment token from a file on any platform, closed to other users on Windows as the secret file is. A missing or empty file means no token, so the file can be deleted once the agent has registered. Setting it together with `--enroll-token` or `EIGHTLY_ENROLL_TOKEN` is refused.
 - `--secret-file` / `EIGHTLY_AGENT_SECRET_FILE` read the shared secret from a file on any platform. Setting it together with `--secret` or `EIGHTLY_AGENT_SECRET` is refused.
 - `eightly-agent help` prints the usage and exits 0, as `-h` does.
-- Documentation site at https://imogenlabs.github.io/eightly-agent/, published once the repository is public.
+- Documentation site at https://imogenlabs.github.io/eightly-agent/, published through GitHub Pages.
 
 ### Fixed
 - On Windows the agent could not reach Docker at all: every Docker client in it dialled a Unix socket. It now uses the named pipe, `//./pipe/docker_engine` by default; `--socket` takes either spelling, `//./pipe/name` or `\\.\pipe\name`.
@@ -163,9 +163,8 @@ Read [Upgrading to 2.1.0](docs/UPGRADING.md#upgrading-to-210) before you upgrade
 
 ### Known Limitations
 - CI runs on self-hosted Linux runners. Windows and macOS builds are cross-compiled but not executed in CI. Community testing on those platforms is encouraged.
-- Build provenance and SBOM attestations are present in the release workflow but
-  inactive while the repository is private. They activate automatically when the
-  repository is made public.
+- At the time of this release, build provenance and SBOM attestations required
+  a public repository. The repository became public on November 19, 2026.
 
 ## [1.0.0-beta1] - 2026-05-21
 

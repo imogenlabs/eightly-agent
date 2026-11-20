@@ -18,7 +18,7 @@ if [ ! -e /etc/eightly-agent/agent.env ]; then
 # Eight.ly Agent settings. Keep this file root-owned and mode 0600.
 # Restart after editing: sudo systemctl restart eightly-agent
 #
-# Eight.ly OS shows these values under Environments -> Add host.
+# Eight.ly OS shows these values under Environments → Add Agent.
 # Uncomment and fill in. A line set here overrides the same variable set
 # anywhere in the unit or a drop-in.
 #EIGHTLY_AGENT_SECRET=

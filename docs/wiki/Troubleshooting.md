@@ -94,7 +94,7 @@ WRN re-registering after repeated heartbeat failures
 
 - **401 status**: The agent's token was invalidated on the EOS side (e.g., the agent was deleted and re-added in EOS). Generate a new install command in EOS, delete the state file, and start the agent with the new enrollment token.
 
-- **`agent token expired, so this agent must be re-enrolled`**: The agent was off long enough for its 30-day token to lapse (it renews from day 15 while running). Generate a new install command on the Agents page and run it on the host; the agent uses the new enrollment token in place of the lapsed saved one.
+- **`agent token expired, so this agent must be re-enrolled`**: The agent was off long enough for its 30-day token to lapse (it renews from day 15 while running). Generate a new install command under **Environments → Add Agent** and run it on the host; the agent uses the new enrollment token in place of the lapsed saved one.
 
 - **Connection refused / timeout**: EOS is unreachable. The agent will back off (30s -> 60s -> 120s -> 240s -> 300s) and attempt re-registration after 3 consecutive failures. Once EOS is reachable again, the agent recovers automatically.
 
