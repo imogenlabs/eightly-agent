@@ -69,6 +69,7 @@ docker run -d --init --name eightly-agent --restart unless-stopped \
   --group-add "$(stat -c %g /var/run/docker.sock)" \
   -v eightly-agent-data:/data \
   -v /var/lib/docker/volumes:/var/lib/docker/volumes \
+  -v /opt/appdata:/opt/appdata:ro \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
@@ -85,7 +86,7 @@ The socket is mounted read-write on purpose. `:ro` only marks the socket file re
 
 `--init` gives the container a process reaper. Images from this release on carry tini for the same job, and their health check is `eightly-agent healthcheck`. That is an in-process HTTPS GET of the agent's own `/healthz` that exits 0 or 1 and starts no child process. Do not override the health check with that command on an older image: before the subcommand existed, the agent ignored the extra word and would start a second agent.
 
-> `EIGHTLY_SERVER_URL` is your Eight.ly OS dashboard URL — the agent register/heartbeat endpoints live on the same host and port EOS serves the UI from (default `8080`). Eight.ly OS generates a ready-to-paste `docker run` command with a one-time enrollment token under **Environments → Add host**.
+> `EIGHTLY_SERVER_URL` is your Eight.ly OS dashboard URL — the agent register/heartbeat endpoints live on the same host and port EOS serves the UI from (default `8080`). Eight.ly OS generates a ready-to-paste `docker run` command carrying the server URL, shared secret and a one-time enrollment token under **Environments → Add Agent**.
 
 The same image is mirrored on Docker Hub as `smashingtags/eightly-agent`.
 
@@ -352,12 +353,12 @@ internal/winacl/      — Windows access lists for the data folder, state, secre
 | **CI** | Push/PR to `main`, `dev` | Lint (vet, staticcheck, govulncheck, gosec, golangci-lint, all pinned) → Test (race, per-package coverage floors in `scripts/coverage-check.sh`), Test on Windows (GitHub-hosted: named pipe, access lists and owners) → image reaps orphans → end-to-end test against a real Docker daemon → Build matrix (linux/amd64, linux/arm64, linux/arm, darwin/amd64, darwin/arm64, windows/amd64) |
 | **Pentest Gate** | Push/PR to `main`, `dev` | Security regression tests for auth, proxy, browse, register and websocket; govulncheck and gosec gates |
 | **CodeQL** | Push/PR to `main`, weekly | Go analysis; any finding fails the job |
-| **Docs** | Push/PR touching the docs | `mkdocs build --strict`; on `main` publishes the [docs site](https://imogenlabs.github.io/eightly-agent/) to GitHub Pages once the repo is public |
+| **Docs** | Push/PR touching the docs | `mkdocs build --strict`; on `main` publishes the [docs site](https://imogenlabs.github.io/eightly-agent/) to GitHub Pages |
 | **Docker Publish** | Push to `main`, tags | Multi-arch build → GHCR + Docker Hub, signed with cosign; `latest`, `MAJOR.MINOR` and `MAJOR` move only for the newest stable release in their line |
 | **Release** | Tags (`v*`), or a manual run from the tag | Builds the exact commit the tag points to: 6 platform binaries + `.deb`/`.rpm` packages (amd64, arm64) → GitHub Release with SHA256 checksums, cosign signatures and an SBOM |
 | **OpenSSF Scorecard** | Push to `main`, weekly (public repo only) | Supply-chain checks |
 
-**Runners.** Once the repository is public, every job runs on GitHub-hosted runners: the organization's self-hosted runners do not serve public repositories. While it is private, pushes, tags, manual runs and pull requests from branches of this repo use the self-hosted runners, which keep state between jobs and can sign releases. A pull request from a fork always runs on GitHub-hosted runners. Signing and publishing run only on pushes, tags and manual runs here, never for a pull request.
+Every job runs on GitHub-hosted runners.
 
 **Release tags.** `release.yml` and `docker-publish.yml` check a tag with the same script, `scripts/release-tag.sh`, and its self-test runs in CI and before every release:
 
@@ -451,7 +452,7 @@ Eight.ly Agent mediates access to the Docker daemon. Understanding the trust mod
 - Bind the agent to a private interface or VPN -- never expose port 9001 to the public internet.
 - The agent pins the EOS server's TLS certificate on first use (TOFU). The leaf SPKI fingerprint observed during the first successful registration is persisted in the agent state file and enforced on every later heartbeat and re-registration — a self-signed appliance server is trusted without a CA, but a swapped cert trips the pin. Pass `--server-ca` to *additionally* verify the server chain against a custom CA (the leaf pin still applies). `--insecure-server-tls` disables both verification and pinning — never use it in production.
 - Place the agent behind a firewall that restricts access to your EOS server's IP.
-- The agent's bearer token lasts 30 days, and the agent renews it on its own from day 15. If an agent was off long enough for its token to lapse, the Agents page marks it **Re-enroll needed**: generate an install command there and run it on the host. The agent uses the new enrollment token in place of the lapsed saved one.
+- The agent's bearer token lasts 30 days, and the agent renews it on its own from day 15. If an agent was off long enough for its token to lapse, Eight.ly OS marks it **Re-enroll needed**: generate an install command under **Environments → Add Agent** and run it on the host. The agent uses the new enrollment token in place of the lapsed saved one.
 - The state file holds the agent's bearer token, so the agent refuses to load it unless the file is 0600 and its directory 0700, both owned by the agent's uid. A new Docker volume directory starts at 0755; on start the agent tightens a directory it owns to 0700 and logs it. If it cannot (another owner, a read-only mount) it says so and keeps refusing, and the fix is `chown` the directory to the agent's uid (1000 in the image) and `chmod 700` it. The tightened directory is the state file's own, which by default is `/data`, the same directory as `--data`. The agent only does this when the directory holds nothing but its own files (the state file, and its TLS key pair when the directory is also `--data`). In a shared directory, such as a home directory, it changes nothing, logs which other files are there, and keeps refusing the saved state, so point `--state-path` at a private directory instead. A bind mount Docker creates for you (`-v $(pwd)/data:/data`) is owned by root, so the agent can neither tighten it nor save its state there; use a named volume or a directory owned by uid 1000.
 
 For vulnerability reporting, see [SECURITY.md](SECURITY.md).

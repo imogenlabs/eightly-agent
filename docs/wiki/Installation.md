@@ -10,7 +10,7 @@ Multiple ways to install Eight.ly Agent: Docker Compose (recommended), Docker co
 
 - A host running Linux, macOS, or Windows with Docker installed
 - Network connectivity between the agent host and your Eight.ly OS server (for registration)
-- A shared secret or enrollment token from your EOS instance
+- An install command from Eight.ly OS (Environments → Add Agent). It carries the server URL, the shared secret and a one-time enrollment token.
 
 ## Homebrew (macOS / Linux)
 
@@ -24,10 +24,11 @@ After installation, configure and run:
 eightly-agent \
   --secret "your-shared-secret" \
   --server-url "https://your-eos-server:8080" \
-  --enroll-token "your-enrollment-token"
+  --enroll-token "your-enrollment-token" \
+  --data "$HOME/.eightly-agent"
 ```
 
-Or start as a background service via `brew services start imogenlabs/tap/eightly-agent`.
+Run with the install command's flags, or use a launchd job on macOS to keep it running.
 
 ## Scoop (Windows)
 
@@ -62,29 +63,47 @@ The compose file for reference:
 ```yaml
 services:
   eightly-agent:
+    # Also mirrored on Docker Hub as smashingtags/eightly-agent.
     image: ghcr.io/imogenlabs/eightly-agent:latest
     container_name: eightly-agent
     restart: unless-stopped
-    init: true  # reaps orphaned processes; the image's own health check needs no override
+    # A second reaper for images built before tini was added to the image.
+    init: true
     ports:
       - "9001:9001"
     volumes:
+      # No `:ro`: it marks the socket file, not the Docker API, so a read-only
+      # mount still lets anything that can open it create and start containers.
+      # The control is the agent's own filter on the requests it forwards.
       - /var/run/docker.sock:/var/run/docker.sock
       - agent-data:/data
-      - /var/lib/docker/volumes:/var/lib/docker/volumes  # for the file browser
+      # Docker's named volumes, for the file browser, at the path the agent
+      # reads by default (--volumes-path). Leave it out to turn the browser off.
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
+      # Each folder in EIGHTLY_ALLOWED_BIND_ROOTS, at the same path, read-only,
+      # so the agent can check app binds under it. Example for /opt/appdata:
+      # - /opt/appdata:/opt/appdata:ro
+    # The agent needs the group that owns the socket on this host. The image
+    # assumes 999; if yours differs, set DOCKER_GID=$(stat -c %g /var/run/docker.sock)
+    # in .env.
     group_add:
       - "${DOCKER_GID:-999}"
     environment:
       - EIGHTLY_AGENT_SECRET=${EIGHTLY_AGENT_SECRET}
       - EIGHTLY_SERVER_URL=${EIGHTLY_SERVER_URL:-}
       - EIGHTLY_ENROLL_TOKEN=${EIGHTLY_ENROLL_TOKEN:-}
+      # Host folders apps may bind-mount, comma-separated. Empty allows none.
+      - EIGHTLY_ALLOWED_BIND_ROOTS=${EIGHTLY_ALLOWED_BIND_ROOTS:-}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+    # No healthcheck override: the image carries its own. An image built before
+    # the in-process health check has no `healthcheck` subcommand and would start a second agent
+    # on every check if one were named here.
 
 volumes:
   agent-data:
 ```
 
-The shipped compose file does not set `EIGHTLY_ALLOWED_BIND_ROOTS`, so containers created through it get named volumes only. If your apps bind host folders, add the folders they use under `environment:`, for example `- EIGHTLY_ALLOWED_BIND_ROOTS=/opt/appdata`. See [Configuration](Configuration.md#security).
+The shipped compose file passes `EIGHTLY_ALLOWED_BIND_ROOTS` from `.env`; empty allows named volumes only. If your apps bind host folders, set it in `.env` and uncomment the matching read-only mount. For `/opt/appdata`, set `EIGHTLY_ALLOWED_BIND_ROOTS=/opt/appdata` and uncomment `- /opt/appdata:/opt/appdata:ro`. See [Configuration](Configuration.md#security).
 
 The agent runs as uid 1000 and reaches Docker through the group that owns the socket. The image assumes GID 999. If your host's socket has another group, put it in `.env`:
 
@@ -96,7 +115,7 @@ See [Configuration](Configuration.md) for all available environment variables to
 
 ## Docker
 
-The agent is published to GitHub Container Registry as a multi-arch image (amd64 and arm64). Eight.ly OS writes this command for you, with a one-time enrollment token, under **Environments → Add host**.
+The agent is published to GitHub Container Registry as a multi-arch image (linux/amd64, linux/arm64 and linux/arm/v7). Eight.ly OS writes this command for you, carrying the server URL, shared secret and a one-time enrollment token, under **Environments → Add Agent**.
 
 ```bash
 docker run -d --init \
@@ -106,6 +125,7 @@ docker run -d --init \
   --group-add "$(stat -c %g /var/run/docker.sock)" \
   -v eightly-agent-data:/data \
   -v /var/lib/docker/volumes:/var/lib/docker/volumes \
+  -v /opt/appdata:/opt/appdata:ro \
   -p 9001:9001 \
   -e EIGHTLY_AGENT_SECRET="your-shared-secret" \
   -e EIGHTLY_SERVER_URL="https://your-eos-server:8080" \
@@ -114,7 +134,7 @@ docker run -d --init \
   ghcr.io/imogenlabs/eightly-agent:latest
 ```
 
-`EIGHTLY_ALLOWED_BIND_ROOTS` names the host folders containers may bind; `/opt/appdata` is where the Eight.ly OS app catalog keeps app data. Without it containers get named volumes only, and an app that binds a host folder is refused. The agent does not need those folders mounted itself: it checks the paths in each request.
+`EIGHTLY_ALLOWED_BIND_ROOTS` names the host folders containers may bind; `/opt/appdata` is where the Eight.ly OS app catalog keeps app data. Without it containers get named volumes only, and an app that binds a host folder is refused. Mount each root into the agent at the same path, read-only, so it can check binds for symlinks; without that, apps with a restart policy are refused.
 
 To choose when you upgrade, use a release version in place of `latest`, without the `v` (`ghcr.io/imogenlabs/eightly-agent:X.Y.Z`), or a minor line (`X.Y`). The same image is mirrored on Docker Hub as `smashingtags/eightly-agent`.
 
@@ -203,7 +223,7 @@ eightly-agent.exe start
 [System.Environment]::SetEnvironmentVariable("EIGHTLY_AGENT_SECRET", $null, "Machine")
 ```
 
-The service takes no other settings on its command line, so the server URL is read from the `EIGHTLY_SERVER_URL` Machine variable, as above. It is not a secret. Other settings, such as `EIGHTLY_ALLOWED_BIND_ROOTS`, are Machine variables too. A bind root must be an absolute path in `/` form, and a bind written as a Windows path (`C:\...`) is refused, so on Windows give containers named volumes.
+The service takes no other settings on its command line, so the server URL is read from the `EIGHTLY_SERVER_URL` Machine variable, as above. It is not a secret. Other settings, such as `EIGHTLY_ALLOWED_BIND_ROOTS`, are Machine variables too. On Windows, bind roots can use an absolute drive path such as `C:\appdata` or `/` form. System directories, drive roots and UNC paths are refused. See [Configuration](Configuration.md#security) for the restrictions.
 
 The enrollment token is single-use. Delete its file once the agent has registered; a missing or empty token file is not an error, and the agent starts from its saved registration. **Do not put the token in a Machine variable** either: every local user can read it until the agent spends it, and the service refuses to start while `EIGHTLY_ENROLL_TOKEN` is set alongside the token file. An install that used one should remove it:
 
@@ -229,6 +249,8 @@ The service runs as `EightlyAgent` (LocalSystem) in the Windows Services panel. 
 **File access on Windows.** Windows ignores unix file modes, so the agent sets an explicit, protected access list (SYSTEM and Administrators full control, plus the agent's own account when it is run by hand) on the data folder, state file, secret file, TLS key and certificate whenever it creates or reuses them. It refuses to load the state, secret or key if any other account still has access after that. A folder that also holds other things (another program's settings, a volume, a home directory) keeps its access list, and the agent's files in it are protected one by one; the agent refuses such a folder if any other account may add, delete or rename files in it, and refuses any folder above its own that lets another account delete or rename what it holds. Only the configured state, secret, enrollment token and TLS files count as the agent's. Check with `icacls C:\ProgramData\eightly-agent\*`.
 
 ## Build from Source
+
+Build with `make build` from a clone; `go install` is not supported because the module path has no `/v2` suffix for the v2.x tags.
 
 Requires Go 1.26.4 or later; the module pins toolchain `go1.26.10`, which Go downloads for you when your installed version is older.
 
@@ -258,7 +280,7 @@ make build
 
 ```bash
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
-  -ldflags "-s -w -X main.version=1.0.0" \
+  -ldflags "-s -w -X main.version=X.Y.Z" \
   -o build/eightly-agent-arm64 \
   ./cmd/agent
 ```
@@ -285,7 +307,7 @@ curl -k https://localhost:9001/ping
 # Check the response headers
 curl -kI https://localhost:9001/ping
 # Should include:
-#   Eightly-Agent: 1.0.0
+#   Eightly-Agent: X.Y.Z
 #   Eightly-Agent-API-Version: 2
 ```
 

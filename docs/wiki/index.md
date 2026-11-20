@@ -6,13 +6,13 @@ description: "Eight.ly Agent is a small Go daemon that lets Eight.ly OS manage t
 
 Eight.ly Agent is a lightweight, cross-platform Docker management daemon written in Go. It runs on remote Docker hosts (Linux, macOS, and Windows) and lets [Eight.ly OS](https://eight.ly) manage them from a single dashboard. Deploy the agent on any machine with Docker, and EOS gains full container management, WebSocket console access, volume file browsing, and host monitoring -- all over authenticated TLS.
 
-**One Go binary. Apache 2.0 license. Hardened through 6 rounds of security review.** The newest release is on the [Releases](https://github.com/imogenlabs/eightly-agent/releases) page.
+**One Go binary. Apache 2.0 license. Hardened through security review.** The newest release is on the [Releases](https://github.com/imogenlabs/eightly-agent/releases) page.
 
-![Remote Environments — connected agents with heartbeat status](https://imogenlabs.ai/images/eightly/agent/agent-environments.webp)
+![Remote Environments — connected agents with heartbeat status](https://raw.githubusercontent.com/imogenlabs/eightly-agent/main/docs/images/agent-environments.webp)
 
 | | |
 |---|---|
-| ![Container list on local host](https://imogenlabs.ai/images/eightly/agent/agent-containers-local.webp) | ![Containers on remote agent host](https://imogenlabs.ai/images/eightly/agent/agent-containers-remote.webp) |
+| ![Container list on local host](https://raw.githubusercontent.com/imogenlabs/eightly-agent/main/docs/images/agent-containers-local.webp) | ![Containers on remote agent host](https://raw.githubusercontent.com/imogenlabs/eightly-agent/main/docs/images/agent-containers-remote.webp) |
 
 ## Key Capabilities
 
@@ -113,6 +113,7 @@ About 4,800 lines of Go, not counting tests.
 | `github.com/rs/zerolog` | Structured JSON logging |
 | `github.com/prometheus/client_golang` | Prometheus metrics exposition |
 | `golang.org/x/sys` | Windows service management and access lists |
+| `github.com/Microsoft/go-winio` | Docker's named pipe on Windows |
 
 No frameworks, no ORM, no config libraries.
 

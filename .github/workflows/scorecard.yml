@@ -14,9 +14,7 @@ permissions: read-all
 jobs:
   scorecard:
     name: Scorecard
-    # Public repos only. While the repo is private, Scorecard cannot publish
-    # and the SARIF upload needs Advanced Security, so the job could only fail.
-    # `!= true` so an event without the field still runs it once public.
+    # Scorecard publishes results for public repositories.
     if: github.event.repository.private != true
     runs-on: ubuntu-latest
     permissions:

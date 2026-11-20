@@ -88,7 +88,7 @@ WRN registration failed
 WRN agent is not registered; authenticated routes answer 503 until it is
 ```
 
-Until it has registered, every authenticated route answers `503` with `Retry-After: 30`, because the agent cannot yet check that a token was issued for it (see [Authentication](Authentication.md#before-the-agent-knows-its-id)). The probes (`/ping`, `/healthz`, `/readyz`, `/version`) keep answering. When the server refuses the enrollment token (401, 403 or 410: unknown, expired, already used, or its agent deleted), the agent stops retrying, since a single-use token cannot become valid again. It keeps running, answers `503` on authenticated routes, and logs `the server refused the enrollment token; ... generate a new install command on the Agents page and run it on this host`.
+Until it has registered, every authenticated route answers `503` with `Retry-After: 30`, because the agent cannot yet check that a token was issued for it (see [Authentication](Authentication.md#before-the-agent-knows-its-id)). The probes (`/ping`, `/healthz`, `/readyz`, `/version`) keep answering. When the server refuses the enrollment token (401, 403 or 410: unknown, expired, already used, or its agent deleted), the agent stops retrying, since a single-use token cannot become valid again. It keeps running, answers `503` on authenticated routes, and logs `the server refused the enrollment token`. Generate a new install command under **Environments → Add Agent** and run it on the host.
 
 ## State File
 

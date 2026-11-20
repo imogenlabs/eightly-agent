@@ -60,7 +60,7 @@ Read [Upgrading to 2.1.0](docs/UPGRADING.md#upgrading-to-210) before you upgrade
 - `--enroll-token-file` / `EIGHTLY_ENROLL_TOKEN_FILE` read the enrollment token from a file on any platform, closed to other users on Windows as the secret file is. A missing or empty file means no token, so the file can be deleted once the agent has registered. Setting it together with `--enroll-token` or `EIGHTLY_ENROLL_TOKEN` is refused.
 - `--secret-file` / `EIGHTLY_AGENT_SECRET_FILE` read the shared secret from a file on any platform. Setting it together with `--secret` or `EIGHTLY_AGENT_SECRET` is refused.
 - `eightly-agent help` prints the usage and exits 0, as `-h` does.
-- Documentation site at https://imogenlabs.github.io/eightly-agent/, published once the repository is public.
+- Documentation site at https://imogenlabs.github.io/eightly-agent/, published through GitHub Pages.
 
 ### Fixed
 - On Windows the agent could not reach Docker at all: every Docker client in it dialled a Unix socket. It now uses the named pipe, `//./pipe/docker_engine` by default; `--socket` takes either spelling, `//./pipe/name` or `\\.\pipe\name`.
@@ -158,9 +158,8 @@ Read [Upgrading to 2.1.0](docs/UPGRADING.md#upgrading-to-210) before you upgrade
 
 ### Known Limitations
 - CI runs on self-hosted Linux runners. Windows and macOS builds are cross-compiled but not executed in CI. Community testing on those platforms is encouraged.
-- Build provenance and SBOM attestations are present in the release workflow but
-  inactive while the repository is private. They activate automatically when the
-  repository is made public.
+- At the time of this release, build provenance and SBOM attestations required
+  a public repository. The repository became public on November 19, 2026.
 
 ## [1.0.0-beta1] - 2026-05-21
 

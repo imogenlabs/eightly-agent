@@ -4,7 +4,7 @@
 
 If you discover a security vulnerability in Eight.ly Agent, please report it responsibly.
 
-**Preferred:** [GitHub Security Advisories](https://github.com/imogenlabs/eightly-agent/security/advisories/new) (private, trackable, integrated with GitHub — note this repo is private today, so filing an advisory requires collaborator access; use email otherwise)
+**Preferred:** [GitHub private vulnerability reporting](https://github.com/imogenlabs/eightly-agent/security/advisories/new)
 
 **Email:** security@imogenlabs.ai
 
@@ -85,7 +85,7 @@ The agent binds to `0.0.0.0:9001` by default, meaning it listens on all interfac
 | Threat | Mitigation |
 |--------|------------|
 | Token theft | Every token must carry `iat` and `exp`, at most 30 days apart, and is refused once expired. A token is bound to one agent's ID. Rotate the shared secret if a token or the secret is compromised. |
-| Network interception | All communication is over TLS. The default is fail-closed: the agent verifies the server certificate against the system trust store. Use `--server-ca` to pin a custom CA, or `--insecure-server-tls` to disable verification (development only). |
+| Network interception | Trust on first use: the agent pins the server's certificate public key at first registration and refuses a different key; `--server-ca` adds chain verification. `--insecure-server-tls` disables both checks (development only). |
 | Path traversal | `..` segments are refused and every file operation is confined by an `os.Root` on the volume directory. Volume IDs are restricted to safe identifiers. |
 | CRLF injection | WebSocket container and exec IDs are validated against `^[a-zA-Z0-9]{12,64}$`, and an `{id}` in a proxied path must be a Docker name, before use in Docker socket requests. |
 | Container escape through the API | The proxy allow-list and its body and target checks above. Keep `--allowed-bind-roots` empty, or limited to folders that hold app data and nothing the host trusts. |
@@ -93,10 +93,10 @@ The agent binds to `0.0.0.0:9001` by default, meaning it listens on all interfac
 
 ### Best practices
 
-1. **Always set a strong secret** — generate with `openssl rand -hex 32`
+1. **Use the secret from Eight.ly OS** — **Environments → Add Agent** generates an install command carrying the server URL, shared secret and a one-time enrollment token; do not generate a secret by hand
 2. **Keep the secret out of the environment where you can** — use `--secret-file` (the Windows service does this by default) or, for the Linux packages, the root-only `/etc/eightly-agent/agent.env`
 3. **Bind only what you must** — leave `--allowed-bind-roots` empty, or name app data folders such as `/opt/appdata`, never a folder the host reads its configuration from
 4. **Run as non-root** — use the `eightly-agent` user with Docker group access
 5. **Restrict network access** — bind the agent to a private interface or use a VPN
 6. **Pin TLS certificates** — use `--server-ca` in production instead of `--insecure-server-tls`
-7. **Rotate secrets regularly** — change `EIGHTLY_AGENT_SECRET` on a schedule
+7. **Coordinate secret rotation** — the agent reads one secret at startup and needs a restart after it changes; see the Eight.ly OS documentation for server-side rotation

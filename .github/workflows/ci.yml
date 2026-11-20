@@ -12,13 +12,7 @@ permissions:
 jobs:
   lint:
     name: Lint
-    # GitHub-hosted when the repo is public (org self-hosted runners do not
-    # serve public repos; `!= true` so an event without the field still gets a
-    # runner) and for every pull request from a fork, which must never reach
-    # the persistent self-hosted runners: those keep state between jobs and
-    # some hold release signing access. While the repo is private, its own
-    # pushes and pull requests use the self-hosted runners (hosted minutes are
-    # limited).
+    # Public repositories and fork pull requests use GitHub-hosted runners.
     runs-on: ${{ (github.event.repository.private != true || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'ubuntu-latest' || fromJSON('["self-hosted","linux"]') }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -65,13 +59,7 @@ jobs:
 
   test:
     name: Test
-    # GitHub-hosted when the repo is public (org self-hosted runners do not
-    # serve public repos; `!= true` so an event without the field still gets a
-    # runner) and for every pull request from a fork, which must never reach
-    # the persistent self-hosted runners: those keep state between jobs and
-    # some hold release signing access. While the repo is private, its own
-    # pushes and pull requests use the self-hosted runners (hosted minutes are
-    # limited).
+    # Public repositories and fork pull requests use GitHub-hosted runners.
     runs-on: ${{ (github.event.repository.private != true || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'ubuntu-latest' || fromJSON('["self-hosted","linux"]') }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -139,13 +127,7 @@ jobs:
 
   race:
     name: Race Detector
-    # GitHub-hosted when the repo is public (org self-hosted runners do not
-    # serve public repos; `!= true` so an event without the field still gets a
-    # runner) and for every pull request from a fork, which must never reach
-    # the persistent self-hosted runners: those keep state between jobs and
-    # some hold release signing access. While the repo is private, its own
-    # pushes and pull requests use the self-hosted runners (hosted minutes are
-    # limited).
+    # Public repositories and fork pull requests use GitHub-hosted runners.
     runs-on: ${{ (github.event.repository.private != true || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'ubuntu-latest' || fromJSON('["self-hosted","linux"]') }}
     needs: [lint]
     steps:
@@ -169,13 +151,7 @@ jobs:
     # start a container (runc: "open sysctl ... reopen fd 8: permission
     # denied"), so they do not carry it. Which runners do is recorded in
     # deploy-pipeline INFRASTRUCTURE.md, with the probe that decided it.
-    # GitHub-hosted when the repo is public (org self-hosted runners do not
-    # serve public repos; `!= true` so an event without the field still gets a
-    # runner) and for every pull request from a fork, which must never reach
-    # the persistent self-hosted runners: those keep state between jobs and
-    # some hold release signing access. While the repo is private, its own
-    # pushes and pull requests use the self-hosted runners (hosted minutes are
-    # limited).
+    # Public repositories and fork pull requests use GitHub-hosted runners.
     runs-on: ${{ fromJSON((github.event.repository.private != true || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && '"ubuntu-latest"' || '["self-hosted", "docker-build"]') }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -203,13 +179,7 @@ jobs:
     # volume file browser and token renewal (test/e2e). Needs a runner that
     # can run containers, so the same `docker-build` label as image-reaps.
     name: End-to-end
-    # GitHub-hosted when the repo is public (org self-hosted runners do not
-    # serve public repos; `!= true` so an event without the field still gets a
-    # runner) and for every pull request from a fork, which must never reach
-    # the persistent self-hosted runners: those keep state between jobs and
-    # some hold release signing access. While the repo is private, its own
-    # pushes and pull requests use the self-hosted runners (hosted minutes are
-    # limited).
+    # Public repositories and fork pull requests use GitHub-hosted runners.
     runs-on: ${{ fromJSON((github.event.repository.private != true || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && '"ubuntu-latest"' || '["self-hosted", "docker-build"]') }}
     timeout-minutes: 15
     steps:
@@ -229,13 +199,7 @@ jobs:
 
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
-    # GitHub-hosted when the repo is public (org self-hosted runners do not
-    # serve public repos; `!= true` so an event without the field still gets a
-    # runner) and for every pull request from a fork, which must never reach
-    # the persistent self-hosted runners: those keep state between jobs and
-    # some hold release signing access. While the repo is private, its own
-    # pushes and pull requests use the self-hosted runners (hosted minutes are
-    # limited).
+    # Public repositories and fork pull requests use GitHub-hosted runners.
     runs-on: ${{ (github.event.repository.private != true || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'ubuntu-latest' || fromJSON('["self-hosted","linux"]') }}
     needs: [lint, test, race]
     strategy:
