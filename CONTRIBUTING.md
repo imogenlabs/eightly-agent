@@ -54,6 +54,8 @@ Set `EIGHTLY_E2E_DOCKER_SOCKET` if the socket is not `/var/run/docker.sock` (or 
 
 ## Documentation
 
+The [GitHub wiki](https://github.com/imogenlabs/eightly-agent/wiki) is generated; edit `docs/wiki/` in this repository.
+
 The docs site is built from `docs/wiki` with MkDocs. Check a docs change the way CI does:
 
 ```bash

@@ -123,6 +123,8 @@ No frameworks, no ORM, no config libraries.
 
 ## Documentation
 
+The [GitHub wiki](https://github.com/imogenlabs/eightly-agent/wiki) is generated; edit `docs/wiki/` in the repository.
+
 **Getting Started**
 
 - [Connect to Eight.ly OS](Installation.md#connect-to-eightly-os) -- From install command to an online host
