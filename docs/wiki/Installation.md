@@ -12,6 +12,14 @@ Multiple ways to install Eight.ly Agent: Docker Compose (recommended), Docker co
 - Network connectivity between the agent host and your Eight.ly OS server (for registration)
 - An install command from Eight.ly OS (Environments → Add Agent). It carries the server URL, the shared secret and a one-time enrollment token.
 
+## Connect to Eight.ly OS
+
+1. Open **Environments → Add Agent** in Eight.ly OS.
+2. Copy the install command; it includes the server URL, shared secret and a one-time enrollment token.
+3. Run it on the Docker host you want to manage; see [Docker](#docker) or the install method below for details.
+4. Return to **Environments** and wait for the host to show **Online**; see [Registration and Heartbeat](Registration-and-Heartbeat.md).
+5. Select the host to manage its containers; if it stays offline, see [Troubleshooting](Troubleshooting.md).
+
 ## Homebrew (macOS / Linux)
 
 ```bash
@@ -313,8 +321,26 @@ curl -kI https://localhost:9001/ping
 
 The `-k` flag is needed because the agent uses a self-signed TLS certificate by default. See [TLS](TLS.md) for details on using custom certificates.
 
+## Uninstall
+
+Stop the agent before removing it. If you installed the Windows service, run `eightly-agent.exe stop`, then `eightly-agent.exe uninstall` from an elevated PowerShell before removing the binary or Scoop package.
+
+| Install method | Steps |
+|----------------|-------|
+| Docker | Run `docker stop eightly-agent`, then `docker rm eightly-agent`. For Compose, run `docker compose down` from the directory holding the compose file. |
+| `.deb` | Run `sudo systemctl disable --now eightly-agent`, then `sudo apt remove eightly-agent` and `sudo systemctl daemon-reload`. |
+| `.rpm` | Run `sudo systemctl disable --now eightly-agent`, then `sudo dnf remove eightly-agent` and `sudo systemctl daemon-reload`. |
+| Homebrew | Stop the running agent or unload your launchd job, then run `brew uninstall eightly-agent`. |
+| Scoop | Run `scoop uninstall eightly-agent` after stopping the agent and removing its Windows service, if installed. |
+| Plain binary or source build | Stop the agent and delete the binary you installed. If you used the manual systemd setup above, run `sudo systemctl disable --now eightly-agent`, delete `/etc/systemd/system/eightly-agent.service` and `/usr/bin/eightly-agent`, then run `sudo systemctl daemon-reload`. Unload any launchd job you created. |
+
+These steps retain the agent's data and settings. If you no longer need them, delete only its dedicated data directory and settings after stopping it: the Docker volume `eightly-agent-data` (or the Compose `agent-data` volume), `/var/lib/eightly-agent` and `/etc/eightly-agent` for Linux services, `$HOME/.eightly-agent` for the Homebrew example, or `C:\ProgramData\eightly-agent` on Windows. For a custom `--data` or `--state-path`, use the paths you configured.
+
+In Eight.ly OS, open **Environments**, choose the agent's remove action and confirm **Remove**; this removes its dashboard entry, so uninstall it on the host too.
+
 ## Next Steps
 
+- [Upgrading](UPGRADING.md) -- Prepare for an upgrade
 - [Configuration](Configuration.md) -- Tune flags and environment variables
 - [Authentication](Authentication.md) -- Set up the shared secret between EOS and the agent
 - [Registration and Heartbeat](Registration-and-Heartbeat.md) -- Understand how the agent connects to EOS

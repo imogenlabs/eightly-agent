@@ -108,6 +108,7 @@ nav:
   - Home: index.md
   - Getting Started:
       - Installation: Installation.md
+      - Upgrading: UPGRADING.md
       - Configuration: Configuration.md
   - Core Concepts:
       - Authentication: Authentication.md

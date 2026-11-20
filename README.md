@@ -113,6 +113,10 @@ scoop install eightly-agent                                   # Windows
 [Releases](https://github.com/imogenlabs/eightly-agent/releases) page. Every method is listed under
 [Install Methods](#install-methods).
 
+See [Connect to Eight.ly OS](docs/wiki/Installation.md#connect-to-eightly-os) to get started,
+the [upgrade guide](docs/wiki/UPGRADING.md) before updating, and
+[Uninstall](docs/wiki/Installation.md#uninstall) to remove the agent.
+
 ---
 
 ## Configuration

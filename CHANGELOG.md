@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking changes
 
-Read [Upgrading to 2.1.0](docs/UPGRADING.md#upgrading-to-210) before you upgrade. These used to work and are now refused:
+Read [Upgrading to 2.1.0](docs/wiki/UPGRADING.md#upgrading-to-210) before you upgrade. These used to work and are now refused:
 
 - **Host folders in containers.** A container may bind a host folder only under `--allowed-bind-roots` / `EIGHTLY_ALLOWED_BIND_ROOTS`, which is empty by default: containers get named volumes only. Set it to the folders your apps keep their data in, for example `/opt/appdata`, or creating and recreating those apps from the Eight.ly OS dashboard is refused with `403`.
 - **Consoles and file uploads into containers that reach the host.** Exec, attach, the WebSocket console and file uploads (`PUT /containers/{id}/archive`) are refused with `403` for the agent's own container and for any container that is privileged, shares a host namespace, holds the Docker socket, binds a host folder outside the bind roots, has a capability beyond Docker's defaults or a host device. Containers like that keep running and can still be started, stopped and restarted.

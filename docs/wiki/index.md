@@ -121,7 +121,10 @@ No frameworks, no ORM, no config libraries.
 
 **Getting Started**
 
+- [Connect to Eight.ly OS](Installation.md#connect-to-eightly-os) -- From install command to an online host
 - [Installation](Installation.md) -- Docker, binary, and build-from-source instructions
+- [Upgrading](UPGRADING.md) -- Upgrade steps and security changes
+- [Uninstall](Installation.md#uninstall) -- Remove the agent
 - [Configuration](Configuration.md) -- All flags and environment variables
 
 **Core Concepts**
