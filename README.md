@@ -1,6 +1,8 @@
-<div align="center">
+<p align="center">
+  <img src="https://eight.ly/octopus-192.webp" alt="Eight.ly" width="120">
+</p>
 
-# Eight.ly Agent
+<h1 align="center">Eight.ly Agent</h1>
 
 **Manage Docker on any machine from your [Eight.ly OS](https://eight.ly) dashboard.**
 
