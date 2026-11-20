@@ -12,7 +12,7 @@ Eight.ly Agent is configured entirely through command-line flags and environment
 |------|---------|---------|----------|-------------|
 | `--addr` | -- | `0.0.0.0` | Network | Listen address |
 | `--port` | `AGENT_PORT` | `9001` | Network | Listen port |
-| `--socket` | `DOCKER_SOCKET` | `/var/run/docker.sock` | Network | Path to the Docker daemon socket (named pipe on Windows) |
+| `--socket` | `DOCKER_SOCKET` | `/var/run/docker.sock` (`//./pipe/docker_engine` on Windows) | Network | Path to the Docker daemon socket (named pipe on Windows) |
 | `--secret` | `EIGHTLY_AGENT_SECRET` | (empty) | Authentication | HMAC shared secret for token validation. **Required** (here or in a secret file) unless `--insecure-no-auth` is set. |
 | `--secret-file` | `EIGHTLY_AGENT_SECRET_FILE` | (empty) | Authentication | File holding the shared secret, instead of `--secret`. Setting both is refused. |
 | `--server-url` | `EIGHTLY_SERVER_URL` | (empty) | Registration | EOS server URL for registration and heartbeat. Must be `https` unless `--insecure-server-tls`. When empty, registration is skipped. |
@@ -20,10 +20,10 @@ Eight.ly Agent is configured entirely through command-line flags and environment
 | `--enroll-token-file` | `EIGHTLY_ENROLL_TOKEN_FILE` | (empty) | Registration | File holding the enrollment token, instead of `--enroll-token`. Setting both is refused; a missing or empty file means no token. |
 | `--state-path` | `EIGHTLY_STATE_PATH` | `eightly-agent.json` in the data directory | Storage | JSON file that stores registration state |
 | `--data` | `DATA_PATH` | `/data` | Storage | Data directory: TLS certificate, key and state. |
-| `--volumes-path` | `EIGHTLY_VOLUMES_PATH` | `/var/lib/docker/volumes` where it exists | Storage | Folder holding Docker's named volumes, for the file browser. See [below](#storage) for the full default. |
+| `--volumes-path` | `EIGHTLY_VOLUMES_PATH` | `/var/lib/docker/volumes` (`C:\ProgramData\docker\volumes` on Windows) where it exists, else `<data>/volumes` where it exists | Storage | Docker's named volumes, read by the file browser. On Docker Desktop they are inside its VM and the browser answers `501`; a folder that does not exist gets `503`. See [below](#storage) for the full default. |
 | `--metrics` | `EIGHTLY_METRICS_ENABLED` | `false` | Monitoring | Enable the Prometheus `/metrics` endpoint |
 | `--allowed-origins` | `EIGHTLY_ALLOWED_ORIGINS` | (empty) | Security | Comma-separated WebSocket origin allowlist (empty = same-origin check) |
-| `--allowed-bind-roots` | `EIGHTLY_ALLOWED_BIND_ROOTS` | (empty) | Security | Comma-separated host directories containers may bind-mount. Empty: named volumes only. See [below](#security). |
+| `--allowed-bind-roots` | `EIGHTLY_ALLOWED_BIND_ROOTS` | (empty) | Security | Comma-separated host directories containers may bind-mount (empty = named volumes only). Absolute, no trailing slash; a system directory, one inside it or a parent of it stops the agent at startup. On Windows also drive paths such as `C:\AppData`. See [below](#security). |
 | `--browse-read-only` | `EIGHTLY_BROWSE_READ_ONLY` | `false` | Security | Serve the file browser read-only (refuse upload, delete and rename) |
 | `--advertise-ip` | `EIGHTLY_ADVERTISE_IP` | (auto-detected) | Network | Override the detected local IP sent during registration |
 | `--tls-san` | `EIGHTLY_TLS_SANS` | (empty) | TLS | Extra SANs (DNS names or IPs) to include in the auto-generated TLS certificate |

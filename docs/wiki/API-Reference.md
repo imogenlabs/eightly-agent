@@ -23,6 +23,10 @@ Liveness check. No authentication required. Always returns 200 if the process is
 
 **Response**: `200 OK`
 
+```json
+{"status":"ok"}
+```
+
 ```bash
 curl -k https://localhost:9001/healthz
 ```
@@ -46,7 +50,7 @@ Returns the agent version and API version. No authentication required.
 ```json
 {
   "version": "1.0.0",
-  "api_version": 2
+  "api_version": "2"
 }
 ```
 

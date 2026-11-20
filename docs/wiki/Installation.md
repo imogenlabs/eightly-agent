@@ -144,6 +144,14 @@ docker run -d --init \
 
 `EIGHTLY_ALLOWED_BIND_ROOTS` names the host folders containers may bind; `/opt/appdata` is where the Eight.ly OS app catalog keeps app data. Without it containers get named volumes only, and an app that binds a host folder is refused. Mount each root into the agent at the same path, read-only, so it can check binds for symlinks; without that, apps with a restart policy are refused.
 
+The agent runs as uid 1000 and reaches Docker through the group that owns the socket. The image assumes GID 999; `--group-add` gives it your host's group, whatever its number.
+
+The socket is mounted read-write on purpose. `:ro` only marks the socket file read-only, not the Docker API: anything that can open the socket can still create and start containers, so it protects nothing. The controls are the agent's signed-token check and its Docker proxy, which forwards only an allow-list of Docker endpoints and refuses privileged containers, host namespaces, extra capabilities, devices and host folders outside the bind roots.
+
+`--init` gives the container a process reaper. Images from this release on carry tini for the same job, and their health check is `eightly-agent healthcheck`. That is an in-process HTTPS GET of the agent's own `/healthz` that exits 0 or 1 and starts no child process. Do not override the health check with that command on an older image: before the subcommand existed, the agent ignored the extra word and would start a second agent.
+
+> `EIGHTLY_SERVER_URL` is your Eight.ly OS dashboard URL — the agent register/heartbeat endpoints live on the same host and port EOS serves the UI from (default `8080`). Eight.ly OS generates a ready-to-paste `docker run` command carrying the server URL, shared secret and a one-time enrollment token under **Environments → Add Agent**.
+
 To choose when you upgrade, use a release version in place of `latest`, without the `v` (`ghcr.io/imogenlabs/eightly-agent:X.Y.Z`), or a minor line (`X.Y`). The same image is available as a mirror on Docker Hub: `smashingtags/eightly-agent`.
 
 ### Volume Mounts
@@ -209,7 +217,13 @@ sudo systemctl enable --now eightly-agent
 
 Values in `agent.env` override the unit's own `Environment=` lines. A package upgrade never overwrites an existing `agent.env`; it only resets its owner and mode. If an older install keeps the secret in a drop-in, move it into `agent.env` and delete the drop-in.
 
+The service keeps its TLS certificate and registration state in `/var/lib/eightly-agent` (`DATA_PATH`; the state file is `eightly-agent.json` there). Unless `EIGHTLY_STATE_PATH` is set, the state file goes in the data directory, and the agent does not use its enrollment token while it cannot save the result.
+
+The service restarts automatically on failure (5-second delay) and starts after `docker.service`.
+
 ### Windows Service
+
+On Windows, the agent runs as a native Windows service — no terminal window, starts automatically on boot.
 
 The agent binary has built-in Windows service support via the Service Control Manager (SCM). You must run these commands from an **elevated (Administrator) command prompt or PowerShell**.
 
@@ -248,13 +262,25 @@ eightly-agent.exe stop       # Stop the service
 eightly-agent.exe uninstall  # Remove the service
 ```
 
+| Subcommand | Description |
+|:-----------|:------------|
+| `install` | Registers the agent as a Windows service (automatic start) reading its secret from `--secret-file` (default `C:\ProgramData\eightly-agent\secret`) and its enrollment token from `--enroll-token-file` (default `C:\ProgramData\eightly-agent\enroll-token`) |
+| `uninstall` | Stops and removes the service |
+| `start` | Starts the service |
+| `stop` | Sends a stop signal to the running service |
+| `status` | Prints current service state (running, stopped, etc.) |
+
 The service runs as `EightlyAgent` (LocalSystem) in the Windows Services panel. Default paths on Windows:
 - Docker socket: `//./pipe/docker_engine`
 - Data directory: `C:\ProgramData\eightly-agent`
 - State file: `C:\ProgramData\eightly-agent\state.json`
 - Secret file: `C:\ProgramData\eightly-agent\secret`
 
-**File access on Windows.** Windows ignores unix file modes, so the agent sets an explicit, protected access list (SYSTEM and Administrators full control, plus the agent's own account when it is run by hand) on the data folder, state file, secret file, TLS key and certificate whenever it creates or reuses them. It refuses to load the state, secret or key if any other account still has access after that. A folder that also holds other things (another program's settings, a volume, a home directory) keeps its access list, and the agent's files in it are protected one by one; the agent refuses such a folder if any other account may add, delete or rename files in it, and refuses any folder above its own that lets another account delete or rename what it holds. Only the configured state, secret, enrollment token and TLS files count as the agent's. Check with `icacls C:\ProgramData\eightly-agent\*`.
+**File access on Windows.** Windows ignores unix file modes, so the agent sets an explicit, protected access list (SYSTEM and Administrators full control, plus the agent's own account when it is run by hand) on the data folder, state file, secret file, TLS key and certificate whenever it creates or reuses them. It refuses to load the state, secret or key if any other account still has access after that. A folder that also holds other things (another program's settings, a volume, a home directory) keeps its access list, and the agent's files in it are protected one by one; the agent refuses such a folder if any other account may add, delete or rename files in it, and refuses any folder above its own that lets another account delete or rename what it holds. A folder is only re-permissioned when it holds nothing but the agent's configured files (its state file and the `.tmp` and `.bak` beside it, the TLS pair in the data folder, the secret file and the enrollment token file). Check with `icacls C:\ProgramData\eightly-agent\*`.
+
+Ownership is checked too, because an owner can rewrite the access list at any time. When another account owns the data folder or one of the agent's files (a local user who created `C:\ProgramData\eightly-agent` before the install, for example), the agent takes it back for Administrators; as the service (SYSTEM) or from an elevated prompt it holds the privilege to do so. When it cannot, or when someone else owns a shared folder holding the agent's files, it refuses to start and names the owner. Delete the folder and run `install` again to start clean.
+
+The agent reaches Docker over the named pipe `//./pipe/docker_engine` by default (Docker Desktop and Docker Engine on Windows Server). `--socket` takes either pipe spelling, `//./pipe/name` or `\\.\pipe\name`; any other path is dialed as a Unix socket.
 
 ## Build from Source
 
