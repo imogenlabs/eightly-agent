@@ -31,7 +31,7 @@ compromise of the host at **root**.
 |----|-------|-------------|----------|-------|-------|
 | A-11 | **Enrollment token** (`cfg.EnrollToken`) | Medium | Process memory; env / flag, or a file named by `--enroll-token-file` / `EIGHTLY_ENROLL_TOKEN_FILE` (on Windows the service's default, with a protected access list); sent once at register | Operator | Single-use first-contact secret to the EOS server registration endpoint. A refused token (401/403/410) is not retried. |
 | A-12 | **Security/audit logs** | Medium | zerolog stdout, `[SECURITY]` + `browse.mutate` lines | Operator | Greppable detection signal for auth failures, proxy denials, browse mutations. No on-box integrity chain (residual risk). |
-| A-13 | **Agent binary + supply chain** | High | Built from `cmd/agent`, Go 1.26.10, digest-pinned base images | CI / maintainers | A tampered binary is total compromise. Pinned toolchain + bases + 0 govulncheck findings are the controls. |
+| A-13 | **Agent binary + supply chain** | High | Built from `cmd/agent`, Go 1.26.11, digest-pinned base images | CI / maintainers | A tampered binary is total compromise. Pinned toolchain + bases + 0 govulncheck findings are the controls. |
 | A-14 | **Config / flags** | Medium | CLI flags + env (`internal/config`) | Operator | Carries A-02, A-11, the insecure escape hatches and `--allowed-bind-roots`, which decides which host folders containers may bind. `InsecureServerTLS` is flag-only (never env) by design. |
 
 ## Sensitivity legend

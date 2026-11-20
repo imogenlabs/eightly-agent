@@ -4,7 +4,7 @@
 
 **Cross-platform Docker management daemon for [Eight.ly OS](https://eight.ly)**
 
-[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.26.11-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
 [![Docker](https://img.shields.io/badge/Docker-GHCR-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/imogenlabs/eightly-agent/pkgs/container/eightly-agent)
 [![Docs](https://img.shields.io/badge/Docs-site-3b82f6?style=flat-square&logo=materialformkdocs&logoColor=white)](https://imogenlabs.github.io/eightly-agent/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)

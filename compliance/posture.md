@@ -77,9 +77,9 @@ not the binary.
 
 ## Patch cadence
 
-- **Go toolchain is `1.26.10`** — the `toolchain` line in `go.mod`, the
+- **Go toolchain is `1.26.11`** — the `toolchain` line in `go.mod`, the
   `go-version` in `ci.yml`, `pentest.yml` and `release.yml`, and the
-  digest-pinned `golang:1.26.10-alpine` builder the image is built from
+  digest-pinned `golang:1.26.11-alpine` builder the image is built from
   (`Dockerfile`, used by `docker-publish.yml`). They are pinned separately, so a
   bump touches each of them.
 - **Dependabot** runs **weekly** across three ecosystems — `gomod`,
