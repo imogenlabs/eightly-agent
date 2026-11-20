@@ -1,6 +1,6 @@
 module github.com/imogenlabs/eightly-agent
 
-go 1.26.11
+go 1.26.4
 
 toolchain go1.26.11
 
