@@ -146,11 +146,6 @@ jobs:
     # helper on every timeout; 115,420 zombies piled up on a production host. This
     # builds the image and proves it reaps orphans and passes its own check.
     name: Image reaps orphaned processes
-    # Only runners that a probe proved can build an image with buildx
-    # AND run it carry `docker-build`. Some self-hosted runners cannot
-    # start a container (runc: "open sysctl ... reopen fd 8: permission
-    # denied"), so they do not carry it. Which runners do is recorded in
-    # deploy-pipeline INFRASTRUCTURE.md, with the probe that decided it.
     # Public repositories and fork pull requests use GitHub-hosted runners.
     runs-on: ${{ fromJSON((github.event.repository.private != true || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && '"ubuntu-latest"' || '["self-hosted", "docker-build"]') }}
     steps:

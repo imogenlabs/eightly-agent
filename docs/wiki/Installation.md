@@ -63,8 +63,8 @@ The compose file for reference:
 ```yaml
 services:
   eightly-agent:
-    # Also mirrored on Docker Hub as smashingtags/eightly-agent.
     image: ghcr.io/imogenlabs/eightly-agent:latest
+    # A mirror on Docker Hub: smashingtags/eightly-agent.
     container_name: eightly-agent
     restart: unless-stopped
     # A second reaper for images built before tini was added to the image.
@@ -136,7 +136,7 @@ docker run -d --init \
 
 `EIGHTLY_ALLOWED_BIND_ROOTS` names the host folders containers may bind; `/opt/appdata` is where the Eight.ly OS app catalog keeps app data. Without it containers get named volumes only, and an app that binds a host folder is refused. Mount each root into the agent at the same path, read-only, so it can check binds for symlinks; without that, apps with a restart policy are refused.
 
-To choose when you upgrade, use a release version in place of `latest`, without the `v` (`ghcr.io/imogenlabs/eightly-agent:X.Y.Z`), or a minor line (`X.Y`). The same image is mirrored on Docker Hub as `smashingtags/eightly-agent`.
+To choose when you upgrade, use a release version in place of `latest`, without the `v` (`ghcr.io/imogenlabs/eightly-agent:X.Y.Z`), or a minor line (`X.Y`). The same image is available as a mirror on Docker Hub: `smashingtags/eightly-agent`.
 
 ### Volume Mounts
 

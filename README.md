@@ -88,7 +88,7 @@ The socket is mounted read-write on purpose. `:ro` only marks the socket file re
 
 > `EIGHTLY_SERVER_URL` is your Eight.ly OS dashboard URL — the agent register/heartbeat endpoints live on the same host and port EOS serves the UI from (default `8080`). Eight.ly OS generates a ready-to-paste `docker run` command carrying the server URL, shared secret and a one-time enrollment token under **Environments → Add Agent**.
 
-The same image is mirrored on Docker Hub as `smashingtags/eightly-agent`.
+The same image is available as a mirror on Docker Hub: `smashingtags/eightly-agent`.
 
 ### Docker Compose
 
@@ -372,7 +372,7 @@ Every job runs on GitHub-hosted runners.
 | Method | Platform | Command / Source |
 |:-------|:---------|:-----------------|
 | Docker (GHCR) | Linux | `docker pull ghcr.io/imogenlabs/eightly-agent:latest` |
-| Docker (Hub) | Linux | `docker pull smashingtags/eightly-agent:latest` (mirror) |
+| Docker (Hub) | Linux | `docker pull smashingtags/eightly-agent:latest` (a mirror on Docker Hub) |
 | Homebrew | macOS, Linux | `brew install imogenlabs/tap/eightly-agent` |
 | Scoop | Windows | `scoop bucket add eightly https://github.com/imogenlabs/scoop-eightly && scoop install eightly-agent` |
 | .deb package | Debian, Ubuntu | Download from [Releases](https://github.com/imogenlabs/eightly-agent/releases) (amd64, arm64); installs a hardened systemd unit |

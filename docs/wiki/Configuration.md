@@ -103,7 +103,7 @@ When set, allows the agent to start without a shared secret. Authentication is b
 
 **`--server-url` / `EIGHTLY_SERVER_URL`**
 
-The URL of the EOS server this agent should register with. Example: `https://your-eos-server:8080` or `https://os.eight.ly`. When set, the agent will attempt to register on startup and begin sending heartbeats every 30 seconds. When empty, registration and heartbeat are both disabled. See [Registration and Heartbeat](Registration-and-Heartbeat.md) for details.
+The URL of the EOS server this agent should register with. Example: `https://your-eos-server:8080` or `https://eos.example.com`. When set, the agent will attempt to register on startup and begin sending heartbeats every 30 seconds. When empty, registration and heartbeat are both disabled. See [Registration and Heartbeat](Registration-and-Heartbeat.md) for details.
 
 **`--enroll-token` / `EIGHTLY_ENROLL_TOKEN`**
 
@@ -155,7 +155,7 @@ When set to `true`, exposes a Prometheus-compatible `/metrics` endpoint. This en
 
 Comma-separated list of allowed origins for WebSocket upgrade requests. When set, a present `Origin` header must match an entry exactly (scheme, host and port). When empty (default), a present `Origin` must match the host the request was sent to. In both cases a request with no `Origin` is accepted only when it carries a valid token. See [WebSocket Console](WebSocket-Console.md).
 
-Example: `--allowed-origins "https://os.eight.ly,https://os-dev.eight.ly"`
+Example: `--allowed-origins "https://eos.example.com"`
 
 **`--allowed-bind-roots` / `EIGHTLY_ALLOWED_BIND_ROOTS`**
 
@@ -183,7 +183,7 @@ Path to a CA certificate file used to verify the EOS server's certificate chain.
 
 Extra Subject Alternative Names to include in auto-generated TLS certificates. Comma-separated list of DNS names or IP addresses. Useful when the agent is accessed by hostname or LAN IP in addition to localhost.
 
-Example: `--tls-san "docker-host-01.local,192.168.1.50"`
+Example: `--tls-san "docker-host-01.local,192.0.2.50"`
 
 **`--advertise-ip` / `EIGHTLY_ADVERTISE_IP`**
 
@@ -241,7 +241,7 @@ Standard deployment for a single remote Docker host managed by EOS. Containers m
 Deploy the same image to each host with the same shared secret but unique enrollment tokens:
 
 ```bash
-# Host A (192.168.1.50)
+# Host A (192.0.2.50)
 docker run -d --init --name eightly-agent --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock --group-add "$(stat -c %g /var/run/docker.sock)" \
   -v agent-data:/data -p 9001:9001 \
@@ -250,7 +250,7 @@ docker run -d --init --name eightly-agent --restart unless-stopped \
   -e EIGHTLY_ENROLL_TOKEN="token-host-a" \
   ghcr.io/imogenlabs/eightly-agent:latest
 
-# Host B (192.168.1.51)
+# Host B (192.0.2.51)
 docker run -d --init --name eightly-agent --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock --group-add "$(stat -c %g /var/run/docker.sock)" \
   -v agent-data:/data -p 9001:9001 \

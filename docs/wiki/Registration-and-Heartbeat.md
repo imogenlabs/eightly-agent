@@ -35,7 +35,7 @@ Authorization: Bearer <enroll-token>   (if enroll-token is set)
 ```json
 {
   "hostname": "docker-host-01",
-  "ip": "192.168.1.50",
+  "ip": "192.0.2.50",
   "port": "9001",
   "docker_version": "27.4.1",
   "os": "linux",

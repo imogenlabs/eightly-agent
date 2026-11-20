@@ -1,17 +1,3 @@
-# Record each release in Jira.
-#
-# keen release sync makes the Jira version named as the tag (released, dated,
-# linked to the GitHub release), adds it as a Fix Version on every EA issue
-# the release is the first to contain (never replacing one), and turns the
-# unreleased "next" version into the tag. It is safe to re-run.
-#
-# It runs on the tag push, not on release.published: a release published with
-# the workflow's own GITHUB_TOKEN starts no other workflow.
-#
-# No Jira token is kept in GitHub, so normally this job records nothing,
-# passes, and its summary names the keen command whoever cut the release runs.
-# If JIRA_BASE_URL, JIRA_USER and JIRA_API_TOKEN secrets ever exist, it records
-# the release itself; they reach only the two steps that use them.
 name: Jira release
 
 on:
@@ -28,24 +14,25 @@ permissions:
 
 jobs:
   jira:
-    # Org self-hosted runners do not serve public repositories. `!= true`
-    # rather than `== false`, so an event without the field gets a runner.
     runs-on: ${{ github.event.repository.private != true && 'ubuntu-latest' || 'self-hosted' }}
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
-      # keen at a reviewed commit that has `release sync`; move it deliberately.
+      JIRA_PROJECT: ${{ vars.JIRA_PROJECT }}
       KEEN_REF: 12202a7b4122c7e39c8e66800ca6794b87a134e9  # keen v1.9.0
     steps:
-      - name: Jira credentials are present
+      - name: Check Jira configuration
         id: creds
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_USER: ${{ secrets.JIRA_USER }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
         run: |
-          if [ -z "$JIRA_BASE_URL" ] || [ -z "$JIRA_USER" ] || [ -z "$JIRA_API_TOKEN" ]; then
+          if [ -z "$JIRA_PROJECT" ]; then
             echo "have=false" >> "$GITHUB_OUTPUT"
-            echo "Not recorded in Jira here (no Jira secrets in this repository). Whoever cut the release runs: \`keen release sync --repo-path <checkout of imogenlabs/eightly-agent> --project EA --tag $TAG --head origin/main\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "Skipped Jira release recording: JIRA_PROJECT is not set." >> "$GITHUB_STEP_SUMMARY"
+          elif [ -z "$JIRA_BASE_URL" ] || [ -z "$JIRA_USER" ] || [ -z "$JIRA_API_TOKEN" ]; then
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "Not recorded in Jira (credentials are not configured). Run: \`keen release sync --repo-path <checkout of imogenlabs/eightly-agent> --project \"$JIRA_PROJECT\" --tag $TAG --head origin/main\`" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "have=true" >> "$GITHUB_OUTPUT"
           fi
@@ -78,6 +65,6 @@ jobs:
           JIRA_CLOUD_PLATFORM_USERNAME: ${{ secrets.JIRA_USER }}
           JIRA_CLOUD_PLATFORM_PASSWORD: ${{ secrets.JIRA_API_TOKEN }}
         run: >-
-          "$RUNNER_TEMP/keen" release sync --repo-path . --project EA
+          "$RUNNER_TEMP/keen" release sync --repo-path . --project "$JIRA_PROJECT"
           --tag "$TAG" --head origin/main --github-repo imogenlabs/eightly-agent
 

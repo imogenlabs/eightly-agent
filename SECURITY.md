@@ -69,7 +69,7 @@ Access to the Docker socket is **root-equivalent**. Any process that can issue D
 ### Network exposure
 
 The agent binds to `0.0.0.0:9001` by default, meaning it listens on all interfaces. In production, you should:
-- Restrict the listen address to a private interface (`--addr 10.0.0.5`) or use a VPN/firewall.
+- Restrict the listen address to a private interface or use a VPN/firewall. For example, `--addr 192.0.2.5` uses a documentation-only address; replace it with your host's private address.
 - Never expose port 9001 to the public internet.
 
 ### Attacker scenarios
