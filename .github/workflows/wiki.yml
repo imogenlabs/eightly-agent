@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 # Finish each publication before starting another. Each run reads the latest main.
 concurrency:
@@ -24,6 +24,8 @@ jobs:
     name: Publish repository docs to the wiki
     if: github.ref == 'refs/heads/main' && github.repository == 'imogenlabs/eightly-agent'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Check out the source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
