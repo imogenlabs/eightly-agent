@@ -1,6 +1,6 @@
 # Base images are pinned by digest (supply-chain integrity); the tag is kept as a
 # human-readable comment. Dependabot monitors for updates via .github/dependabot.yml.
-FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.11-alpine@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab AS builder
 ARG TARGETOS TARGETARCH TARGETVARIANT
 ARG VERSION=dev
 RUN apk add --no-cache git ca-certificates

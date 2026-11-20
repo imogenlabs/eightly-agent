@@ -286,7 +286,7 @@ The agent reaches Docker over the named pipe `//./pipe/docker_engine` by default
 
 Build with `make build` from a clone; `go install` is not supported because the module path has no `/v2` suffix for the v2.x tags.
 
-Requires Go 1.26.4 or later; the module pins toolchain `go1.26.10`, which Go downloads for you when your installed version is older.
+Requires Go 1.26.4 or later; the module pins toolchain `go1.26.11`, which Go downloads for you when your installed version is older.
 
 ```bash
 git clone https://github.com/imogenlabs/eightly-agent.git

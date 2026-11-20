@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-11-20
+
+### Security
+- Built with Go 1.26.11, which fixes GO-2026-6859 in net/http.
+
 ## [2.1.0] - 2026-11-02
 
 ### Breaking changes

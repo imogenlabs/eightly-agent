@@ -21,7 +21,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           cache: false  # Persistent self-hosted runners keep the Go cache on disk
-          go-version: '1.26.10'
+          go-version: '1.26.11'
       - name: Check go.mod tidy
         run: |
           go mod tidy
@@ -68,7 +68,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           cache: false  # Persistent self-hosted runners keep the Go cache on disk
-          go-version: '1.26.10'
+          go-version: '1.26.11'
       # The gate's own test runs first: it needs no toolchain output, and a
       # gate that can no longer tell its three outcomes apart must fail before
       # its verdict is trusted.
@@ -117,7 +117,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
       - name: Run tests
         run: go test ./... -count=1 -timeout 120s
       # Listed by name, so the log shows the pipe and owner tests ran rather
@@ -137,7 +137,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           cache: false  # Persistent self-hosted runners keep the Go cache on disk
-          go-version: '1.26.10'
+          go-version: '1.26.11'
       - name: Run tests with race detector
         run: go test ./... -race -count=1 -timeout 120s
 
@@ -184,7 +184,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           cache: false  # Persistent self-hosted runners keep the Go cache on disk
-          go-version: '1.26.10'
+          go-version: '1.26.11'
       - name: Docker is reachable
         run: docker version
       - name: End-to-end test
@@ -226,7 +226,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           cache: false  # Persistent self-hosted runners keep the Go cache on disk
-          go-version: '1.26.10'
+          go-version: '1.26.11'
       - name: Build binary
         env:
           GOARM: ${{ matrix.goarm || '' }}
